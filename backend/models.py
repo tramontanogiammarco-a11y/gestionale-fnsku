@@ -129,7 +129,8 @@ class StatoUpdate(BaseModel):
 # ---------------------------------------------------------------------------
 class BoxContenutoInput(BaseModel):
     ean: str
-    fnsku: str
+    fnsku: Optional[str] = ""
+    sku: Optional[str] = None
     quantita: int
 
 

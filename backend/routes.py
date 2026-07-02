@@ -399,6 +399,18 @@ async def crea_box(payload: M.BoxCreate, user: dict = Depends(require_admin)):
     if not cid:
         raise HTTPException(status_code=400, detail="cliente_id, entrata_id o preparazione_id richiesto")
 
+    # Guardrail giacenza: il contenuto non può superare la quantità libera del
+    # magazzino (disponibile - già impegnata in box non spediti).
+    if payload.contenuto:
+        mag = await _magazzino_per_cliente(cid)
+        libero = {m["ean"]: m["disponibile"] - m["in_preparazione"] for m in mag}
+        for c in payload.contenuto:
+            disp = libero.get(c.ean, 0)
+            if c.quantita > disp:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Quantità non disponibile per EAN {c.ean}: richiesti {c.quantita}, liberi {disp}")
+
     box = M.Box(entrata_id=payload.entrata_id, preparazione_id=payload.preparazione_id,
                 cliente_id=cid, numero_box=payload.numero_box, peso_kg=payload.peso_kg,
                 lunghezza_cm=payload.lunghezza_cm, larghezza_cm=payload.larghezza_cm,
