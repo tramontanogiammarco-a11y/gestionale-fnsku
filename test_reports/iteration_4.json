@@ -1,0 +1,27 @@
+{
+  "summary": "Iteration 4 (bug fix: graceful 403 error handling on admin actions in EntrataDetail.jsx & BoxList.jsx). Verified all four admin happy paths end-to-end on the deployed UI and verified admin-only endpoints still return 403 for a cliente session via pytest.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "admin/EntrataDetail.jsx: azioneErrore() correctly maps 403 -> clear Italian message telling the user to log back in as admin; falls back to backend detail string when present; generic message otherwise. Applied consistently to ricevi, cambiaStato (entrata), salvaFnsku, and BoxCard.cambiaStato. Good.",
+    "admin/BoxList.jsx: cambiaStato() inlines the same 403 mapping (not shared with the helper in EntrataDetail.jsx). Minor DRY smell — consider extracting azioneErrore() to /lib since it is now used in two files. Non-blocking.",
+    "generaEtichette() still uses its own catch block (blob response), untouched by this iteration and still correct (already verified iter 3).",
+    "NuovoBoxDialog.salva(): catch prints only 'Errore creazione box' without honoring backend detail. If backend returns 403 or a validation error (e.g. numero_box duplicato) the user cannot tell what happened. Consider using azioneErrore(e) here too. Minor.",
+    "Backend admin-only routes verified: POST /api/entrate/{id}/ricevi, PUT /api/entrate/{id}/stato, PUT /api/box/{id}/stato all return 403 to cliente sessions (added explicit test test_cliente_gets_403_on_admin_actions). Admin still gets 200 on the happy path."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (added TestEntrateBoxFlow.test_cliente_gets_403_on_admin_actions covering the three admin-only endpoints referenced in iter 4)"
+  ],
+  "success_rate": {"backend": "100% (22/22 pytest)", "frontend": "100% (4/4 admin happy-path scenarios)"},
+  "test_credentials": "Admin: aimagosrl@gmail.com / Aimago123@! ; Cliente: cliente@demo.it / Cliente123!",
+  "seed_data_creation": "Created a fresh 'in_attesa' entrata as cliente@demo.it for the UI test: id c9fc3861-231e-433d-bdaf-e81b6f4eb091 (note='UI_TEST_iter4', 1 riga EAN 8007770000001 FNSKU XUI1TEST01). During the UI flow it was moved to ricevuto -> in_lavorazione and a box UI-BOX-ITER4-1 was created and cycled through in_preparazione -> pronto -> spedito -> pronto. Left in DB for potential re-inspection.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "UI verified on https://prep-center-control.preview.emergentagent.com. data-testids used: ricevi-btn, entrata-stato-select, nuovo-box-btn, box-numero-input, box-peso-input, box-salva-btn, box-stato-select-<id> (detail page), nav-box, box-stato-<id> (BoxList). Radix Select options are reachable via page.get_by_role('option', name='<label>'). To reproduce the original 403 crash you would need a mixed session — instead just call the endpoints with a cliente session via curl/requests (already covered by test_cliente_gets_403_on_admin_actions). No red 'Request failed with status code 403 / AxiosError' overlay was seen on any admin action during this run; toasts 'Entrata segnata come ricevuta', 'Stato aggiornato', 'Stato box aggiornato', 'Box creato' were all visible.",
+  "rca of the issue": "Original crash: axios rejects with an AxiosError on 4xx (default behaviour). The 4 admin action handlers (ricevi, cambiaStato entrata, salvaFnsku, BoxCard.cambiaStato, BoxList.cambiaStato) had NO try/catch, so the rejected promise propagated as an unhandled exception into React's dev overlay, showing the red screen with 'Request failed with status code 403 / AxiosError'. This happened whenever a user with a cliente session (or with a stale/expired token) triggered an admin action from an admin page still rendered in the browser. Fix (this iter): wrap each action in try/catch and call toast.error(azioneErrore(e)); azioneErrore maps 403 to a clear 'Azione riservata all'amministratore...' message and otherwise falls back to backend detail. Verified: (a) backend still enforces admin-only (403 for cliente on all three endpoints), (b) admin happy paths produce success toasts with no overlay, (c) no PAGEERROR in the browser console during the full flow."
+}

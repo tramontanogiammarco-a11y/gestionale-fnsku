@@ -233,6 +233,40 @@ class TestEntrateBoxFlow:
         e = sa.get(f"{API}/entrate/{eid}", timeout=15).json()
         assert e["stato"] == "spedito"
 
+    # Iteration 4: verify all admin-only actions on the state-change endpoints
+    # return 403 for a cliente session (so the frontend try/catch is guaranteed
+    # to receive a proper HTTP error instead of surfacing a raw axios crash).
+    def test_cliente_gets_403_on_admin_actions(self, cliente, admin):
+        sc, uc = cliente
+        sa, _ = admin
+        # create an entrata as cliente to have a valid id owned by the cliente
+        r = sc.post(f"{API}/entrate", json={
+            "tipo": "scatola", "note": "TEST_403",
+            "righe": [{"ean": "8009990000001", "quantita": 1, "fnsku": "X403ABCDE1"}],
+        }, timeout=15)
+        assert r.status_code == 200, r.text
+        eid = r.json()["id"]
+        # ricevi -> 403
+        assert sc.post(f"{API}/entrate/{eid}/ricevi", timeout=15).status_code == 403
+        # PUT stato entrata -> 403 (using a valid stato value: ricevuto)
+        r = sc.put(f"{API}/entrate/{eid}/stato", json={"stato": "ricevuto"}, timeout=15)
+        assert r.status_code == 403, r.text
+        # admin marks ricevuto so a box can be created
+        assert sa.post(f"{API}/entrate/{eid}/ricevi", timeout=15).status_code == 200
+        r = sa.post(f"{API}/box", json={
+            "entrata_id": eid, "numero_box": "TEST-403-BOX",
+            "peso_kg": 1.0, "lunghezza_cm": 20, "larghezza_cm": 20, "altezza_cm": 20,
+            "contenuto": [{"ean": "8009990000001", "fnsku": "X403ABCDE1", "quantita": 1}],
+        }, timeout=15)
+        assert r.status_code == 200, r.text
+        bid = r.json()["id"]
+        # PUT stato box -> 403 for cliente
+        r = sc.put(f"{API}/box/{bid}/stato", json={"stato": "pronto"}, timeout=15)
+        assert r.status_code == 403, r.text
+        # admin can still change box stato
+        assert sa.put(f"{API}/box/{bid}/stato",
+                      json={"stato": "pronto"}, timeout=15).status_code == 200
+
 
 # ------------------------------ ETICHETTE FNSKU -------------------------
 class TestEtichette:

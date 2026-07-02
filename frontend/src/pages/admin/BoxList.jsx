@@ -19,9 +19,16 @@ export default function AdminBox() {
   useEffect(() => { load(); }, []);
 
   const cambiaStato = async (id, stato) => {
-    await api.put(`/box/${id}/stato`, { stato });
-    toast.success("Stato aggiornato");
-    load();
+    try {
+      await api.put(`/box/${id}/stato`, { stato });
+      toast.success("Stato aggiornato");
+      load();
+    } catch (e) {
+      const msg = e?.response?.status === 403
+        ? "Azione riservata all'amministratore: esci e rientra come admin."
+        : (e?.response?.data?.detail || "Operazione non riuscita.");
+      toast.error(msg);
+    }
   };
 
   return (

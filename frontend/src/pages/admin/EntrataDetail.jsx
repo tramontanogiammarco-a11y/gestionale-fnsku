@@ -22,6 +22,17 @@ import {
   Loader2, PackageCheck, Barcode, Plus, FileText, Save,
 } from "lucide-react";
 
+// Messaggio d'errore chiaro per le azioni admin (gestisce il caso 403 sessione cliente)
+function azioneErrore(e) {
+  const status = e?.response?.status;
+  if (status === 403) {
+    return "Azione riservata all'amministratore. Sembra che tu sia collegato come cliente: esci e rientra con l'account admin.";
+  }
+  const detail = e?.response?.data?.detail;
+  if (typeof detail === "string") return detail;
+  return "Operazione non riuscita. Riprova.";
+}
+
 export default function AdminEntrataDetail() {
   const { id } = useParams();
   const [entrata, setEntrata] = useState(null);
@@ -48,21 +59,33 @@ export default function AdminEntrataDetail() {
   }, [id]);
 
   const ricevi = async () => {
-    await api.post(`/entrate/${id}/ricevi`);
-    toast.success("Entrata segnata come ricevuta");
-    load();
+    try {
+      await api.post(`/entrate/${id}/ricevi`);
+      toast.success("Entrata segnata come ricevuta");
+      load();
+    } catch (e) {
+      toast.error(azioneErrore(e));
+    }
   };
 
   const cambiaStato = async (nuovo) => {
-    await api.put(`/entrate/${id}/stato`, { stato: nuovo });
-    toast.success("Stato aggiornato");
-    load();
+    try {
+      await api.put(`/entrate/${id}/stato`, { stato: nuovo });
+      toast.success("Stato aggiornato");
+      load();
+    } catch (e) {
+      toast.error(azioneErrore(e));
+    }
   };
 
   const salvaFnsku = async (rigaId) => {
-    await api.put(`/entrate-righe/${rigaId}`, { fnsku: fnskuEdit[rigaId] || null });
-    toast.success("FNSKU salvato");
-    load();
+    try {
+      await api.put(`/entrate-righe/${rigaId}`, { fnsku: fnskuEdit[rigaId] || null });
+      toast.success("FNSKU salvato");
+      load();
+    } catch (e) {
+      toast.error(azioneErrore(e));
+    }
   };
 
   const generaEtichette = async () => {
@@ -233,9 +256,13 @@ export default function AdminEntrataDetail() {
 
 function BoxCard({ box, onChange }) {
   const cambiaStato = async (nuovo) => {
-    await api.put(`/box/${box.id}/stato`, { stato: nuovo });
-    toast.success("Stato box aggiornato");
-    onChange();
+    try {
+      await api.put(`/box/${box.id}/stato`, { stato: nuovo });
+      toast.success("Stato box aggiornato");
+      onChange();
+    } catch (e) {
+      toast.error(azioneErrore(e));
+    }
   };
   return (
     <Card className="p-4" data-testid={`box-card-${box.id}`}>
