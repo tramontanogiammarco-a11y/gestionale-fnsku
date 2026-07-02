@@ -22,6 +22,7 @@ router = APIRouter(prefix="/api", tags=["app"])
 
 STATI_ENTRATA = ["in_attesa", "ricevuto", "in_lavorazione", "pronto", "spedito"]
 STATI_BOX = ["in_preparazione", "pronto", "spedito"]
+STATI_PREP = ["richiesta", "in_lavorazione", "pronto", "spedito"]
 
 
 # --- Helper multi-tenant -----------------------------------------------------
@@ -335,9 +336,27 @@ async def _sync_stato_entrata(entrata_id: str):
         await db.entrate.update_one({"id": entrata_id}, {"$set": {"stato": "in_lavorazione"}})
 
 
+async def _sync_stato_preparazione(preparazione_id: str):
+    """Sincronizza lo stato della preparazione in base allo stato dei suoi box."""
+    if not preparazione_id:
+        return
+    box_list = await db.box.find({"preparazione_id": preparazione_id}).to_list(1000)
+    if not box_list:
+        return
+    stati = [b["stato"] for b in box_list]
+    if all(s == "spedito" for s in stati):
+        nuovo = "spedito"
+    elif all(s in ("pronto", "spedito") for s in stati):
+        nuovo = "pronto"
+    else:
+        nuovo = "in_lavorazione"
+    await db.preparazioni.update_one({"id": preparazione_id}, {"$set": {"stato": nuovo}})
+
+
 @router.get("/box")
 async def lista_box(cliente_id: Optional[str] = Query(None),
                     entrata_id: Optional[str] = Query(None),
+                    preparazione_id: Optional[str] = Query(None),
                     stato: Optional[str] = Query(None),
                     user: dict = Depends(get_current_user)):
     q = _scope(user)
@@ -345,6 +364,8 @@ async def lista_box(cliente_id: Optional[str] = Query(None),
         q["cliente_id"] = cliente_id
     if entrata_id:
         q["entrata_id"] = entrata_id
+    if preparazione_id:
+        q["preparazione_id"] = preparazione_id
     if stato:
         q["stato"] = stato
     docs = await db.box.find(q).sort("created_at", -1).to_list(2000)
@@ -370,16 +391,23 @@ async def crea_box(payload: M.BoxCreate, user: dict = Depends(require_admin)):
         if not entrata:
             raise HTTPException(status_code=404, detail="Entrata non trovata")
         cid = entrata["cliente_id"]
+    if payload.preparazione_id:
+        prep = await db.preparazioni.find_one({"id": payload.preparazione_id})
+        if not prep:
+            raise HTTPException(status_code=404, detail="Preparazione non trovata")
+        cid = prep["cliente_id"]
     if not cid:
-        raise HTTPException(status_code=400, detail="cliente_id o entrata_id richiesto")
+        raise HTTPException(status_code=400, detail="cliente_id, entrata_id o preparazione_id richiesto")
 
-    box = M.Box(entrata_id=payload.entrata_id, cliente_id=cid,
-                numero_box=payload.numero_box, peso_kg=payload.peso_kg,
+    box = M.Box(entrata_id=payload.entrata_id, preparazione_id=payload.preparazione_id,
+                cliente_id=cid, numero_box=payload.numero_box, peso_kg=payload.peso_kg,
                 lunghezza_cm=payload.lunghezza_cm, larghezza_cm=payload.larghezza_cm,
                 altezza_cm=payload.altezza_cm, contenuto=payload.contenuto)
     await db.box.insert_one(box.model_dump())
     if payload.entrata_id:
         await _sync_stato_entrata(payload.entrata_id)
+    if payload.preparazione_id:
+        await _sync_stato_preparazione(payload.preparazione_id)
     return _clean(await db.box.find_one({"id": box.id}))
 
 
@@ -408,6 +436,7 @@ async def cambia_stato_box(box_id: str, payload: M.StatoUpdate,
         raise HTTPException(status_code=404, detail="Box non trovato")
     await db.box.update_one({"id": box_id}, {"$set": {"stato": payload.stato}})
     await _sync_stato_entrata(d.get("entrata_id"))
+    await _sync_stato_preparazione(d.get("preparazione_id"))
     return _clean(await db.box.find_one({"id": box_id}))
 
 
@@ -479,3 +508,144 @@ async def dashboard_stats(user: dict = Depends(get_current_user)):
     return {"entrate_per_stato": conteggi, "totale_entrate": len(docs),
             "totale_referenze": tot_referenze, "totale_box": tot_box,
             "totale_clienti": tot_clienti}
+
+
+
+# ============================================================================
+# MAGAZZINO VIRTUALE (giacenze per EAN) + PREPARAZIONI
+# ============================================================================
+async def _magazzino_per_cliente(cid: str):
+    """Calcola la giacenza per EAN di un cliente.
+
+    ricevuto  = somma quantità delle entrate ricevute (stato != in_attesa)
+    spedito   = somma quantità nei box SPEDITI (scarico giacenza solo a 'spedito')
+    in_prep   = somma quantità nei box non ancora spediti (impegnato)
+    disponibile = ricevuto - spedito
+    """
+    # Entrate del cliente già ricevute
+    entrate = await db.entrate.find(
+        {"cliente_id": cid, "stato": {"$in": ["ricevuto", "in_lavorazione", "pronto", "spedito"]}},
+        {"id": 1}).to_list(5000)
+    entrata_ids = [e["id"] for e in entrate]
+    ricevuto = {}
+    if entrata_ids:
+        righe = await db.entrate_righe.find({"entrata_id": {"$in": entrata_ids}}).to_list(None)
+        for r in righe:
+            ricevuto[r["ean"]] = ricevuto.get(r["ean"], 0) + int(r.get("quantita", 0))
+
+    # Box del cliente: spediti -> scarico; non spediti -> impegnato
+    spedito, in_prep = {}, {}
+    box_list = await db.box.find({"cliente_id": cid}).to_list(5000)
+    for b in box_list:
+        target = spedito if b.get("stato") == "spedito" else in_prep
+        for c in b.get("contenuto", []):
+            target[c["ean"]] = target.get(c["ean"], 0) + int(c.get("quantita", 0))
+
+    # Referenze per titolo + elenco SKU per EAN
+    refs = await db.referenze.find({"cliente_id": cid}).to_list(5000)
+    titolo_map, sku_map = {}, {}
+    for rf in refs:
+        titolo_map.setdefault(rf["ean"], rf.get("titolo"))
+        if rf.get("sku"):
+            sku_map.setdefault(rf["ean"], set()).add(rf["sku"])
+
+    eans = set(ricevuto) | set(spedito) | set(in_prep) | set(titolo_map)
+    result = []
+    for ean in sorted(eans):
+        ric = ricevuto.get(ean, 0)
+        spe = spedito.get(ean, 0)
+        result.append({
+            "ean": ean,
+            "titolo": titolo_map.get(ean),
+            "skus": sorted(sku_map.get(ean, [])),
+            "ricevuto": ric,
+            "spedito": spe,
+            "in_preparazione": in_prep.get(ean, 0),
+            "disponibile": ric - spe,
+        })
+    return result
+
+
+@router.get("/magazzino")
+async def magazzino(cliente_id: Optional[str] = Query(None),
+                    user: dict = Depends(get_current_user)):
+    if is_staff(user):
+        if not cliente_id:
+            raise HTTPException(status_code=400, detail="cliente_id richiesto")
+        cid = cliente_id
+    else:
+        cid = user.get("cliente_id")
+    return await _magazzino_per_cliente(cid)
+
+
+async def _prep_con_righe(prep: dict) -> dict:
+    righe = await db.preparazioni_righe.find({"preparazione_id": prep["id"]}).to_list(1000)
+    prep = _clean(prep)
+    prep["righe"] = [_clean(r) for r in righe]
+    return prep
+
+
+@router.get("/preparazioni")
+async def lista_preparazioni(cliente_id: Optional[str] = Query(None),
+                             stato: Optional[str] = Query(None),
+                             user: dict = Depends(get_current_user)):
+    q = _scope(user)
+    if is_staff(user) and cliente_id:
+        q["cliente_id"] = cliente_id
+    if stato:
+        q["stato"] = stato
+    docs = await db.preparazioni.find(q).sort("created_at", -1).to_list(2000)
+    prep_ids = [d["id"] for d in docs]
+    cliente_ids = list({d["cliente_id"] for d in docs})
+    righe_map = {}
+    if prep_ids:
+        all_righe = await db.preparazioni_righe.find({"preparazione_id": {"$in": prep_ids}}).to_list(None)
+        for r in all_righe:
+            righe_map.setdefault(r["preparazione_id"], []).append(_clean(r))
+    clienti_map = {}
+    if cliente_ids:
+        all_cli = await db.clienti.find({"id": {"$in": cliente_ids}}).to_list(None)
+        clienti_map = {c["id"]: c for c in all_cli}
+    result = []
+    for d in docs:
+        d = _clean(d)
+        d["righe"] = righe_map.get(d["id"], [])
+        cli = clienti_map.get(d["cliente_id"])
+        d["cliente_ragione_sociale"] = cli["ragione_sociale"] if cli else None
+        result.append(d)
+    return result
+
+
+@router.post("/preparazioni")
+async def crea_preparazione(payload: M.PreparazioneCreate, user: dict = Depends(get_current_user)):
+    cid = _resolve_cliente_id(user, payload.cliente_id)
+    prep = M.Preparazione(cliente_id=cid, note=payload.note)
+    await db.preparazioni.insert_one(prep.model_dump())
+    for r in payload.righe:
+        riga = M.PrepRiga(preparazione_id=prep.id, ean=r.ean, sku=r.sku, quantita=r.quantita)
+        await db.preparazioni_righe.insert_one(riga.model_dump())
+    return await _prep_con_righe(await db.preparazioni.find_one({"id": prep.id}))
+
+
+@router.get("/preparazioni/{prep_id}")
+async def dettaglio_preparazione(prep_id: str, user: dict = Depends(get_current_user)):
+    d = await db.preparazioni.find_one({"id": prep_id})
+    if not d:
+        raise HTTPException(status_code=404, detail="Preparazione non trovata")
+    await _assert_owns_cliente(user, d["cliente_id"])
+    out = await _prep_con_righe(d)
+    cli = await db.clienti.find_one({"id": d["cliente_id"]})
+    out["cliente_ragione_sociale"] = cli["ragione_sociale"] if cli else None
+    return out
+
+
+@router.put("/preparazioni/{prep_id}/stato")
+async def cambia_stato_preparazione(prep_id: str, payload: M.StatoUpdate,
+                                    user: dict = Depends(require_admin)):
+    if payload.stato not in STATI_PREP:
+        raise HTTPException(status_code=400, detail="Stato non valido")
+    d = await db.preparazioni.find_one({"id": prep_id})
+    if not d:
+        raise HTTPException(status_code=404, detail="Preparazione non trovata")
+    await db.preparazioni.update_one({"id": prep_id}, {"$set": {"stato": payload.stato}})
+    return await _prep_con_righe(await db.preparazioni.find_one({"id": prep_id}))

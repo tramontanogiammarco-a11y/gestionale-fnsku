@@ -1,13 +1,14 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import {
-  LayoutDashboard, PackageOpen, Users, Boxes, Tags, Barcode, LogOut, Warehouse,
+  LayoutDashboard, PackageOpen, Users, Boxes, Tags, Barcode, LogOut, Warehouse, ClipboardList,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV = [
   { to: "/admin", end: true, label: "Dashboard", icon: LayoutDashboard, id: "dashboard" },
   { to: "/admin/entrate", label: "Entrate merce", icon: PackageOpen, id: "entrate" },
+  { to: "/admin/preparazioni", label: "Preparazioni", icon: ClipboardList, id: "preparazioni" },
   { to: "/admin/box", label: "Box", icon: Boxes, id: "box" },
   { to: "/admin/referenze", label: "Referenze", icon: Tags, id: "referenze" },
   { to: "/admin/etichette", label: "Etichette FNSKU", icon: Barcode, id: "etichette" },

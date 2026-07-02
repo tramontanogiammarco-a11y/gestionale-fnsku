@@ -135,7 +135,8 @@ class BoxContenutoInput(BaseModel):
 
 class BoxCreate(BaseModel):
     entrata_id: Optional[str] = None
-    cliente_id: Optional[str] = None  # richiesto solo per admin se manca entrata_id
+    preparazione_id: Optional[str] = None
+    cliente_id: Optional[str] = None  # richiesto solo per admin se manca entrata_id/preparazione_id
     numero_box: str
     peso_kg: Optional[float] = None
     lunghezza_cm: Optional[float] = None
@@ -156,6 +157,7 @@ class BoxUpdate(BaseModel):
 class Box(BaseModel):
     id: str = Field(default_factory=_uuid)
     entrata_id: Optional[str] = None
+    preparazione_id: Optional[str] = None
     cliente_id: str
     numero_box: str
     peso_kg: Optional[float] = None
@@ -182,3 +184,34 @@ class EtichetteRequest(BaseModel):
     items: List[EtichettaItem]
     formato: str = "50x30"  # 50x30 | 60x30 | 100x50 | 40x20
     mostra_titolo: bool = True
+
+
+# ---------------------------------------------------------------------------
+# PREPARAZIONI (richieste di preparazione del cliente dal magazzino virtuale)
+# ---------------------------------------------------------------------------
+class PrepRigaInput(BaseModel):
+    ean: str
+    sku: Optional[str] = None  # scelto dal cliente (un EAN può avere più SKU)
+    quantita: int
+
+
+class PreparazioneCreate(BaseModel):
+    cliente_id: Optional[str] = None  # richiesto solo per admin
+    note: Optional[str] = None
+    righe: List[PrepRigaInput] = []
+
+
+class Preparazione(BaseModel):
+    id: str = Field(default_factory=_uuid)
+    cliente_id: str
+    stato: str = "richiesta"  # richiesta|in_lavorazione|pronto|spedito
+    note: Optional[str] = None
+    created_at: str = Field(default_factory=_now_iso)
+
+
+class PrepRiga(BaseModel):
+    id: str = Field(default_factory=_uuid)
+    preparazione_id: str
+    ean: str
+    sku: Optional[str] = None
+    quantita: int

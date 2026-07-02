@@ -14,4 +14,13 @@ export const STATI_BOX = {
   spedito: { label: "Spedito", cls: "bg-slate-100 text-slate-700 border-slate-200" },
 };
 
+export const STATI_PREP = {
+  richiesta: { label: "Richiesta", cls: "bg-amber-100 text-amber-700 border-amber-200" },
+  in_lavorazione: { label: "In lavorazione", cls: "bg-orange-100 text-orange-700 border-orange-200" },
+  pronto: { label: "Pronto", cls: "bg-emerald-100 text-emerald-700 border-emerald-200" },
+  spedito: { label: "Spedito", cls: "bg-slate-100 text-slate-700 border-slate-200" },
+};
+
+export const FLUSSO_PREP = ["richiesta", "in_lavorazione", "pronto", "spedito"];
+
 export const FLUSSO_ENTRATA = ["in_attesa", "ricevuto", "in_lavorazione", "pronto", "spedito"];

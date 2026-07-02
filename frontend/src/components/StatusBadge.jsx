@@ -1,9 +1,9 @@
-import { STATI_ENTRATA, STATI_BOX } from "@/lib/statuses";
+import { STATI_ENTRATA, STATI_BOX, STATI_PREP } from "@/lib/statuses";
 import { cn } from "@/lib/utils";
 
-// Badge colorato per lo stato di entrate e box
+// Badge colorato per lo stato di entrate, box e preparazioni
 export function StatusBadge({ stato, tipo = "entrata", className }) {
-  const map = tipo === "box" ? STATI_BOX : STATI_ENTRATA;
+  const map = tipo === "box" ? STATI_BOX : tipo === "prep" ? STATI_PREP : STATI_ENTRATA;
   const cfg = map[stato] || { label: stato, cls: "bg-slate-100 text-slate-700 border-slate-200" };
   return (
     <span

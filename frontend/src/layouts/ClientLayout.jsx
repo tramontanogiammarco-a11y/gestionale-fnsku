@@ -1,11 +1,13 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { Tags, PackageOpen, Boxes, Truck, LogOut, Warehouse } from "lucide-react";
+import { Tags, PackageOpen, Boxes, Truck, LogOut, Warehouse, ClipboardList } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV = [
   { to: "/app", end: true, label: "Referenze", icon: Tags, id: "referenze" },
+  { to: "/app/magazzino", label: "Magazzino", icon: Warehouse, id: "magazzino" },
   { to: "/app/entrate", label: "Entrate", icon: PackageOpen, id: "entrate" },
+  { to: "/app/preparazioni", label: "Preparazioni", icon: ClipboardList, id: "preparazioni" },
   { to: "/app/box", label: "Box", icon: Boxes, id: "box" },
   { to: "/app/spedizioni", label: "Spedizioni", icon: Truck, id: "spedizioni" },
 ];

@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 6 (Magazzino virtuale + Preparazioni). Wrote new pytest module test_magazzino_preparazioni.py (6 tests) covering GET /api/magazzino (cliente + admin scoping), full end-to-end preparazione flow (create prep → admin creates box on prep → prep sync in_lavorazione → labels upload amazon+ups → box→pronto → prep→pronto → box→spedito → prep→spedito + magazzino spedito+3 & disponibile-3), 403 for cliente on stato change, multi-tenant isolation. Re-ran the 22 existing regression tests. Verified frontend UI end-to-end as cliente demo (magazzino table with per-EAN giacenze, nuova-prep dialog, prep-ean-0/prep-sku-0(SELECT)/prep-qta-0/prep-salva-btn, card cprep-<id> shown with 'Richiesta') and as admin (admin-preparazioni, prep-row-<id>, admin-prep-detail, prep-stato-select, nuovo-box-prep-btn tutti presenti).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Preparazioni dialog (client)", "issues": [
+        "React hydration warning: <span> injected as child of <option> inside <datalist id='mag-ean-list'> (Preparazioni.jsx L108-109). Caused by build-time x-component instrumentation on the mapped <option> element; browsers ignore children of <option> so functionally OK, but the console warning pollutes logs.",
+        "Radix Dialog a11y warning: 'Missing Description or aria-describedby={undefined} for DialogContent' — add a <DialogDescription> or aria-describedby to the Nuova Preparazione dialog."
+      ]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_magazzino_preparazioni.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iter6_prep_results.xml",
+    "/app/test_reports/pytest/iter6_regression.xml"
+  ],
+  "action_items": [
+    "(optional, non-blocking) In client/Preparazioni.jsx wrap the <option> content so no <span> gets injected inside <option> (e.g. use plain string children or key on the option directly) to remove the hydration warning.",
+    "(optional, non-blocking) Add a <DialogDescription> to Nuova Preparazione dialog for the Radix a11y warning."
+  ],
+  "critical_code_review_comments": [
+    "routes.py::_magazzino_per_cliente correctly implements 'disponibile = ricevuto - spedito' and 'in_preparazione' as sum of non-spedito box contents. Referenze without movimenti are still shown (via titolo_map union). Verified via 6 pytest cases + UI (row 8001234567890: ric 100 / spe 38 / disp 62).",
+    "routes.py::crea_box: quando payload.preparazione_id è presente, cid è forzato dal cliente della preparazione (buon vincolo di isolamento) e viene chiamato _sync_stato_preparazione. Idem in cambia_stato_box.",
+    "routes.py::_sync_stato_preparazione: nessuno stato 'richiesta' viene mai riapplicato — corretto: la prep passa direttamente a in_lavorazione al primo box, poi pronto/spedito. Il cliente non può regredirla.",
+    "STATI_PREP validati in cambia_stato_preparazione (400 su valore invalido) e endpoint protetto da require_admin (403 al cliente). Confermato dal test.",
+    "models.Box.preparazione_id opzionale e models.BoxCreate accetta preparazione_id in alternativa a entrata_id: retro-compatibile col flusso entrate esistente (test regressione full_flow_entrata_box PASS)."
+  ],
+  "updated_files": ["/app/backend/tests/test_magazzino_preparazioni.py"],
+  "success_rate": {"backend": "100% (28/28 pytest: 22 regression + 6 nuovi)", "frontend": "100% (magazzino + prep create + admin prep detail verificati sul deploy)"},
+  "test_credentials": "Admin: aimagosrl@gmail.com / Aimago123@! ; Cliente: cliente@demo.it / Cliente123!",
+  "seed_data_creation": "test_full_prep_flow crea entrata TEST_PREP_FLOW (EAN 8001234567890 x20), preparazione TEST_PREP (3 pezzi TSHIRT-BL-M) e box TEST-PBOX-1 → poi portato a 'spedito'. Verifica magazzino spedito+=3, disponibile-=3. Preparazione richiesta di test 403: TEST_403_PREP (EAN 8005556667778). Il cliente demo ora vede 4 card preparazioni (comprese Richiesta / In lavorazione / Spedito) creata durante il run UI.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter 6: la nuova feature Magazzino + Preparazioni è pienamente funzionante lato backend (6 nuovi pytest) e UI (tutti i data-testid documentati esistono: nav-magazzino, client-magazzino, mag-row-<ean>, nav-preparazioni, nuova-prep-btn, prep-ean-0, prep-sku-0 (SELECT quando EAN ha 1+ SKU nel magazzino, INPUT altrimenti), prep-qta-0, prep-salva-btn, cprep-<id>, admin-preparazioni, prep-row-<id>, admin-prep-detail, prep-stato-select, nuovo-box-prep-btn). Nessun bug bloccante. Solo warning console: hydration span-in-option nel datalist e Radix DialogDescription mancante — entrambi cosmetici. Il flusso regressione entrate→box continua a passare (test_full_flow_entrata_box PASS).",
+  "rca of the issue": "N/A — new feature validation, no bugs found."
+}

@@ -16,12 +16,17 @@ import AdminBox from "@/pages/admin/BoxList";
 import AdminReferenze from "@/pages/admin/Referenze";
 import AdminEtichette from "@/pages/admin/LabelGenerator";
 import AdminClienti from "@/pages/admin/Clienti";
+import AdminPreparazioni from "@/pages/admin/Preparazioni";
+import AdminPreparazioneDetail from "@/pages/admin/PreparazioneDetail";
 
 import ClientReferenze from "@/pages/client/Referenze";
 import ClientEntrate from "@/pages/client/Entrate";
 import ClientEntrataDetail from "@/pages/client/EntrataDetail";
 import ClientBox from "@/pages/client/Box";
 import ClientSpedizioni from "@/pages/client/Spedizioni";
+import ClientMagazzino from "@/pages/client/Magazzino";
+import ClientPreparazioni from "@/pages/client/Preparazioni";
+import ClientPreparazioneDetail from "@/pages/client/PreparazioneDetail";
 
 // Reindirizza dalla root all'area corretta
 function RootRedirect() {
@@ -60,6 +65,8 @@ function App() {
               <Route path="box" element={<AdminBox />} />
               <Route path="referenze" element={<AdminReferenze />} />
               <Route path="etichette" element={<AdminEtichette />} />
+              <Route path="preparazioni" element={<AdminPreparazioni />} />
+              <Route path="preparazioni/:id" element={<AdminPreparazioneDetail />} />
               <Route path="clienti" element={<AdminClienti />} />
             </Route>
 
@@ -73,6 +80,9 @@ function App() {
               }
             >
               <Route index element={<ClientReferenze />} />
+              <Route path="magazzino" element={<ClientMagazzino />} />
+              <Route path="preparazioni" element={<ClientPreparazioni />} />
+              <Route path="preparazioni/:id" element={<ClientPreparazioneDetail />} />
               <Route path="entrate" element={<ClientEntrate />} />
               <Route path="entrate/:id" element={<ClientEntrataDetail />} />
               <Route path="box" element={<ClientBox />} />
