@@ -106,7 +106,7 @@ function NuovaPreparazioneDialog({ onDone }) {
         <DialogHeader><DialogTitle>Richiedi preparazione</DialogTitle></DialogHeader>
         <div className="space-y-4">
           <datalist id="mag-ean-list">
-            {magazzino.map((m) => <option key={m.ean} value={m.ean}>{m.titolo || m.ean} (disp. {m.disponibile})</option>)}
+            {magazzino.map((m) => <option key={m.ean} value={m.ean}>{`${m.titolo || m.ean} (disp. ${m.disponibile})`}</option>)}
           </datalist>
           <div>
             <Label className="text-xs">Righe (EAN · SKU · quantità)</Label>

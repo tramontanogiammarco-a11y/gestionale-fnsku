@@ -33,6 +33,13 @@ Stack richiesto originale: React+Vite+Tailwind + Supabase + Vercel.
 - Generazione PDF Code128 con validazione, upload file su MongoDB, dashboard con contatori
 - Sync automatico stato entrata da stato box
 
+## Iterazioni successive (2026-07-02)
+- Entrata con DDT/tracking; cliente riapre entrata e gestisce FNSKU dal dettaglio; upload etichette per box dal dettaglio entrata
+- Fix generazione etichette: messaggi d'errore chiari (FNSKU mancante/non valido)
+- Gestione errori azioni admin (no crash su 403); guard "pronto" senza box
+- Ottimizzazione query N+1 (entrate/box) per deploy readiness
+- **Magazzino virtuale + Preparazioni**: giacenze per EAN (ricevuto/in_preparazione/spedito/disponibile); cliente crea preparazioni (EAN+SKU da dropdown+quantità); box legato alla preparazione (multi-arrivo); scarico giacenza a "spedito"; aree admin e cliente dedicate. Testato 28/28 backend.
+
 ## Backlog / prossime fasi (non implementate — fuori scope MVP)
 - P1: Import via Amazon SP-API (agganciare a importer.py)
 - P1: Brute-force lockout su login (5 tentativi), reset password via email
