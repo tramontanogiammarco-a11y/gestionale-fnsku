@@ -69,6 +69,11 @@ export default function AdminEntrataDetail() {
   };
 
   const cambiaStato = async (nuovo) => {
+    // Non si può marcare "pronto" senza aver creato almeno un box (dove il cliente carica le etichette)
+    if (nuovo === "pronto" && boxes.length === 0) {
+      toast.error("Crea prima almeno un box (con dimensioni e peso): il cliente caricherà le etichette sui box.");
+      return;
+    }
     try {
       await api.put(`/entrate/${id}/stato`, { stato: nuovo });
       toast.success("Stato aggiornato");
@@ -243,8 +248,13 @@ export default function AdminEntrataDetail() {
           <h2 className="font-heading text-lg font-semibold">Box in uscita ({boxes.length})</h2>
           <NuovoBoxDialog entrata={entrata} onCreated={load} />
         </div>
+        {boxes.length === 0 && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800" data-testid="no-box-hint">
+            Nessun box creato. Clicca <b>"Nuovo box"</b> per preparare una scatola indicando <b>dimensioni (L×W×H)</b>, <b>peso</b> e <b>contenuto</b>.
+            Solo quando esiste almeno un box il cliente potrà caricare le etichette Amazon e UPS.
+          </div>
+        )}
         <div className="grid gap-3 md:grid-cols-2">
-          {boxes.length === 0 && <p className="text-sm text-muted-foreground">Nessun box creato.</p>}
           {boxes.map((b) => (
             <BoxCard key={b.id} box={b} onChange={load} />
           ))}

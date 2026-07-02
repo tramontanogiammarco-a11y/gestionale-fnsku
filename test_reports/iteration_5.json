@@ -1,0 +1,25 @@
+{
+  "summary": "Iteration 5 (UX fix: guard 'pronto' senza box + callout no-box-hint + verifica upload etichette per box). Verified full flow end-to-end on the deployed UI and re-ran the 22-test pytest regression suite.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "admin/EntrataDetail.jsx: guard in cambiaStato correctly blocks 'pronto' when boxes.length===0 and shows Italian toast 'Crea prima almeno un box…'. Also renders yellow callout data-testid='no-box-hint' when boxes.length===0. Verified: (a) toast appears, (b) select value stays on 'Ricevuto' after guard, (c) callout disappears immediately once first box is created, (d) after creating a box the same 'Pronto' selection succeeds and entrata state persists as 'Pronto'.",
+    "admin/EntrataDetail.jsx / NuovoBoxDialog: still swallows backend error detail in salva() catch (just shows generic 'Errore creazione box'). Non-blocking (already flagged in iter 4). Consider reusing azioneErrore().",
+    "client/EntrataDetail.jsx / BoxUpload: cd-amazon-btn-<boxId>, cd-ups-btn-<boxId>, cd-amazon-done-<boxId>, cd-ups-done-<boxId> and cd-*-input-<boxId> file inputs all render. Upload disabled correctly when box.stato==='spedito' (puoCaricare check). Upload calls POST /api/box/{id}/etichetta-amazon|ups with multipart FormData and updates the card on success. Toasts 'Etichetta Amazon/UPS caricata' shown.",
+    "Backend routes /api/box/{id}/etichetta-amazon and /etichetta-ups: previously covered by TestEntrateBoxFlow.test_full_flow_entrata_box (200 for cliente owner, response includes /api/files/... URL). No changes required for iter 5.",
+    "Note (expected behaviour): after guard-blocked attempt, PUT /api/entrate/{id}/stato is never called (guard runs before the axios call), so the state truly does not change on the server either. Confirmed by post-guard select label still reading 'Ricevuto'."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (22/22 pytest)", "frontend": "100% (5/5 iter5 scenarios)"},
+  "test_credentials": "Admin: aimagosrl@gmail.com / Aimago123@! ; Cliente: cliente@demo.it / Cliente123!",
+  "seed_data_creation": "Created entrata id 18116cdd-5055-43cd-b08f-ebb175ea1ec2 as cliente@demo.it (note='ITER5_UITEST', 1 riga EAN 8007770000005 FNSKU X5ITER5TE1). Ricevuta as admin. Created box BOX-TEST-ITER5 (14 kg, 60×40×40 cm, contenuto ×5) → box id 6b488bff-1ae5-4548-ba93-f88808b817c4. Both etichetta-amazon and etichetta-ups uploaded by the cliente (dummy PDF /tmp/label_test.pdf). Entrata left in 'Pronto' state; box still in 'in_preparazione' (manual entrata stato override does not cascade to boxes, expected).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter 5 verified guard + callout + upload flow. Playwright pattern: (a) admin login POST-redirect target is /admin (no trailing slash), use `wait_for_url(lambda url: '/admin' in url)` instead of glob '**/admin/**'. Same for /app. (b) Radix Select options are `page.get_by_role('option', name='Pronto')` and must be clicked with force=True. (c) File upload uses `page.expect_file_chooser()` + `set_files('/tmp/label_test.pdf')` because BoxUpload triggers hidden <input type=file> via a Button click. (d) After a UPS/Amazon upload, the button node is REPLACED by an <a data-testid='cd-*-done-<boxId>'> so wait for the new selector, not for the button to disappear. (e) 60×40×40 uses the multiplication sign U+00D7 (×), NOT ASCII 'x' — assertion string must be '60×40×40'.",
+  "rca of the issue": "Original user complaint 'non mi fa caricare le etichette UPS/Amazon' was NOT a bug in the label upload endpoints, but a UX pit: admin marked the entrata as 'Pronto' via the stato dropdown without ever creating a box, so the client dashboard had zero boxes to render upload buttons on (BoxUpload cards are keyed to boxes). Fix (iter 5, verified this run): (1) admin/EntrataDetail.jsx.cambiaStato now returns early with toast 'Crea prima almeno un box (con dimensioni e peso)…' when nuovo==='pronto' && boxes.length===0, so the invalid state transition is prevented client-side; (2) an amber callout with data-testid='no-box-hint' is rendered under the 'Box in uscita' section whenever boxes.length===0, telling the admin to create a box with dimensioni/peso/contenuto; (3) NuovoBoxDialog already collected numero/peso/L×W×H/contenuto and posts to /api/box (verified in backend flow test). No backend change was needed. Verified end-to-end: (a) toast + no state change when Pronto is picked with 0 boxes; (b) box creation via UI populates 'BOX-TEST-ITER5 · 14 kg · 60×40×40 cm'; (c) callout disappears; (d) Pronto is then acceptable; (e) client sees cd-amazon-btn / cd-ups-btn and after PDF upload sees cd-amazon-done / cd-ups-done (POST 200)."
+}
