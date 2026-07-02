@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 
 const NAV = [
   { to: "/admin", end: true, label: "Dashboard", icon: LayoutDashboard, id: "dashboard" },
-  { to: "/admin/entrate", label: "Entrate merce", icon: PackageOpen, id: "entrate" },
+  { to: "/admin/entrate", label: "Ricezione merce", icon: PackageOpen, id: "entrate" },
   { to: "/admin/preparazioni", label: "Preparazioni", icon: ClipboardList, id: "preparazioni" },
   { to: "/admin/box", label: "Box", icon: Boxes, id: "box" },
   { to: "/admin/referenze", label: "Referenze", icon: Tags, id: "referenze" },

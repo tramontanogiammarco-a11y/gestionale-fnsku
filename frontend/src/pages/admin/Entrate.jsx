@@ -26,7 +26,7 @@ export default function AdminEntrate() {
     <div className="space-y-6" data-testid="admin-entrate">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-heading text-3xl font-bold tracking-tight">Entrate merce</h1>
+          <h1 className="font-heading text-3xl font-bold tracking-tight">Ricezione merce</h1>
           <p className="text-muted-foreground text-sm mt-1">Arrivi annunciati dai clienti.</p>
         </div>
       </div>

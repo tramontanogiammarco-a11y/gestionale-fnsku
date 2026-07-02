@@ -1,0 +1,33 @@
+{
+  "summary": "Iter 8 fully validated. Backend: added /app/backend/tests/test_box_multi_referenza.py (3 tests PASS) covering GET /api/referenze?cliente_id=, POST /api/box con contenuto multi-referenza (2 EAN, quantità distinte, peso 14, dim 60x40x40), persistenza verificata via GET /api/box?entrata_id, e box mono-referenza senza FNSKU. Regressione totale: 42/42 pytest PASS (backend_test.py 22 + test_auth_refresh_deeplink.py 11 + test_magazzino_preparazioni.py 6 + test_box_multi_referenza.py 3). Frontend UI (deploy pubblico): login admin, sidebar mostra 'Ricezione merce' (data-testid nav-entrate), pagina lista ha titolo 'Ricezione merce'. Aperta entrata in_attesa demo, click ricevi-btn -> stato ricevuto (toast). Aperto NuovoBoxDialog: compilati numero (BOX-UI-*), peso 14, L 60, W 40, H 40; su una riga fresh appena aggiunta con EAN 8001234567890 il campo FNSKU si popola in automatico a X001ABCDE1 (idem 8009876543210 -> X002FGHIJ2 tramite datalist referenze cliente). Salvataggio -> box creato con 2 righe contenuto. Verifica card BoxCard: '14 kg · 60×40×40 cm' + '2 referenze nel box'. Validazioni: salvare senza numero -> toast 'Inserisci il numero box'; salvare con tutte le qta a 0 -> toast 'Aggiungi almeno una referenza con quantità'. Regressione cliente demo: login OK, entrata detail mostra la card box con contenuto '8001234567890 · X001ABCDE1 ×3' e '8009876543210 · X002FGHIJ2 ×4', 14 kg · 60×40×40 cm, pulsanti 'PDF Amazon' e 'PDF UPS' per upload etichette presenti e cliccabili.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "NuovoBoxDialog", "issues": ["UX minore: la funzione update() in EntrataDetail.jsx (linea 344) autocompila l'FNSKU dall'elenco referenze SOLO se il campo fnsku è vuoto. Poiché le righe sono pre-popolate dagli EAN+FNSKU dell'entrata, se l'utente cambia l'EAN di una riga già popolata il FNSKU precedente NON viene sostituito e resta quello vecchio (potenzialmente errato). Il comportamento è invece corretto sulle righe aggiunte con 'Aggiungi referenza' (che sono vuote). Suggerimento: quando cambia l'EAN, ricalcolare sempre l'FNSKU dal datalist (o svuotare il fnsku se il nuovo EAN ha un fnsku diverso in referenze). Non blocker: l'utente può correggere manualmente."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_box_multi_referenza.py",
+    "/app/test_reports/pytest/iter8_multi.xml",
+    "/app/test_reports/pytest/iter8_all.xml"
+  ],
+  "action_items": [
+    "OPZIONALE: in EntrataDetail.jsx::NuovoBoxDialog::update(), quando k==='ean' considerare sempre di aggiornare fnsku (o svuotarlo) invece del solo caso `!next[i].fnsku` — per evitare che un FNSKU pre-popolato dell'entrata sopravviva ad un cambio EAN. Attualmente aggirabile dall'utente."
+  ],
+  "critical_code_review_comments": [
+    "routes.py POST /box accetta contenuto: List[ContenutoBox] senza limiti sul numero di righe: OK per multi-referenza.",
+    "EntrataDetail.jsx pre-popola le righe con `entrata.righe.map(rg => ({ean:rg.ean, fnsku:rg.fnsku||''}))`: comodo, ma vedi 'design_issues' sopra per il side-effect nell'autocompile FNSKU al cambio EAN.",
+    "salva(): filtra `righe.filter(r => r.ean && Number(r.quantita) > 0)`: robusto, permette validamente di ignorare righe pre-popolate con qta vuota (utile quando la scatola contiene solo alcuni dei prodotti dell'entrata).",
+    "datalist EAN popolato via `GET /referenze?cliente_id=`: chiamata effettuata all'apertura del dialog; buona granularità."
+  ],
+  "updated_files": ["/app/backend/tests/test_box_multi_referenza.py"],
+  "success_rate": {"backend": "100% (42/42 pytest)", "frontend": "100% (6/6 flows: login admin, nav+titolo Ricezione merce, ricevi-btn, box multi-referenza salvato+visibile, autocompile FNSKU su riga fresh, validazioni, regressione cliente)"},
+  "test_credentials": "Admin: aimagosrl@gmail.com/Aimago123@! ; Cliente: cliente@demo.it/Cliente123!",
+  "seed_data_creation": "Nessuna. Test box creato: BOX-UI-1782999335 su entrata 27c0d79c-7884-4113-8ac1-37b48a26324b (demo).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter 8: multi-referenza box completamente funzionante backend+frontend. Unico miglioramento UX non-bloccante segnalato in design_issues (FNSKU non ricalcolato al cambio EAN se già valorizzato).",
+  "rca of the issue": "N/A - feature enhancement, non un bug fix. La feature 'box multi-referenza + autocompile FNSKU + rinomina Ricezione merce' è stata implementata correttamente e verificata E2E."
+}

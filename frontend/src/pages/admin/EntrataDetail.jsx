@@ -19,7 +19,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  Loader2, PackageCheck, Barcode, Plus, FileText, Save,
+  Loader2, PackageCheck, Barcode, Plus, FileText, Save, Trash2,
 } from "lucide-react";
 
 // Messaggio d'errore chiaro per le azioni admin (gestisce il caso 403 sessione cliente)
@@ -320,14 +320,39 @@ function NuovoBoxDialog({ entrata, onCreated }) {
   const [numero, setNumero] = useState("");
   const [peso, setPeso] = useState("");
   const [dim, setDim] = useState({ l: "", w: "", h: "" });
-  const [contenuto, setContenuto] = useState({});
+  const [refs, setRefs] = useState([]);
+  // Contenuto libero e multi-referenza: righe {ean, fnsku, quantita}
+  const [righe, setRighe] = useState([{ ean: "", fnsku: "", quantita: "" }]);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    // referenze del cliente per popolare il menù EAN (box multi-referenza)
+    api.get(`/referenze?cliente_id=${entrata.cliente_id}`).then((r) => setRefs(r.data));
+    // precompila con gli EAN dell'entrata come comodità
+    setRighe(entrata.righe.length
+      ? entrata.righe.map((rg) => ({ ean: rg.ean, fnsku: rg.fnsku || "", quantita: "" }))
+      : [{ ean: "", fnsku: "", quantita: "" }]);
+  }, [open, entrata]);
+
+  const fnskuPerEan = (ean) => {
+    const r = refs.find((x) => x.ean === ean && x.fnsku);
+    return r?.fnsku || "";
+  };
+  const update = (i, k, v) => {
+    const next = [...righe]; next[i][k] = v;
+    if (k === "ean" && !next[i].fnsku) next[i].fnsku = fnskuPerEan(v);
+    setRighe(next);
+  };
+  const addRow = () => setRighe([...righe, { ean: "", fnsku: "", quantita: "" }]);
+  const delRow = (i) => setRighe(righe.filter((_, idx) => idx !== i));
 
   const salva = async () => {
     if (!numero) { toast.error("Inserisci il numero box"); return; }
-    const cont = entrata.righe
-      .filter((rg) => Number(contenuto[rg.id]) > 0)
-      .map((rg) => ({ ean: rg.ean, fnsku: rg.fnsku || "", quantita: Number(contenuto[rg.id]) }));
+    const cont = righe
+      .filter((r) => r.ean && Number(r.quantita) > 0)
+      .map((r) => ({ ean: r.ean, fnsku: r.fnsku || "", quantita: Number(r.quantita) }));
+    if (cont.length === 0) { toast.error("Aggiungi almeno una referenza con quantità"); return; }
     setSaving(true);
     try {
       await api.post("/box", {
@@ -340,10 +365,10 @@ function NuovoBoxDialog({ entrata, onCreated }) {
         contenuto: cont,
       });
       toast.success("Box creato");
-      setOpen(false); setNumero(""); setPeso(""); setDim({ l: "", w: "", h: "" }); setContenuto({});
+      setOpen(false); setNumero(""); setPeso(""); setDim({ l: "", w: "", h: "" });
       onCreated();
     } catch (e) {
-      toast.error("Errore creazione box");
+      toast.error(azioneErrore(e));
     } finally {
       setSaving(false);
     }
@@ -354,8 +379,8 @@ function NuovoBoxDialog({ entrata, onCreated }) {
       <DialogTrigger asChild>
         <Button size="sm" data-testid="nuovo-box-btn"><Plus className="h-4 w-4 mr-1" /> Nuovo box</Button>
       </DialogTrigger>
-      <DialogContent className="max-w-lg">
-        <DialogHeader><DialogTitle>Nuovo box</DialogTitle></DialogHeader>
+      <DialogContent className="max-w-xl">
+        <DialogHeader><DialogTitle>Nuovo box (multi-referenza)</DialogTitle></DialogHeader>
         <div className="space-y-3">
           <div>
             <Label>Numero box</Label>
@@ -368,21 +393,21 @@ function NuovoBoxDialog({ entrata, onCreated }) {
             <div><Label className="text-xs">H cm</Label><Input value={dim.h} onChange={(e) => setDim({ ...dim, h: e.target.value })} className="mt-1" /></div>
           </div>
           <div>
-            <Label className="text-xs">Contenuto (quantità per EAN)</Label>
-            <div className="mt-1 space-y-2 max-h-48 overflow-auto">
-              {entrata.righe.map((rg) => (
-                <div key={rg.id} className="flex items-center gap-2">
-                  <span className="font-mono text-xs flex-1">{rg.ean}</span>
-                  <Input
-                    type="number" min={0} placeholder="0"
-                    data-testid={`box-content-${rg.id}`}
-                    value={contenuto[rg.id] ?? ""}
-                    onChange={(e) => setContenuto({ ...contenuto, [rg.id]: e.target.value })}
-                    className="h-8 w-24"
-                  />
+            <Label className="text-xs">Contenuto — aggiungi una o più referenze (EAN · FNSKU · quantità)</Label>
+            <datalist id="box-ean-list">
+              {refs.map((r) => <option key={r.id} value={r.ean}>{`${r.titolo || r.ean}`}</option>)}
+            </datalist>
+            <div className="mt-1 space-y-2 max-h-56 overflow-auto">
+              {righe.map((r, i) => (
+                <div key={i} className="grid grid-cols-12 gap-2 items-center" data-testid={`box-cont-row-${i}`}>
+                  <Input list="box-ean-list" className="col-span-5 font-mono text-xs" data-testid={`box-cont-ean-${i}`} value={r.ean} onChange={(e) => update(i, "ean", e.target.value)} placeholder="EAN" />
+                  <Input className="col-span-4 font-mono text-xs" data-testid={`box-cont-fnsku-${i}`} value={r.fnsku} onChange={(e) => update(i, "fnsku", e.target.value)} placeholder="FNSKU" />
+                  <Input type="number" min={0} className="col-span-2" data-testid={`box-cont-qta-${i}`} value={r.quantita} onChange={(e) => update(i, "quantita", e.target.value)} placeholder="Q.tà" />
+                  <Button variant="ghost" size="icon" className="col-span-1" onClick={() => delRow(i)} disabled={righe.length === 1} data-testid={`box-cont-del-${i}`}><Trash2 className="h-4 w-4" /></Button>
                 </div>
               ))}
             </div>
+            <Button variant="outline" size="sm" className="mt-2" onClick={addRow} data-testid="box-cont-add"><Plus className="h-4 w-4 mr-1" /> Aggiungi referenza</Button>
           </div>
         </div>
         <DialogFooter>
