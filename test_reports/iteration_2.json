@@ -1,0 +1,28 @@
+{
+  "summary": "Iteration 2 validated the new centralized client Entrate flow (create entrata -> open detail /app/entrate/:id -> edit FNSKU -> admin creates boxes -> client uploads Amazon/UPS PDFs). Full end-to-end Playwright walkthrough passed all 22 steps including PUT /api/entrate-righe/{id} persistence, cross-role visibility of FNSKU on admin detail, state sync entrata->'pronto' after box set pronto, and both PDF label uploads reflected as cd-amazon-done / cd-ups-done in the client UI.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "client/EntrataDetail.jsx: salvaFnsku() correctly issues PUT only for rows whose fnsku changed; success path calls load() to refresh from server (good).",
+    "client/EntrataDetail.jsx: 'modificabile' flag disables FNSKU editing when entrata is 'spedito' — correct guard; consider also disabling on 'pronto' if business rules require immutability after prep center closure (currently allowed which is intentional per requirements).",
+    "client/Entrate.jsx: NuovaEntrataDialog: DialogContent lacks a Description/aria-describedby (React warning in console). Non-blocking a11y improvement — add DialogDescription.",
+    "backend routes.py POST /api/entrate: cliente path uses _resolve_cliente_id (ignores payload.cliente_id from cliente) — good multi-tenant hardening.",
+    "backend routes.py PUT /api/entrate-righe/{id}: correctly enforces cliente ownership via _assert_owns_cliente based on parent entrata.cliente_id — verified via full flow.",
+    "backend routes.py POST /api/box/{id}/etichetta-amazon|ups: uses get_current_user + _assert_owns_cliente, so cliente can upload only to own boxes — verified.",
+    "Nice-to-have: routes.py _sync_stato_entrata does not push the entrata back to 'in_attesa' if all boxes are deleted or none exist yet; current behaviour is acceptable since deletion isn't exposed.",
+    "Frontend hot-reload works; no console errors during the flow apart from expected 401s while switching sessions (context.clear_cookies + relogin)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (endpoints hit during flow: POST /entrate, PUT /entrate-righe/{id}, GET /entrate/{id}, POST /box, PUT /box/{id}/stato, POST /box/{id}/etichetta-amazon, POST /box/{id}/etichetta-ups — all 200)", "frontend": "100% (22/22 flow steps)"},
+  "test_credentials": "Admin: aimagosrl@gmail.com / Aimago123@! ; Cliente demo: cliente@demo.it / Cliente123!",
+  "seed_data_creation": "Created one new entrata (Pallet, DDT DDT-TEST-999/2026, Tracking TRK-TEST-XYZ-001, 1 riga EAN 8000000123456 x5, FNSKU X001TESTAB1) with one box BOX-TEST-777 (stato=pronto, Amazon+UPS PDFs uploaded). Entrata id: f941ed1f-e516-4a42-b61a-b6db72d8f9a4. Safe to leave for regression.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "When testing async save->reload flows, always use page.expect_response(...) to wait for the PUT to complete before calling page.reload(); a fixed wait_for_timeout(1500) is race-prone. All new client entrate testids in use: entrata-ddt, entrata-tracking, entrata-tipo, entrata-ean-<i>, entrata-qta-<i>, entrata-fnsku-<i>, entrata-salva-btn, centrata-<id>, client-entrata-detail, back-btn, cd-fnsku-<rigaId>, save-fnsku-btn, cd-box-<boxId>, cd-amazon-btn-<boxId>, cd-ups-btn-<boxId>, cd-amazon-done-<boxId>, cd-ups-done-<boxId>. Backend regression suite from iteration 1 (21 tests) still valid — was not re-run in this iteration because request scope was the new frontend flow (all touched endpoints implicitly exercised end-to-end).",
+  "rca of the issue": "N/A — no bugs found. Initial run showed a false-negative on FNSKU persistence because the test reloaded before the PUT completed; retest with expect_response confirmed backend and UI both persist correctly."
+}

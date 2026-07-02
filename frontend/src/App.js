@@ -19,6 +19,7 @@ import AdminClienti from "@/pages/admin/Clienti";
 
 import ClientReferenze from "@/pages/client/Referenze";
 import ClientEntrate from "@/pages/client/Entrate";
+import ClientEntrataDetail from "@/pages/client/EntrataDetail";
 import ClientBox from "@/pages/client/Box";
 import ClientSpedizioni from "@/pages/client/Spedizioni";
 
@@ -73,6 +74,7 @@ function App() {
             >
               <Route index element={<ClientReferenze />} />
               <Route path="entrate" element={<ClientEntrate />} />
+              <Route path="entrate/:id" element={<ClientEntrataDetail />} />
               <Route path="box" element={<ClientBox />} />
               <Route path="spedizioni" element={<ClientSpedizioni />} />
             </Route>

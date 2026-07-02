@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { api, formatApiError } from "@/lib/api";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -14,10 +15,11 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, Trash2, PackagePlus, Barcode, FileText, Truck } from "lucide-react";
+import { Loader2, Plus, Trash2, PackagePlus, FileText, Truck, ChevronRight } from "lucide-react";
 
 export default function ClientEntrate() {
   const [entrate, setEntrate] = useState(null);
+  const navigate = useNavigate();
 
   const load = () => api.get("/entrate").then((r) => setEntrate(r.data));
   useEffect(() => { load(); }, []);
@@ -39,7 +41,12 @@ export default function ClientEntrate() {
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
           {entrate.map((e) => (
-            <Card key={e.id} className="p-4" data-testid={`centrata-${e.id}`}>
+            <Card
+              key={e.id}
+              data-testid={`centrata-${e.id}`}
+              className="p-4 cursor-pointer hover:shadow-sm transition-shadow"
+              onClick={() => navigate(`/app/entrate/${e.id}`)}
+            >
               <div className="flex items-center justify-between">
                 <div className="font-heading font-semibold capitalize">{e.tipo}</div>
                 <StatusBadge stato={e.stato} />
@@ -61,11 +68,10 @@ export default function ClientEntrate() {
                 })}
               </div>
               {e.note && <p className="text-xs text-muted-foreground mt-2">{e.note}</p>}
-              {e.righe?.length > 0 && (
-                <div className="mt-3">
-                  <GestisciFnskuDialog entrata={e} onDone={load} />
-                </div>
-              )}
+              <div className="flex items-center justify-end gap-1 mt-3 text-xs font-medium text-blue-600">
+                {e.stato === "pronto" ? "Carica etichette" : "Apri e gestisci FNSKU"}
+                <ChevronRight className="h-4 w-4" />
+              </div>
             </Card>
           ))}
         </div>
@@ -175,77 +181,3 @@ function NuovaEntrataDialog({ onDone }) {
   );
 }
 
-
-// Dialog per aggiungere/modificare gli FNSKU delle righe DOPO aver creato l'entrata
-function GestisciFnskuDialog({ entrata, onDone }) {
-  const [open, setOpen] = useState(false);
-  const [values, setValues] = useState({});
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (open) {
-      const v = {};
-      entrata.righe.forEach((r) => (v[r.id] = r.fnsku || ""));
-      setValues(v);
-    }
-  }, [open, entrata]);
-
-  const mancanti = entrata.righe.filter((r) => !r.fnsku).length;
-
-  const salva = async () => {
-    setSaving(true);
-    try {
-      await Promise.all(
-        entrata.righe
-          .filter((r) => (values[r.id] || "") !== (r.fnsku || ""))
-          .map((r) => api.put(`/entrate-righe/${r.id}`, { fnsku: values[r.id] || null }))
-      );
-      toast.success("FNSKU aggiornati");
-      setOpen(false);
-      onDone();
-    } catch (e) {
-      toast.error(formatApiError(e.response?.data?.detail));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="w-full" data-testid={`gestisci-fnsku-btn-${entrata.id}`}>
-          <Barcode className="h-4 w-4 mr-2" />
-          Gestisci FNSKU{mancanti > 0 ? ` (${mancanti} mancanti)` : ""}
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader><DialogTitle>FNSKU dell'entrata</DialogTitle></DialogHeader>
-        <p className="text-sm text-muted-foreground">
-          Inserisci il codice FNSKU per ogni EAN. Il prep center genererà le etichette a barre da questi codici.
-        </p>
-        <div className="space-y-2 max-h-72 overflow-auto mt-2">
-          {entrata.righe.map((r) => (
-            <div key={r.id} className="flex items-center gap-2" data-testid={`gf-row-${r.id}`}>
-              <div className="flex-1">
-                <div className="font-mono text-xs">{r.ean}</div>
-                <div className="text-[11px] text-muted-foreground">Q.tà {r.quantita}</div>
-              </div>
-              <Input
-                data-testid={`gf-fnsku-${r.id}`}
-                value={values[r.id] ?? ""}
-                onChange={(e) => setValues({ ...values, [r.id]: e.target.value })}
-                placeholder="es. X001ABCDE1"
-                className="h-8 w-44 font-mono text-xs"
-              />
-            </div>
-          ))}
-        </div>
-        <DialogFooter>
-          <Button onClick={salva} disabled={saving} data-testid={`gf-salva-${entrata.id}`}>
-            {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Salva FNSKU
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
