@@ -66,17 +66,22 @@ export default function AdminEntrataDetail() {
   };
 
   const generaEtichette = async () => {
-    const items = entrata.righe
-      .filter((rg) => selezione[rg.id] && (fnskuEdit[rg.id] || rg.fnsku))
-      .map((rg) => ({
-        fnsku: fnskuEdit[rg.id] || rg.fnsku,
-        titolo: rg.ean,
-        copie: Number(copie[rg.id]) || 1,
-      }));
-    if (items.length === 0) {
-      toast.error("Seleziona almeno una riga con FNSKU");
+    const selezionate = entrata.righe.filter((rg) => selezione[rg.id]);
+    if (selezionate.length === 0) {
+      toast.error("Seleziona almeno una riga");
       return;
     }
+    // Il barcode si genera SOLO dall'FNSKU: segnala le righe che ne sono prive
+    const senzaFnsku = selezionate.filter((rg) => !((fnskuEdit[rg.id] || rg.fnsku || "").trim()));
+    if (senzaFnsku.length > 0) {
+      toast.error(`Manca l'FNSKU per: ${senzaFnsku.map((r) => r.ean).join(", ")}. Inseriscilo (e salva) prima di generare.`);
+      return;
+    }
+    const items = selezionate.map((rg) => ({
+      fnsku: (fnskuEdit[rg.id] || rg.fnsku).trim(),
+      titolo: rg.ean,
+      copie: Number(copie[rg.id]) || 1,
+    }));
     setGenerando(true);
     try {
       const res = await api.post("/etichette/genera", { items, formato, mostra_titolo: true }, { responseType: "blob" });
@@ -84,7 +89,10 @@ export default function AdminEntrataDetail() {
       window.open(url, "_blank");
       toast.success("PDF etichette generato");
     } catch (e) {
-      toast.error("Errore nella generazione etichette");
+      // Mostra il motivo reale restituito dal backend (blob -> testo)
+      let msg = "Errore nella generazione etichette";
+      try { msg = JSON.parse(await e.response.data.text()).detail || msg; } catch (_) {}
+      toast.error(msg);
     } finally {
       setGenerando(false);
     }

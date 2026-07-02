@@ -1,0 +1,27 @@
+{
+  "summary": "Verified iteration 3 bug fix on label generation. All four target scenarios pass end-to-end. Backend pytest regression suite (21/21) still green after updating admin credentials to reflect current .env. Frontend Playwright test exercised the four scenarios on /admin/entrate/{id} for the demo pallet (3 righe) and the standalone /admin/etichette generator.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "admin/EntrataDetail.jsx generaEtichette(): pre-flight check on trimmed (fnskuEdit[id] || rg.fnsku) correctly excludes rows with empty/whitespace FNSKU and lists their EAN in the toast; API is NOT called (verified: 0 requests). Good.",
+    "admin/EntrataDetail.jsx generaEtichette(): backend 400 blob is parsed via JSON.parse(await e.response.data.text()).detail — works, but the inner try/catch swallows any parsing failure silently. If backend ever returns non-JSON blob, user sees the generic message. Consider fallback to 'Errore HTTP <status>' with status code visible for easier debugging.",
+    "admin/LabelGenerator.jsx: same blob parsing pattern; identical caveat.",
+    "backend/barcode_gen.py: fnsku_valido regex is ASCII 0x20-0x7E printable — matches Code128 spec correctly. Good.",
+    "backend routes.py POST /api/etichette/genera: returns 400 with detail 'FNSKU non validi per Code128: <lista>' — clear and actionable. Cliente correctly gets 403 (verified in TestEtichette.test_cliente_cannot_generate).",
+    "backend_test.py: hardcoded ADMIN_EMAIL was 'admin@prepcenter.it' but current backend/.env uses 'aimagosrl@gmail.com'. Updated to read from env var with correct default to keep regression suite runnable across environments.",
+    "Nice-to-have: on the empty-FNSKU pre-check the user must both edit AND click 'Salva FNSKU' before generating (per toast text). It might be more forgiving to just re-run the same pre-flight after edit without requiring the save (the fnskuEdit state is already used in the request payload) — but current behaviour is safe and explicit."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (21/21 pytest)", "frontend": "100% (4/4 target scenarios)"},
+  "test_credentials": "Admin: aimagosrl@gmail.com / Aimago123@! ; Cliente: cliente@demo.it / Cliente123!",
+  "seed_data_creation": "Reused existing demo pallet entrata 27c0d79c-7884-4113-8ac1-37b48a26324b with 3 righe: 8001234567890 (X001ABCDE1), 8009876543210 (X002FGHIJ2), 8005556667778 (empty). Did not persist any FNSKU changes to the demo pallet (empty row was left empty on save, X001ABCDE1 restored on valid row after CASE 3).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Admin URL is /admin (not /app/admin). Use wait_for_url('**/admin**'). data-testids exercised: entrata-detail, riga-<id>, select-riga-<id>, fnsku-input-<id>, copie-input-<id>, formato-select, genera-etichette-btn, nav-etichette, label-generator, lg-fnsku-0, lg-copie-0, lg-genera. To reproduce label bugs: seed a riga without FNSKU or paste any non-ASCII char (é, à, ù) in fnsku-input; backend returns 400 with detail 'FNSKU non validi per Code128: <val>'.",
+  "rca of the issue": "Original 'ERRORE NELLA GENERAZIONE DELLE ETICHETTE' was a generic axios catch that discarded the backend 400 detail (the response body is a Blob when responseType='blob', not JSON, so the standard err.response.data.detail was undefined). Fix: (1) pre-flight in generaEtichette() blocks rows without FNSKU with a specific per-EAN toast; (2) in catch, await e.response.data.text() then JSON.parse to extract detail, exposing 'FNSKU non validi per Code128: ...' from backend. Verified end-to-end. Same pattern also applied in LabelGenerator.jsx."
+}

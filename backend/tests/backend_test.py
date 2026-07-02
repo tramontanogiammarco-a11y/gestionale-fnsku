@@ -14,8 +14,8 @@ BASE_URL = os.environ.get("REACT_APP_BACKEND_URL",
                           "https://prep-center-control.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
-ADMIN_EMAIL = "admin@prepcenter.it"
-ADMIN_PASSWORD = "Admin123!"
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL_TEST", "aimagosrl@gmail.com")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD_TEST", "Aimago123@!")
 CLIENTE_EMAIL = "cliente@demo.it"
 CLIENTE_PASSWORD = "Cliente123!"
 
