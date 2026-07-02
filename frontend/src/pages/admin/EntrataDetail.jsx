@@ -341,7 +341,8 @@ function NuovoBoxDialog({ entrata, onCreated }) {
   };
   const update = (i, k, v) => {
     const next = [...righe]; next[i][k] = v;
-    if (k === "ean" && !next[i].fnsku) next[i].fnsku = fnskuPerEan(v);
+    // Se cambia l'EAN, ricalcola sempre l'FNSKU dalla referenza (evita FNSKU obsoleti)
+    if (k === "ean") { const f = fnskuPerEan(v); if (f) next[i].fnsku = f; }
     setRighe(next);
   };
   const addRow = () => setRighe([...righe, { ean: "", fnsku: "", quantita: "" }]);
