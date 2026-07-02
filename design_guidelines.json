@@ -1,0 +1,149 @@
+{
+  "theme": "light",
+  "archetype": "4_swiss_and_high_contrast",
+  "domain": "b2b_logistics_warehouse_erp",
+  "global_vibe": "Serious, data-dense, trustworthy, operational, clear. Built for high-volume scanning, data entry, and status tracking in a warehouse environment.",
+  "typography": {
+    "fonts": {
+      "headings": "Chivo",
+      "body": "IBM Plex Sans",
+      "mono": "JetBrains Mono"
+    },
+    "hierarchy": {
+      "h1": "text-3xl sm:text-4xl font-bold tracking-tight text-slate-900",
+      "h2": "text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900",
+      "h3": "text-xl sm:text-2xl font-semibold text-slate-800",
+      "h4": "text-lg sm:text-xl font-medium text-slate-800",
+      "body": "text-sm sm:text-base leading-relaxed text-slate-600",
+      "mono_data": "font-mono text-xs sm:text-sm tracking-tight text-slate-700",
+      "labels": "text-xs font-bold uppercase tracking-[0.1em] text-slate-500"
+    },
+    "rules": [
+      "Use Chivo for all dashboard widget titles and page headers.",
+      "Use IBM Plex Sans for tables, forms, and general UI.",
+      "CRITICAL: ALWAYS use JetBrains Mono for SKUs, ASINs, EANs, FNSKUs, and tracking numbers to avoid character confusion (like 1 vs I, 0 vs O).",
+      "Do not center text inside tables or data-heavy views. Left-align text, right-align numbers/currencies."
+    ]
+  },
+  "colors": {
+    "background": {
+      "app": "#F8FAFC",
+      "card": "#FFFFFF",
+      "sidebar": "#0F172A"
+    },
+    "primary": {
+      "default": "#2563EB",
+      "hover": "#1D4ED8",
+      "text_on_primary": "#FFFFFF"
+    },
+    "text": {
+      "primary": "#0F172A",
+      "secondary": "#475569",
+      "tertiary": "#94A3B8"
+    },
+    "border": {
+      "default": "#E2E8F0",
+      "focus": "#2563EB"
+    },
+    "statuses": {
+      "in_attesa": {
+        "bg": "#FEF3C7",
+        "text": "#B45309",
+        "border": "#FDE68A",
+        "icon_color": "#F59E0B",
+        "description": "Waiting for goods to arrive"
+      },
+      "ricevuto": {
+        "bg": "#DBEAFE",
+        "text": "#1D4ED8",
+        "border": "#BFDBFE",
+        "icon_color": "#3B82F6",
+        "description": "Goods physically received at warehouse"
+      },
+      "in_lavorazione": {
+        "bg": "#FFEDD5",
+        "text": "#C2410C",
+        "border": "#FED7AA",
+        "icon_color": "#F97316",
+        "description": "Staff is labeling and packaging"
+      },
+      "pronto": {
+        "bg": "#D1FAE5",
+        "text": "#047857",
+        "border": "#A7F3D0",
+        "icon_color": "#10B981",
+        "description": "Ready, waiting for shipping labels"
+      },
+      "spedito": {
+        "bg": "#F1F5F9",
+        "text": "#0F172A",
+        "border": "#E2E8F0",
+        "icon_color": "#475569",
+        "description": "Successfully shipped to Amazon FBA"
+      }
+    }
+  },
+  "layout": {
+    "strategy": "control_room",
+    "spacing": "tight",
+    "border_radius": "rounded-md",
+    "navigation": {
+      "admin": "Fixed dark sidebar (w-64) with high contrast. Ensures distinct 'staff' environment.",
+      "client": "Top navigation or light sidebar. Must visually distinguish the client area from the admin area to prevent confusion."
+    },
+    "cards": {
+      "style": "Flat card design with 1px solid border (#E2E8F0), white background, zero shadow by default. On hover: shadow-sm."
+    },
+    "data_density": "High. Use compact table rows (py-2 or py-3) to fit maximum SKUs on screen without scrolling."
+  },
+  "components": {
+    "tables": {
+      "style": "Shadcn Table. Sticky headers. EAN/FNSKU columns must use mono font. Include a thumbnail column for product photos.",
+      "actions": "Use dropdown menus (Shadcn) at the end of rows for actions (Print Label, Edit, Change Status)."
+    },
+    "badges": {
+      "style": "Pill shape (rounded-full), solid pale background, bold dark text, 1px border. MUST map exactly to the 'statuses' color palette."
+    },
+    "forms": {
+      "inputs": "Shadcn UI inputs. 1px solid border, subtle focus ring (ring-2 ring-blue-500/20 border-blue-500). Left aligned labels.",
+      "file_upload": "Drag and drop zone for Excel/CSV imports and PDF labels. Must show clear success/error states."
+    },
+    "barcode_generator": {
+      "type": "Code128",
+      "library_recommendation": "react-barcode or bwip-js",
+      "format": "50x30mm PDF export (use @react-pdf/renderer or jsPDF)"
+    },
+    "icons": {
+      "library": "phosphor-icons/react",
+      "style": "Regular weight for dense UI, Duotone for dashboard summary cards."
+    }
+  },
+  "interactions": {
+    "hover": "Subtle background shifts (bg-slate-50) on table rows. Action buttons should darken on hover.",
+    "focus": "High contrast blue outline on all inputs for accessibility and fast keyboard navigation.",
+    "transitions": "Keep animations very minimal (150ms ease). The system must feel instantaneous."
+  },
+  "testing": {
+    "attributes": "All interactive elements (buttons, row actions, tabs, file uploaders) MUST include data-testid. E.g., data-testid='upload-csv-button'."
+  },
+  "media": {
+    "images": [
+      {
+        "category": "login_background",
+        "url": "https://images.unsplash.com/photo-1771530789155-b1f03fbf82b5?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1MTN8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjB3YXJlaG91c2UlMjBsb2dpc3RpY3MlMjBpbnRlcmlvcnxlbnwwfHx8fDE3ODI5NzYyMzl8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Clean, empty modern warehouse interior. Use as a subtle, darkened background (with overlay) for the login page."
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Install specific fonts: Chivo, IBM Plex Sans, JetBrains Mono.",
+    "Install @phosphor-icons/react for iconography.",
+    "Build Shadcn tables with high data density. Ensure all SKU/EAN/FNSKU fields use JetBrains Mono (font-mono class) for precise readability.",
+    "Implement the 5 strict color-coded statuses defined in colors.statuses across the entire application (Dashboards, Tables, Box details).",
+    "Client UI vs Admin UI: Ensure they share the design system but have distinct layouts (e.g., dark sidebar for Admin, top-nav for Client) so context is immediately obvious.",
+    "Make sure file uploaders for the 'Amazon/UPS PDF labels' show a preview or clear filename upon successful selection.",
+    "Use standard HTML/Tailwind for the dashboard layout (Control Room Grid).",
+    "All interactive elements MUST have data-testid attributes.",
+    "For the FNSKU generator, implement a layout that explicitly supports the required 50x30mm PDF output format."
+  ]
+}
