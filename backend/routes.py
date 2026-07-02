@@ -230,13 +230,23 @@ async def lista_entrate(cliente_id: Optional[str] = Query(None),
     if stato:
         q["stato"] = stato
     docs = await db.entrate.find(q).sort("data_annuncio", -1).to_list(2000)
+    entrata_ids = [d["id"] for d in docs]
+    cliente_ids = list({d["cliente_id"] for d in docs})
+    # Batch fetch righe e clienti per evitare query N+1
+    righe_map = {}
+    if entrata_ids:
+        all_righe = await db.entrate_righe.find({"entrata_id": {"$in": entrata_ids}}).to_list(None)
+        for r in all_righe:
+            righe_map.setdefault(r["entrata_id"], []).append(_clean(r))
+    clienti_map = {}
+    if cliente_ids:
+        all_cli = await db.clienti.find({"id": {"$in": cliente_ids}}).to_list(None)
+        clienti_map = {c["id"]: c for c in all_cli}
     result = []
     for d in docs:
-        righe = await db.entrate_righe.find({"entrata_id": d["id"]}).to_list(1000)
         d = _clean(d)
-        d["righe"] = [_clean(r) for r in righe]
-        # arricchisci con ragione sociale cliente per la vista admin
-        cli = await db.clienti.find_one({"id": d["cliente_id"]})
+        d["righe"] = righe_map.get(d["id"], [])
+        cli = clienti_map.get(d["cliente_id"])
         d["cliente_ragione_sociale"] = cli["ragione_sociale"] if cli else None
         result.append(d)
     return result
@@ -338,10 +348,15 @@ async def lista_box(cliente_id: Optional[str] = Query(None),
     if stato:
         q["stato"] = stato
     docs = await db.box.find(q).sort("created_at", -1).to_list(2000)
+    cliente_ids = list({d["cliente_id"] for d in docs})
+    clienti_map = {}
+    if cliente_ids:
+        all_cli = await db.clienti.find({"id": {"$in": cliente_ids}}).to_list(None)
+        clienti_map = {c["id"]: c for c in all_cli}
     result = []
     for d in docs:
         d = _clean(d)
-        cli = await db.clienti.find_one({"id": d["cliente_id"]})
+        cli = clienti_map.get(d["cliente_id"])
         d["cliente_ragione_sociale"] = cli["ragione_sociale"] if cli else None
         result.append(d)
     return result
