@@ -1,0 +1,36 @@
+{
+  "summary": "Iter 9 (flusso semplificato). Backend: 42/42 pytest PASS (backend_test.py 22 + test_auth_refresh_deeplink.py 11 + test_magazzino_preparazioni.py 6 + test_box_multi_referenza.py 3). Il full-flow prep (magazzino → prep → box multi → labels → spedito) è verificato dal test test_full_prep_flow. Frontend: verificati testids richiesti. OK: admin sidebar 'Ricezione merce' + nav-entrate; entrata detail admin ha entrata-arrivato e NON ha entrata-stato-select (semplificazione ok); cliente ha nav-magazzino, client-magazzino con mag-row-*; modal nuova preparazione con prep-ean-0/prep-sku-0/prep-qta-0 (select-based) e prep-add-row/prep-salva-btn; admin prep detail con admin-prep-detail, prep-stato-select, nuovo-box-prep-btn; dialog nuova scatola con pbox-numero-input, pbox-peso-input, pbox-content-<rigaId>, pbox-salva-btn; client-prep-detail render corretto; componenti cbu-amazon-btn-<boxId>, cbu-ups-btn-<boxId>, cbu-amazon-done-<boxId>, cbu-ups-done-<boxId> definiti in ClientBoxUpload.jsx. BUG bloccante: nell'admin EntrataDetail.jsx la sezione 'Box in uscita' col bottone 'Nuovo box' (data-testid=nuovo-box-btn) è ANCORA PRESENTE, in contraddizione con il requisito iter 9 ('Nel dettaglio entrata NON deve esserci la sezione Box (nuovo-box-btn assente)').",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "admin/EntrataDetail.jsx", "issue": "La sezione 'Box in uscita' con NuovoBoxDialog e data-testid=nuovo-box-btn è ancora renderizzata nella pagina dettaglio entrata (linee ~244-249 + funzione NuovoBoxDialog 314-377). Il flusso semplificato richiede che l'entrata contenga SOLO 'Segna Arrivato' (o l'indicatore entrata-arrivato) e NIENTE box; la composizione box deve avvenire esclusivamente nelle Preparazioni. Attualmente l'admin può ancora creare box sull'entrata dalla UI (endpoint /api/box con entrata_id resta funzionante lato backend, ma la UI non dovrebbe più esporlo).", "selector": "[data-testid=nuovo-box-btn]", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_magazzino_preparazioni.py",
+    "/app/backend/tests/test_box_multi_referenza.py",
+    "/app/backend/tests/test_auth_refresh_deeplink.py",
+    "/app/test_reports/pytest/iter9.xml",
+    "/app/test_reports/pytest/iter9_mag.xml"
+  ],
+  "action_items": [
+    "Rimuovere da /app/frontend/src/pages/admin/EntrataDetail.jsx la sezione 'Box in uscita' (linee ~243-260) e il componente NuovoBoxDialog (linee 314-fine) — inclusa l'import/uso di NuovoBoxDialog e lo stato boxes/setBoxes correlato. In alternativa (se si vuole conservare il codice inattivo) rimuovere solo il render della card 'Box in uscita' e il <NuovoBoxDialog/> per far scomparire nuovo-box-btn dalla DOM. Motivo: requisito flusso semplificato iter 9."
+  ],
+  "critical_code_review_comments": [
+    "admin/EntrataDetail.jsx contiene ancora la sezione Box che dovrebbe essere spostata solo nelle Preparazioni (bug).",
+    "client/EntrataDetail.jsx correttamente semplificato: solo FNSKU + reminder verso Magazzino/Preparazioni (nessun box).",
+    "test_magazzino_preparazioni.py originariamente crashava in fase di collection se REACT_APP_BACKEND_URL non è nell'env — fixato con fallback identico a backend_test.py.",
+    "Preparazioni cliente: EAN e SKU sono <select> alimentate dal magazzino disponibile — l'UI di conseguenza dipende dalla disponibilità reale (righe con disponibile>0). Corretto ma da tenere presente per i test."
+  ],
+  "updated_files": ["/app/backend/tests/test_magazzino_preparazioni.py"],
+  "success_rate": {"backend": "100% (42/42 pytest)", "frontend": "83% (5/6 flussi ok: admin ricezione+arrivato, cliente magazzino, cliente prep create modal, admin prep detail+box dialog multi-referenza, client prep detail; 1 non conforme: admin entrata mostra ancora sezione Box)"},
+  "test_credentials": "Admin: aimagosrl@gmail.com/Aimago123@! ; Cliente: cliente@demo.it/Cliente123!",
+  "seed_data_creation": "Nessuna (i test pytest creano dati con prefisso TEST_).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter 9 backend 100% verde. Il solo scarto dai requisiti è la sezione 'Box in uscita' + nuovo-box-btn ancora presenti in admin/EntrataDetail.jsx. Dopo la rimozione, ritestare che: (1) la pagina admin entrata mostri solo il bottone/badge 'Arrivato' e la card FNSKU + genera etichette; (2) nuovo-box-btn NON sia più nella DOM; (3) tutti i pytest continuino a passare (il backend accetta ancora /api/box con entrata_id per compatibilità e non è coinvolto dalla rimozione UI).",
+  "rca of the issue": "L'iter 9 doveva rimuovere la creazione box dal dettaglio entrata admin: modifica applicata al client/EntrataDetail.jsx ma NON al lato admin. Fix richiesto: eliminare (o commentare) il blocco JSX <Card> 'Box in uscita' + <NuovoBoxDialog/> in admin/EntrataDetail.jsx (linee 243-260) e la funzione NuovoBoxDialog (linee 314-fine). Nessun impatto backend."
+}

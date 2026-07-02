@@ -152,19 +152,15 @@ export default function AdminEntrataDetail() {
           {entrata.note && <p className="text-sm text-muted-foreground mt-2">{entrata.note}</p>}
         </div>
         <div className="flex items-center gap-2">
-          {entrata.stato === "in_attesa" && (
+          {entrata.stato === "in_attesa" ? (
             <Button data-testid="ricevi-btn" onClick={ricevi}>
-              <PackageCheck className="h-4 w-4 mr-2" /> Segna Ricevuto
+              <PackageCheck className="h-4 w-4 mr-2" /> Segna Arrivato
             </Button>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-sm text-emerald-600 font-medium" data-testid="entrata-arrivato">
+              <PackageCheck className="h-4 w-4" /> Merce arrivata — a magazzino
+            </span>
           )}
-          <Select value={entrata.stato} onValueChange={cambiaStato}>
-            <SelectTrigger className="w-44" data-testid="entrata-stato-select"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {Object.keys(STATI_ENTRATA).map((s) => (
-                <SelectItem key={s} value={s}>{STATI_ENTRATA[s].label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
       </div>
 

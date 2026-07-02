@@ -69,7 +69,7 @@ export default function ClientEntrate() {
               </div>
               {e.note && <p className="text-xs text-muted-foreground mt-2">{e.note}</p>}
               <div className="flex items-center justify-end gap-1 mt-3 text-xs font-medium text-blue-600">
-                {e.stato === "pronto" ? "Carica etichette" : "Apri e gestisci FNSKU"}
+                {e.stato === "in_attesa" ? "Apri e gestisci FNSKU" : "Merce arrivata · dettaglio"}
                 <ChevronRight className="h-4 w-4" />
               </div>
             </Card>

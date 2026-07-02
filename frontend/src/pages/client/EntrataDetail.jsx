@@ -128,19 +128,10 @@ export default function ClientEntrataDetail() {
         </Table>
       </Card>
 
-      {/* Box + upload etichette (visibili quando il prep center li ha preparati) */}
-      <Card className="p-5">
-        <h2 className="font-heading text-lg font-semibold flex items-center gap-2 mb-3"><BoxIcon className="h-5 w-5 text-blue-600" /> Scatole preparate</h2>
-        {boxes.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Il prep center non ha ancora preparato le scatole. Quando l'entrata sarà <b>pronta</b>, qui vedrai la composizione delle scatole e potrai caricare le etichette Amazon e UPS.
-          </p>
-        ) : (
-          <div className="grid gap-3 md:grid-cols-2">
-            {boxes.map((b) => <BoxUpload key={b.id} box={b} onDone={load} />)}
-          </div>
-        )}
-      </Card>
+      {/* Nel nuovo flusso le scatole si gestiscono nelle Preparazioni */}
+      <div className="rounded-md border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+        Una volta che il prep center segna la merce come <b>arrivata</b>, la trovi nel tuo <b>Magazzino</b>. Da lì crea una <b>Preparazione</b> per farti spedire i prodotti: le scatole e il caricamento delle etichette Amazon/UPS avvengono nella sezione <b>Preparazioni</b>.
+      </div>
     </div>
   );
 }
