@@ -14,7 +14,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, Trash2, PackagePlus } from "lucide-react";
+import { Loader2, Plus, Trash2, PackagePlus, Barcode, FileText, Truck } from "lucide-react";
 
 export default function ClientEntrate() {
   const [entrate, setEntrate] = useState(null);
@@ -47,6 +47,12 @@ export default function ClientEntrate() {
               <div className="text-xs text-muted-foreground mt-1">
                 {new Date(e.data_annuncio).toLocaleDateString("it-IT")} · {e.righe?.length || 0} referenze · {e.righe?.reduce((a, r) => a + r.quantita, 0) || 0} pezzi
               </div>
+              {(e.ddt || e.tracking) && (
+                <div className="flex flex-wrap gap-3 mt-2 text-xs">
+                  {e.ddt && <span className="inline-flex items-center gap-1 text-slate-600"><FileText className="h-3 w-3" /> DDT: <span className="font-mono">{e.ddt}</span></span>}
+                  {e.tracking && <span className="inline-flex items-center gap-1 text-slate-600"><Truck className="h-3 w-3" /> Tracking: <span className="font-mono">{e.tracking}</span></span>}
+                </div>
+              )}
               {/* Avanzamento flusso */}
               <div className="flex items-center gap-1 mt-3">
                 {FLUSSO_ENTRATA.map((s, i) => {
@@ -55,6 +61,11 @@ export default function ClientEntrate() {
                 })}
               </div>
               {e.note && <p className="text-xs text-muted-foreground mt-2">{e.note}</p>}
+              {e.righe?.length > 0 && (
+                <div className="mt-3">
+                  <GestisciFnskuDialog entrata={e} onDone={load} />
+                </div>
+              )}
             </Card>
           ))}
         </div>
@@ -66,6 +77,8 @@ export default function ClientEntrate() {
 function NuovaEntrataDialog({ onDone }) {
   const [open, setOpen] = useState(false);
   const [tipo, setTipo] = useState("pallet");
+  const [ddt, setDdt] = useState("");
+  const [tracking, setTracking] = useState("");
   const [note, setNote] = useState("");
   const [righe, setRighe] = useState([{ ean: "", quantita: "", fnsku: "" }]);
   const [referenze, setReferenze] = useState([]);
@@ -92,9 +105,9 @@ function NuovaEntrataDialog({ onDone }) {
     if (valide.length === 0) { toast.error("Aggiungi almeno una riga con EAN e quantità"); return; }
     setSaving(true);
     try {
-      await api.post("/entrate", { tipo, note, righe: valide });
+      await api.post("/entrate", { tipo, ddt: ddt || null, tracking: tracking || null, note, righe: valide });
       toast.success("Entrata annunciata");
-      setOpen(false); setTipo("pallet"); setNote(""); setRighe([{ ean: "", quantita: "", fnsku: "" }]);
+      setOpen(false); setTipo("pallet"); setDdt(""); setTracking(""); setNote(""); setRighe([{ ean: "", quantita: "", fnsku: "" }]);
       onDone();
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail));
@@ -107,7 +120,7 @@ function NuovaEntrataDialog({ onDone }) {
       <DialogContent className="max-w-2xl">
         <DialogHeader><DialogTitle>Annuncia arrivo merce</DialogTitle></DialogHeader>
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div>
               <Label>Tipo</Label>
               <Select value={tipo} onValueChange={setTipo}>
@@ -118,7 +131,16 @@ function NuovaEntrataDialog({ onDone }) {
                 </SelectContent>
               </Select>
             </div>
+            <div>
+              <Label>N. DDT</Label>
+              <Input data-testid="entrata-ddt" value={ddt} onChange={(e) => setDdt(e.target.value)} className="mt-1 font-mono" placeholder="es. 123/2026" />
+            </div>
+            <div>
+              <Label>Tracking</Label>
+              <Input data-testid="entrata-tracking" value={tracking} onChange={(e) => setTracking(e.target.value)} className="mt-1 font-mono" placeholder="codice corriere" />
+            </div>
           </div>
+          <p className="text-xs text-muted-foreground -mt-2">Indica il DDT o il tracking per farmi riconoscere la spedizione in arrivo.</p>
 
           <div>
             <Label className="text-xs">Contenuto (EAN · quantità · FNSKU)</Label>
@@ -146,6 +168,81 @@ function NuovaEntrataDialog({ onDone }) {
         <DialogFooter>
           <Button onClick={salva} disabled={saving} data-testid="entrata-salva-btn">
             {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Annuncia entrata
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+
+// Dialog per aggiungere/modificare gli FNSKU delle righe DOPO aver creato l'entrata
+function GestisciFnskuDialog({ entrata, onDone }) {
+  const [open, setOpen] = useState(false);
+  const [values, setValues] = useState({});
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      const v = {};
+      entrata.righe.forEach((r) => (v[r.id] = r.fnsku || ""));
+      setValues(v);
+    }
+  }, [open, entrata]);
+
+  const mancanti = entrata.righe.filter((r) => !r.fnsku).length;
+
+  const salva = async () => {
+    setSaving(true);
+    try {
+      await Promise.all(
+        entrata.righe
+          .filter((r) => (values[r.id] || "") !== (r.fnsku || ""))
+          .map((r) => api.put(`/entrate-righe/${r.id}`, { fnsku: values[r.id] || null }))
+      );
+      toast.success("FNSKU aggiornati");
+      setOpen(false);
+      onDone();
+    } catch (e) {
+      toast.error(formatApiError(e.response?.data?.detail));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="w-full" data-testid={`gestisci-fnsku-btn-${entrata.id}`}>
+          <Barcode className="h-4 w-4 mr-2" />
+          Gestisci FNSKU{mancanti > 0 ? ` (${mancanti} mancanti)` : ""}
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader><DialogTitle>FNSKU dell'entrata</DialogTitle></DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          Inserisci il codice FNSKU per ogni EAN. Il prep center genererà le etichette a barre da questi codici.
+        </p>
+        <div className="space-y-2 max-h-72 overflow-auto mt-2">
+          {entrata.righe.map((r) => (
+            <div key={r.id} className="flex items-center gap-2" data-testid={`gf-row-${r.id}`}>
+              <div className="flex-1">
+                <div className="font-mono text-xs">{r.ean}</div>
+                <div className="text-[11px] text-muted-foreground">Q.tà {r.quantita}</div>
+              </div>
+              <Input
+                data-testid={`gf-fnsku-${r.id}`}
+                value={values[r.id] ?? ""}
+                onChange={(e) => setValues({ ...values, [r.id]: e.target.value })}
+                placeholder="es. X001ABCDE1"
+                className="h-8 w-44 font-mono text-xs"
+              />
+            </div>
+          ))}
+        </div>
+        <DialogFooter>
+          <Button onClick={salva} disabled={saving} data-testid={`gf-salva-${entrata.id}`}>
+            {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Salva FNSKU
           </Button>
         </DialogFooter>
       </DialogContent>

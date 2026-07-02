@@ -65,6 +65,7 @@ export default function AdminEntrate() {
               <TableRow>
                 <TableHead>Cliente</TableHead>
                 <TableHead>Tipo</TableHead>
+                <TableHead>DDT / Tracking</TableHead>
                 <TableHead>Referenze</TableHead>
                 <TableHead>Data annuncio</TableHead>
                 <TableHead>Stato</TableHead>
@@ -74,7 +75,7 @@ export default function AdminEntrate() {
             <TableBody>
               {entrate.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground py-10">
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-10">
                     Nessuna entrata trovata.
                   </TableCell>
                 </TableRow>
@@ -88,6 +89,9 @@ export default function AdminEntrate() {
                 >
                   <TableCell className="font-medium">{e.cliente_ragione_sociale}</TableCell>
                   <TableCell className="capitalize">{e.tipo}</TableCell>
+                  <TableCell className="font-mono text-xs">
+                    {e.ddt ? `DDT ${e.ddt}` : ""}{e.ddt && e.tracking ? " · " : ""}{e.tracking || ""}{!e.ddt && !e.tracking ? "—" : ""}
+                  </TableCell>
                   <TableCell>{e.righe?.length || 0}</TableCell>
                   <TableCell>{new Date(e.data_annuncio).toLocaleDateString("it-IT")}</TableCell>
                   <TableCell><StatusBadge stato={e.stato} /></TableCell>

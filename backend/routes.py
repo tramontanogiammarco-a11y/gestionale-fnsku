@@ -245,7 +245,8 @@ async def lista_entrate(cliente_id: Optional[str] = Query(None),
 @router.post("/entrate")
 async def crea_entrata(payload: M.EntrataCreate, user: dict = Depends(get_current_user)):
     cid = _resolve_cliente_id(user, payload.cliente_id)
-    entrata = M.Entrata(cliente_id=cid, tipo=payload.tipo, note=payload.note)
+    entrata = M.Entrata(cliente_id=cid, tipo=payload.tipo, ddt=payload.ddt,
+                        tracking=payload.tracking, note=payload.note)
     await db.entrate.insert_one(entrata.model_dump())
     for r in payload.righe:
         riga = M.RigaEntrata(entrata_id=entrata.id, ean=r.ean,

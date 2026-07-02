@@ -90,6 +90,8 @@ class RigaEntrataInput(BaseModel):
 class EntrataCreate(BaseModel):
     cliente_id: Optional[str] = None  # richiesto solo per admin
     tipo: str  # "pallet" | "scatola"
+    ddt: Optional[str] = None  # numero DDT (documento di trasporto)
+    tracking: Optional[str] = None  # codice tracking corriere
     note: Optional[str] = None
     righe: List[RigaEntrataInput] = []
 
@@ -98,6 +100,8 @@ class Entrata(BaseModel):
     id: str = Field(default_factory=_uuid)
     cliente_id: str
     tipo: str
+    ddt: Optional[str] = None
+    tracking: Optional[str] = None
     stato: str = "in_attesa"  # in_attesa|ricevuto|in_lavorazione|pronto|spedito
     data_annuncio: str = Field(default_factory=_now_iso)
     data_ricezione: Optional[str] = None
