@@ -5,7 +5,7 @@ import requests
 import pytest
 
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL",
-                          "https://prep-center-control.preview.emergentagent.com").rstrip("/")
+                          "https://prep-center-hub.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
 ADMIN = ("aimagosrl@gmail.com", "Aimago123@!")
