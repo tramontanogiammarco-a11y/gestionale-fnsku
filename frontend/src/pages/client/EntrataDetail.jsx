@@ -26,8 +26,14 @@ export default function ClientEntrataDetail() {
     api.get(`/entrate/${id}`).then((r) => {
       setEntrata(r.data);
       const v = {}; r.data.righe.forEach((rg) => (v[rg.id] = rg.fnsku || "")); setFnsku(v);
+    }).catch((e) => {
+      const s = e?.response?.status;
+      if (s === 403) toast.error("Questa entrata non appartiene al tuo account.");
+      else if (s === 404) toast.error("Entrata non trovata.");
+      else if (s !== 401) toast.error("Impossibile caricare l'entrata.");
+      navigate("/app/entrate");
     });
-    api.get(`/box?entrata_id=${id}`).then((r) => setBoxes(r.data));
+    api.get(`/box?entrata_id=${id}`).then((r) => setBoxes(r.data)).catch(() => {});
   };
   useEffect(() => { load(); }, [id]);
 

@@ -9,6 +9,35 @@ export const api = axios.create({
   withCredentials: true,
 });
 
+// Auto-refresh della sessione: se una chiamata torna 401, prova UNA volta a
+// rinnovare l'access token con il refresh token (valido 7 giorni) e ripete la
+// richiesta. Così l'utente non viene "buttato fuori" e non deve rifare login
+// di continuo. Se il refresh fallisce davvero, redirige al login.
+let refreshPromise = null;
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const original = error.config;
+    const status = error.response?.status;
+    const isAuthCall = original?.url?.includes("/auth/");
+    if (status === 401 && original && !original._retry && !isAuthCall) {
+      original._retry = true;
+      try {
+        refreshPromise = refreshPromise || api.post("/auth/refresh");
+        await refreshPromise;
+        refreshPromise = null;
+        return api(original); // ripete la richiesta originale
+      } catch (refreshErr) {
+        refreshPromise = null;
+        if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+          window.location.href = "/login";
+        }
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 // Costruisce URL assoluto per un file salvato (foto, PDF etichette)
 export const fileUrl = (path) => (path ? `${BACKEND_URL}${path}` : null);
 

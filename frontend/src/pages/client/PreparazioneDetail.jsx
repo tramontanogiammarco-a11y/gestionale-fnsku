@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { StatusBadge } from "@/components/StatusBadge";
 import { FLUSSO_PREP, STATI_PREP } from "@/lib/statuses";
@@ -17,8 +18,14 @@ export default function ClientPreparazioneDetail() {
   const [boxes, setBoxes] = useState([]);
 
   const load = () => {
-    api.get(`/preparazioni/${id}`).then((r) => setPrep(r.data));
-    api.get(`/box?preparazione_id=${id}`).then((r) => setBoxes(r.data));
+    api.get(`/preparazioni/${id}`).then((r) => setPrep(r.data)).catch((e) => {
+      const s = e?.response?.status;
+      if (s === 403) toast.error("Questa preparazione non appartiene al tuo account.");
+      else if (s === 404) toast.error("Preparazione non trovata.");
+      else if (s !== 401) toast.error("Impossibile caricare la preparazione.");
+      navigate("/app/preparazioni");
+    });
+    api.get(`/box?preparazione_id=${id}`).then((r) => setBoxes(r.data)).catch(() => {});
   };
   useEffect(() => { load(); }, [id]);
 

@@ -1,0 +1,27 @@
+{
+  "summary": "Iteration 7 bug-fix validated end-to-end. Backend: created /app/backend/tests/test_auth_refresh_deeplink.py (11 tests, all PASS) covering login+httpOnly cookies, POST /auth/refresh happy path + failure cases (no cookie, access-as-refresh, anti-loop), expired-access→refresh→retry recovery, 403 on entrata di altro cliente (avesta id 8bc9cd30...), 404 su entrata/preparazione inesistenti, regressione endpoint admin (/clienti /entrate /preparazioni) e cliente (/referenze /entrate /magazzino /preparazioni). Regressione completa 39/39 pytest PASS (22 backend_test.py + 6 magazzino_preparazioni + 11 nuovi). Frontend UI (deploy pubblico): login cliente demo -> cookie access_token+refresh_token httpOnly sameSite=Lax impostati; F5 mantiene sessione (no redirect a /login); deep-link /app/entrate/8bc9cd30... -> toast sonner 'Questa entrata non appartiene al tuo account' + redirect a /app/entrate SENZA schermata errore rossa; deep-link a entrata propria carica correttamente data-testid=client-entrata-detail; deep-link /app/preparazioni/{fake-uuid} -> toast 'Preparazione non trovata' + redirect a /app/preparazioni; admin login OK (dashboard renderizzata).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_auth_refresh_deeplink.py",
+    "/app/test_reports/pytest/iter7_all.xml",
+    "/app/test_reports/pytest/iter7_auth.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "api.js interceptor: guard isAuthCall = original.url.includes('/auth/') previene loop su /auth/refresh 401 (verificato con test test_no_infinite_loop_on_refresh_failure - 3 chiamate a vuoto tutte 401 rapide).",
+    "api.js refreshPromise singleton condiviso: buona pratica per evitare che N request paralleli lancino N refresh; azzerato sia sul success che sul fail.",
+    "auth.py::_set_auth_cookies imposta secure=True + samesite='lax' + httponly=True su entrambi i cookie: verificato lato browser (httpOnly=True, sameSite=Lax).",
+    "auth.py::refresh_token endpoint imposta SOLO access_token (refresh_token invariato con TTL 7gg): comportamento documentato e testato.",
+    "EntrataDetail.jsx & PreparazioneDetail.jsx: il .catch NON mostra toast in caso di 401 (delega all'interceptor axios per il refresh); coerente e evita doppio-messaggio. Il navigate() viene comunque chiamato: nota che se il refresh riesce, il caricamento della pagina attuale non viene retry-ato perche' abbiamo gia' navigato via — accettabile per il bug fix ma peggiora leggermente la UX (il refresh sarebbe stato trasparente altrove).",
+    "Console: sull'avvio con sessione assente si vedono 2 x 401 su /auth/me (atteso, gestito lato AuthContext con setUser(false))."
+  ],
+  "updated_files": ["/app/backend/tests/test_auth_refresh_deeplink.py"],
+  "success_rate": {"backend": "100% (39/39 pytest)", "frontend": "100% (5/5 flows UI: session-persist, 403-deeplink, happy-path, 404-deeplink, admin-login)"},
+  "test_credentials": "Admin: aimagosrl@gmail.com/Aimago123@! ; Cliente: cliente@demo.it/Cliente123!",
+  "seed_data_creation": "Nessuna nuova seed. Uso di entrate esistenti del cliente demo (21 entrate) e dell'entrata avesta 8bc9cd30-0543-4a06-9af8-2f88c51187f3 come caso 403.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter 7: bug fix sessione+deep-link completamente verificato. Cookie httpOnly access_token(12h)+refresh_token(7gg), interceptor axios anti-loop OK, .catch 403/404 con toast sonner+redirect OK su EntrataDetail e PreparazioneDetail. Osservazione minore (non blocking): quando il refresh axios ha successo su una richiesta di detail-page, la pagina non viene comunque ricaricata perche' EntrataDetail.jsx/PreparazioneDetail.jsx invocano navigate() nel .catch anche in caso di 401 non piu' vero. Poco impattante perche' l'interceptor gia' riprova la richiesta e la seconda risposta OK NON entra piu' nel .catch; ma se la prima 401 arrivava, il .catch e' stato invocato solo se il refresh e' fallito -> redirect a /login gia' fatto dall'interceptor. Verificato: nessun flow rotto.",
+  "rca of the issue": "Root cause originale confermata dal fix: (a) 401 su access scaduto = nessun retry -> l'app 'sembrava' sloggata. Ora l'interceptor axios (api.js) tenta UNA volta POST /auth/refresh (guard su url /auth/* per anti-loop, refreshPromise condiviso per de-dup), poi ripete la request. (b) i detail deep-link crashavano su 403/404 -> ora entrambi i componenti hanno .catch con toast sonner + navigate() alla lista. Backend: /auth/refresh valida payload.type=='refresh' e user esiste, poi setta nuovo access_token cookie."
+}
