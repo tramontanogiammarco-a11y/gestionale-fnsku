@@ -1,54 +1,87 @@
-import { useEffect } from "react";
 import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
-import { HOME } from "@/constants/testIds";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Toaster } from "@/components/ui/sonner";
+import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { Loader2 } from "lucide-react";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+import Login from "@/pages/Login";
+import AdminLayout from "@/layouts/AdminLayout";
+import ClientLayout from "@/layouts/ClientLayout";
 
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
+import AdminDashboard from "@/pages/admin/Dashboard";
+import AdminEntrate from "@/pages/admin/Entrate";
+import AdminEntrataDetail from "@/pages/admin/EntrataDetail";
+import AdminBox from "@/pages/admin/BoxList";
+import AdminReferenze from "@/pages/admin/Referenze";
+import AdminEtichette from "@/pages/admin/LabelGenerator";
+import AdminClienti from "@/pages/admin/Clienti";
 
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
+import ClientReferenze from "@/pages/client/Referenze";
+import ClientEntrate from "@/pages/client/Entrate";
+import ClientBox from "@/pages/client/Box";
+import ClientSpedizioni from "@/pages/client/Spedizioni";
 
-  return (
-    <div>
-      <header className="App-header">
-        <a
-          data-testid={HOME.emergentLink}
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
-  );
-};
+// Reindirizza dalla root all'area corretta
+function RootRedirect() {
+  const { user } = useAuth();
+  if (user === null)
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  if (!user) return <Navigate to="/login" replace />;
+  return <Navigate to={user.role === "cliente" ? "/app" : "/admin"} replace />;
+}
 
 function App() {
   return (
     <div className="App">
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<RootRedirect />} />
+            <Route path="/login" element={<Login />} />
+
+            {/* Area backend (admin/staff) */}
+            <Route
+              path="/admin"
+              element={
+                <ProtectedRoute roles={["admin", "staff"]}>
+                  <AdminLayout />
+                </ProtectedRoute>
+              }
+            >
+              <Route index element={<AdminDashboard />} />
+              <Route path="entrate" element={<AdminEntrate />} />
+              <Route path="entrate/:id" element={<AdminEntrataDetail />} />
+              <Route path="box" element={<AdminBox />} />
+              <Route path="referenze" element={<AdminReferenze />} />
+              <Route path="etichette" element={<AdminEtichette />} />
+              <Route path="clienti" element={<AdminClienti />} />
+            </Route>
+
+            {/* Area cliente */}
+            <Route
+              path="/app"
+              element={
+                <ProtectedRoute roles={["cliente"]}>
+                  <ClientLayout />
+                </ProtectedRoute>
+              }
+            >
+              <Route index element={<ClientReferenze />} />
+              <Route path="entrate" element={<ClientEntrate />} />
+              <Route path="box" element={<ClientBox />} />
+              <Route path="spedizioni" element={<ClientSpedizioni />} />
+            </Route>
+
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </BrowserRouter>
+        <Toaster position="top-right" richColors />
+      </AuthProvider>
     </div>
   );
 }

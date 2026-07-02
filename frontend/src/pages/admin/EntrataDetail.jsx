@@ -1,0 +1,345 @@
+import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
+import { toast } from "sonner";
+import { api, fileUrl } from "@/lib/api";
+import { STATI_ENTRATA, STATI_BOX } from "@/lib/statuses";
+import { StatusBadge } from "@/components/StatusBadge";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Loader2, PackageCheck, Barcode, Plus, FileText, Save,
+} from "lucide-react";
+
+export default function AdminEntrataDetail() {
+  const { id } = useParams();
+  const [entrata, setEntrata] = useState(null);
+  const [boxes, setBoxes] = useState([]);
+  const [fnskuEdit, setFnskuEdit] = useState({});
+  const [selezione, setSelezione] = useState({});
+  const [copie, setCopie] = useState({});
+  const [formato, setFormato] = useState("50x30");
+  const [formati, setFormati] = useState(["50x30"]);
+  const [generando, setGenerando] = useState(false);
+
+  const load = () => {
+    api.get(`/entrate/${id}`).then((r) => {
+      setEntrata(r.data);
+      const fe = {}, cp = {};
+      r.data.righe.forEach((rg) => { fe[rg.id] = rg.fnsku || ""; cp[rg.id] = 1; });
+      setFnskuEdit(fe); setCopie(cp);
+    });
+    api.get(`/box?entrata_id=${id}`).then((r) => setBoxes(r.data));
+  };
+  useEffect(() => {
+    load();
+    api.get("/etichette/formati").then((r) => setFormati(r.data.formati));
+  }, [id]);
+
+  const ricevi = async () => {
+    await api.post(`/entrate/${id}/ricevi`);
+    toast.success("Entrata segnata come ricevuta");
+    load();
+  };
+
+  const cambiaStato = async (nuovo) => {
+    await api.put(`/entrate/${id}/stato`, { stato: nuovo });
+    toast.success("Stato aggiornato");
+    load();
+  };
+
+  const salvaFnsku = async (rigaId) => {
+    await api.put(`/entrate-righe/${rigaId}`, { fnsku: fnskuEdit[rigaId] || null });
+    toast.success("FNSKU salvato");
+    load();
+  };
+
+  const generaEtichette = async () => {
+    const items = entrata.righe
+      .filter((rg) => selezione[rg.id] && (fnskuEdit[rg.id] || rg.fnsku))
+      .map((rg) => ({
+        fnsku: fnskuEdit[rg.id] || rg.fnsku,
+        titolo: rg.ean,
+        copie: Number(copie[rg.id]) || 1,
+      }));
+    if (items.length === 0) {
+      toast.error("Seleziona almeno una riga con FNSKU");
+      return;
+    }
+    setGenerando(true);
+    try {
+      const res = await api.post("/etichette/genera", { items, formato, mostra_titolo: true }, { responseType: "blob" });
+      const url = URL.createObjectURL(res.data);
+      window.open(url, "_blank");
+      toast.success("PDF etichette generato");
+    } catch (e) {
+      toast.error("Errore nella generazione etichette");
+    } finally {
+      setGenerando(false);
+    }
+  };
+
+  if (!entrata)
+    return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
+
+  return (
+    <div className="space-y-6" data-testid="entrata-detail">
+      {/* Header */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="font-heading text-2xl font-bold tracking-tight">
+            {entrata.cliente_ragione_sociale} · <span className="capitalize">{entrata.tipo}</span>
+          </h1>
+          <div className="flex items-center gap-3 mt-2">
+            <StatusBadge stato={entrata.stato} />
+            <span className="text-xs text-muted-foreground">
+              Annunciata il {new Date(entrata.data_annuncio).toLocaleDateString("it-IT")}
+            </span>
+          </div>
+          {entrata.note && <p className="text-sm text-muted-foreground mt-2">{entrata.note}</p>}
+        </div>
+        <div className="flex items-center gap-2">
+          {entrata.stato === "in_attesa" && (
+            <Button data-testid="ricevi-btn" onClick={ricevi}>
+              <PackageCheck className="h-4 w-4 mr-2" /> Segna Ricevuto
+            </Button>
+          )}
+          <Select value={entrata.stato} onValueChange={cambiaStato}>
+            <SelectTrigger className="w-44" data-testid="entrata-stato-select"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {Object.keys(STATI_ENTRATA).map((s) => (
+                <SelectItem key={s} value={s}>{STATI_ENTRATA[s].label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {/* Righe + generazione etichette */}
+      <Card className="p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <h2 className="font-heading text-lg font-semibold">Righe (EAN · quantità · FNSKU)</h2>
+          <div className="flex items-center gap-2">
+            <Label className="text-xs">Formato</Label>
+            <Select value={formato} onValueChange={setFormato}>
+              <SelectTrigger className="w-28" data-testid="formato-select"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {formati.map((f) => <SelectItem key={f} value={f}>{f} mm</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Button onClick={generaEtichette} disabled={generando} data-testid="genera-etichette-btn">
+              {generando ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Barcode className="h-4 w-4 mr-2" />}
+              Genera etichette
+            </Button>
+          </div>
+        </div>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-10"></TableHead>
+              <TableHead>EAN</TableHead>
+              <TableHead>Q.tà</TableHead>
+              <TableHead>FNSKU</TableHead>
+              <TableHead>Copie</TableHead>
+              <TableHead></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {entrata.righe.map((rg) => (
+              <TableRow key={rg.id} data-testid={`riga-${rg.id}`}>
+                <TableCell>
+                  <Checkbox
+                    data-testid={`select-riga-${rg.id}`}
+                    checked={!!selezione[rg.id]}
+                    onCheckedChange={(v) => setSelezione({ ...selezione, [rg.id]: v })}
+                  />
+                </TableCell>
+                <TableCell className="font-mono text-xs">{rg.ean}</TableCell>
+                <TableCell>{rg.quantita}</TableCell>
+                <TableCell>
+                  <Input
+                    data-testid={`fnsku-input-${rg.id}`}
+                    value={fnskuEdit[rg.id] ?? ""}
+                    onChange={(e) => setFnskuEdit({ ...fnskuEdit, [rg.id]: e.target.value })}
+                    placeholder="es. X001ABCDE1"
+                    className="h-8 w-40 font-mono text-xs"
+                  />
+                </TableCell>
+                <TableCell>
+                  <Input
+                    type="number"
+                    min={1}
+                    data-testid={`copie-input-${rg.id}`}
+                    value={copie[rg.id] ?? 1}
+                    onChange={(e) => setCopie({ ...copie, [rg.id]: e.target.value })}
+                    className="h-8 w-20"
+                  />
+                </TableCell>
+                <TableCell className="text-right">
+                  <Button size="sm" variant="ghost" data-testid={`save-fnsku-${rg.id}`} onClick={() => salvaFnsku(rg.id)}>
+                    <Save className="h-4 w-4" />
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        <p className="text-xs text-muted-foreground mt-3">
+          Seleziona le righe con FNSKU e clicca "Genera etichette" per il PDF Code128 stampabile.
+        </p>
+      </Card>
+
+      {/* Box */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-heading text-lg font-semibold">Box in uscita ({boxes.length})</h2>
+          <NuovoBoxDialog entrata={entrata} onCreated={load} />
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          {boxes.length === 0 && <p className="text-sm text-muted-foreground">Nessun box creato.</p>}
+          {boxes.map((b) => (
+            <BoxCard key={b.id} box={b} onChange={load} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BoxCard({ box, onChange }) {
+  const cambiaStato = async (nuovo) => {
+    await api.put(`/box/${box.id}/stato`, { stato: nuovo });
+    toast.success("Stato box aggiornato");
+    onChange();
+  };
+  return (
+    <Card className="p-4" data-testid={`box-card-${box.id}`}>
+      <div className="flex items-center justify-between">
+        <div className="font-heading font-semibold font-mono">{box.numero_box}</div>
+        <StatusBadge stato={box.stato} tipo="box" />
+      </div>
+      <div className="text-xs text-muted-foreground mt-1">
+        {box.peso_kg ? `${box.peso_kg} kg · ` : ""}
+        {box.lunghezza_cm && box.larghezza_cm && box.altezza_cm
+          ? `${box.lunghezza_cm}×${box.larghezza_cm}×${box.altezza_cm} cm`
+          : "dimensioni n/d"}
+      </div>
+      <div className="text-xs mt-2">{box.contenuto?.length || 0} referenze nel box</div>
+      <div className="flex flex-wrap gap-2 mt-3 text-xs">
+        {box.etichetta_amazon_pdf_url && (
+          <a href={fileUrl(box.etichetta_amazon_pdf_url)} target="_blank" rel="noreferrer"
+             className="inline-flex items-center gap-1 text-blue-600" data-testid={`amazon-label-${box.id}`}>
+            <FileText className="h-3 w-3" /> Etichetta Amazon
+          </a>
+        )}
+        {box.etichetta_ups_pdf_url && (
+          <a href={fileUrl(box.etichetta_ups_pdf_url)} target="_blank" rel="noreferrer"
+             className="inline-flex items-center gap-1 text-blue-600" data-testid={`ups-label-${box.id}`}>
+            <FileText className="h-3 w-3" /> Etichetta UPS
+          </a>
+        )}
+      </div>
+      <div className="mt-3">
+        <Select value={box.stato} onValueChange={cambiaStato}>
+          <SelectTrigger className="w-full h-8" data-testid={`box-stato-select-${box.id}`}><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {Object.keys(STATI_BOX).map((s) => (
+              <SelectItem key={s} value={s}>{STATI_BOX[s].label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    </Card>
+  );
+}
+
+function NuovoBoxDialog({ entrata, onCreated }) {
+  const [open, setOpen] = useState(false);
+  const [numero, setNumero] = useState("");
+  const [peso, setPeso] = useState("");
+  const [dim, setDim] = useState({ l: "", w: "", h: "" });
+  const [contenuto, setContenuto] = useState({});
+  const [saving, setSaving] = useState(false);
+
+  const salva = async () => {
+    if (!numero) { toast.error("Inserisci il numero box"); return; }
+    const cont = entrata.righe
+      .filter((rg) => Number(contenuto[rg.id]) > 0)
+      .map((rg) => ({ ean: rg.ean, fnsku: rg.fnsku || "", quantita: Number(contenuto[rg.id]) }));
+    setSaving(true);
+    try {
+      await api.post("/box", {
+        entrata_id: entrata.id,
+        numero_box: numero,
+        peso_kg: peso ? Number(peso) : null,
+        lunghezza_cm: dim.l ? Number(dim.l) : null,
+        larghezza_cm: dim.w ? Number(dim.w) : null,
+        altezza_cm: dim.h ? Number(dim.h) : null,
+        contenuto: cont,
+      });
+      toast.success("Box creato");
+      setOpen(false); setNumero(""); setPeso(""); setDim({ l: "", w: "", h: "" }); setContenuto({});
+      onCreated();
+    } catch (e) {
+      toast.error("Errore creazione box");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" data-testid="nuovo-box-btn"><Plus className="h-4 w-4 mr-1" /> Nuovo box</Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg">
+        <DialogHeader><DialogTitle>Nuovo box</DialogTitle></DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <Label>Numero box</Label>
+            <Input data-testid="box-numero-input" value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="BOX-001" className="mt-1" />
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            <div><Label className="text-xs">Peso kg</Label><Input data-testid="box-peso-input" value={peso} onChange={(e) => setPeso(e.target.value)} className="mt-1" /></div>
+            <div><Label className="text-xs">L cm</Label><Input value={dim.l} onChange={(e) => setDim({ ...dim, l: e.target.value })} className="mt-1" /></div>
+            <div><Label className="text-xs">W cm</Label><Input value={dim.w} onChange={(e) => setDim({ ...dim, w: e.target.value })} className="mt-1" /></div>
+            <div><Label className="text-xs">H cm</Label><Input value={dim.h} onChange={(e) => setDim({ ...dim, h: e.target.value })} className="mt-1" /></div>
+          </div>
+          <div>
+            <Label className="text-xs">Contenuto (quantità per EAN)</Label>
+            <div className="mt-1 space-y-2 max-h-48 overflow-auto">
+              {entrata.righe.map((rg) => (
+                <div key={rg.id} className="flex items-center gap-2">
+                  <span className="font-mono text-xs flex-1">{rg.ean}</span>
+                  <Input
+                    type="number" min={0} placeholder="0"
+                    data-testid={`box-content-${rg.id}`}
+                    value={contenuto[rg.id] ?? ""}
+                    onChange={(e) => setContenuto({ ...contenuto, [rg.id]: e.target.value })}
+                    className="h-8 w-24"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button onClick={salva} disabled={saving} data-testid="box-salva-btn">
+            {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Crea box
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
