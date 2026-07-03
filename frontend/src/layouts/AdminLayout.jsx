@@ -31,9 +31,10 @@ export default function AdminLayout() {
     <div className="flex min-h-screen bg-background">
       {/* Sidebar scura — ambiente staff */}
       <aside className="hidden md:flex w-64 flex-col bg-zinc-950 text-zinc-100 border-r border-zinc-900 fixed h-screen">
-        <div className="flex items-center gap-3 h-24 px-6 border-b border-zinc-900">
-          <img src={logo} alt="Logo" className="h-12 w-auto object-contain drop-shadow-[0_0_14px_rgba(31,159,179,0.4)]" />
-          <span className="text-[10px] uppercase tracking-[0.25em] text-zinc-500 font-medium">Staff</span>
+        <div className="flex flex-col items-center justify-center h-28 px-6 border-b border-zinc-900">
+          <div className="logo-glow">
+            <img src={logo} alt="Logo" className="h-14 w-auto object-contain" />
+          </div>
         </div>
         <nav className="flex-1 px-3 py-4 space-y-1">
           {NAV.map((item) => (

@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
 import logo from "@/assets/logo.png";
 
-const BG = "https://images.unsplash.com/photo-1592085198739-ffcad7f36b54?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzB8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBsb2dpc3RpY3MlMjB3YXJlaG91c2UlMjBuaWdodHxlbnwwfHx8fDE3ODMwODUyNjd8MA&ixlib=rb-4.1.0&q=85";
+const BG = "https://static.prod-images.emergentagent.com/jobs/6363bdbb-44c0-46c4-b8d5-c90d833c6417/images/ab19571c313ab8a50da7638f0ea1e3dc7b41d17fdab1c0777da80a3cb8095c48.png";
 
 export default function Login() {
   const { login } = useAuth();
@@ -35,10 +35,12 @@ export default function Login() {
       {/* Colonna hero — immagine warehouse notturna + logo grande */}
       <div className="hidden lg:flex relative flex-col items-center justify-center p-12 overflow-hidden">
         <img src={BG} alt="Magazzino" className="absolute inset-0 h-full w-full object-cover" />
-        <div className="absolute inset-0 bg-zinc-950/85" />
+        <div className="absolute inset-0 bg-zinc-950/55" />
         <div className="relative z-10 flex flex-col items-center text-center text-white animate-fade-up">
-          <img src={logo} alt="Logo" className="h-28 w-auto object-contain drop-shadow-[0_0_40px_rgba(31,159,179,0.55)]" />
-          <h1 className="font-heading text-4xl font-black tracking-tight mt-8">Gestionale FBA</h1>
+          <div className="logo-glow">
+            <img src={logo} alt="Logo" className="h-44 w-auto object-contain" />
+          </div>
+          <h1 className="font-heading text-5xl font-black tracking-tight mt-10">Gestionale FBA</h1>
           <p className="mt-4 text-zinc-300 text-base max-w-md leading-relaxed">
             Ricezione merce, magazzino virtuale, preparazioni, etichette FNSKU e spedizioni verso Amazon — tutto in un unico posto.
           </p>

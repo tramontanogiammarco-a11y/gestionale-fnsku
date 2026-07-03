@@ -59,6 +59,17 @@ body {
 ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
 @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes pulseGlow { 0%, 100% { opacity: .5; transform: scale(1); } 50% { opacity: .9; transform: scale(1.08); } }
 @layer utilities {
     .animate-fade-up { animation: fadeUp .5s cubic-bezier(.16,1,.3,1) both; }
+}
+.logo-glow { position: relative; }
+.logo-glow::before {
+    content: "";
+    position: absolute;
+    inset: -35%;
+    background: radial-gradient(circle, rgba(31,159,179,0.45) 0%, rgba(31,159,179,0) 70%);
+    filter: blur(22px);
+    z-index: -1;
+    animation: pulseGlow 4s ease-in-out infinite;
 }
