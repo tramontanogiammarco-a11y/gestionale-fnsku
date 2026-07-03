@@ -16,7 +16,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, FileText, Trash2, Boxes as BoxesIcon, Warehouse } from "lucide-react";
+import { Loader2, Plus, FileText, Trash2, Boxes as BoxesIcon, ClipboardList } from "lucide-react";
 
 function azioneErrore(e) {
   if (e?.response?.status === 403)
@@ -24,12 +24,12 @@ function azioneErrore(e) {
   return e?.response?.data?.detail || "Operazione non riuscita.";
 }
 
-// Componi box a livello di CLIENTE pescando dal magazzino virtuale.
-// Un box può mescolare SKU provenienti da richieste di preparazione diverse.
+// Componi box a livello di CLIENTE pescando SOLO dalla merce in preparazione
+// (richiesta nelle Preparazioni). Un box può mescolare SKU di richieste diverse.
 export default function AdminComposizioneBox() {
   const [clienti, setClienti] = useState([]);
   const [clienteId, setClienteId] = useState("");
-  const [magazzino, setMagazzino] = useState([]);
+  const [preparato, setPreparato] = useState([]);
   const [boxes, setBoxes] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -39,10 +39,10 @@ export default function AdminComposizioneBox() {
     if (!cid) return;
     setLoading(true);
     Promise.all([
-      api.get(`/magazzino?cliente_id=${cid}`),
+      api.get(`/preparato?cliente_id=${cid}`),
       api.get(`/box?cliente_id=${cid}`),
     ])
-      .then(([m, b]) => { setMagazzino(m.data); setBoxes(b.data); })
+      .then(([p, b]) => { setPreparato(p.data); setBoxes(b.data); })
       .catch((e) => toast.error(azioneErrore(e)))
       .finally(() => setLoading(false));
   };
@@ -57,8 +57,7 @@ export default function AdminComposizioneBox() {
     } catch (e) { toast.error(azioneErrore(e)); }
   };
 
-  const libero = (m) => (m.disponibile - m.in_preparazione);
-  const disponibili = magazzino.filter((m) => libero(m) > 0);
+  const imballabili = preparato.filter((m) => m.disponibile > 0);
 
   return (
     <div className="space-y-6" data-testid="admin-composizione-box">
@@ -68,7 +67,7 @@ export default function AdminComposizioneBox() {
             <BoxesIcon className="h-7 w-7 text-blue-600" /> Composizione Box
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Componi i colli attingendo dal magazzino del cliente. Un box può contenere SKU di richieste diverse.
+            Componi i colli usando <b>solo la merce in preparazione</b> del cliente. Un box può contenere SKU di richieste diverse.
           </p>
         </div>
         <div className="w-72">
@@ -84,19 +83,19 @@ export default function AdminComposizioneBox() {
 
       {!clienteId ? (
         <Card className="p-10 text-center text-muted-foreground" data-testid="comp-empty-hint">
-          Seleziona un cliente per vedere il magazzino disponibile e comporre i box.
+          Seleziona un cliente per vedere la merce in preparazione e comporre i box.
         </Card>
       ) : loading ? (
         <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
       ) : (
         <>
-          {/* Magazzino disponibile */}
+          {/* Merce in preparazione (imballabile) */}
           <Card className="p-5">
             <div className="flex items-center justify-between mb-3">
               <h2 className="font-heading text-lg font-semibold flex items-center gap-2">
-                <Warehouse className="h-5 w-5 text-blue-600" /> Magazzino disponibile
+                <ClipboardList className="h-5 w-5 text-blue-600" /> Merce in preparazione
               </h2>
-              <NuovoBoxClienteDialog clienteId={clienteId} magazzino={disponibili} onCreated={() => load(clienteId)} />
+              <NuovoBoxClienteDialog clienteId={clienteId} imballabili={imballabili} onCreated={() => load(clienteId)} />
             </div>
             <Table>
               <TableHeader>
@@ -104,23 +103,25 @@ export default function AdminComposizioneBox() {
                   <TableHead>EAN</TableHead>
                   <TableHead>Prodotto</TableHead>
                   <TableHead>SKU</TableHead>
-                  <TableHead className="text-right">Disponibile</TableHead>
-                  <TableHead className="text-right">Impegnato</TableHead>
-                  <TableHead className="text-right">Libero</TableHead>
+                  <TableHead className="text-right">Richiesto</TableHead>
+                  <TableHead className="text-right">In box</TableHead>
+                  <TableHead className="text-right">Da imballare</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {magazzino.length === 0 && (
-                  <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-10">Magazzino vuoto per questo cliente.</TableCell></TableRow>
+                {preparato.length === 0 && (
+                  <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-10">
+                    Nessuna merce in preparazione. Il cliente deve prima creare una richiesta di preparazione.
+                  </TableCell></TableRow>
                 )}
-                {magazzino.map((m) => (
-                  <TableRow key={m.ean} data-testid={`comp-mag-${m.ean}`}>
+                {preparato.map((m) => (
+                  <TableRow key={m.ean} data-testid={`comp-prep-${m.ean}`}>
                     <TableCell className="font-mono text-xs">{m.ean}</TableCell>
                     <TableCell className="max-w-xs truncate">{m.titolo || "—"}</TableCell>
                     <TableCell className="font-mono text-xs">{m.skus.join(", ") || "—"}</TableCell>
-                    <TableCell className="text-right">{m.disponibile}</TableCell>
-                    <TableCell className="text-right text-orange-600">{m.in_preparazione}</TableCell>
-                    <TableCell className="text-right font-bold text-emerald-700">{libero(m)}</TableCell>
+                    <TableCell className="text-right">{m.richiesto}</TableCell>
+                    <TableCell className="text-right text-orange-600">{m.in_box}</TableCell>
+                    <TableCell className="text-right font-bold text-emerald-700">{m.disponibile}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -132,7 +133,7 @@ export default function AdminComposizioneBox() {
             <h2 className="font-heading text-lg font-semibold mb-3">Box del cliente ({boxes.length})</h2>
             {boxes.length === 0 ? (
               <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800" data-testid="comp-no-box">
-                Nessun box. Clicca <b>"Nuovo box"</b> per comporre un collo dal magazzino disponibile.
+                Nessun box. Clicca <b>"Nuovo box"</b> per comporre un collo dalla merce in preparazione.
               </div>
             ) : (
               <div className="grid gap-3 md:grid-cols-2">
@@ -180,7 +181,7 @@ export default function AdminComposizioneBox() {
   );
 }
 
-function NuovoBoxClienteDialog({ clienteId, magazzino, onCreated }) {
+function NuovoBoxClienteDialog({ clienteId, imballabili, onCreated }) {
   const [open, setOpen] = useState(false);
   const [numero, setNumero] = useState("");
   const [peso, setPeso] = useState("");
@@ -188,8 +189,8 @@ function NuovoBoxClienteDialog({ clienteId, magazzino, onCreated }) {
   const [righe, setRighe] = useState([{ ean: "", quantita: "" }]);
   const [saving, setSaving] = useState(false);
 
-  const infoEan = (ean) => magazzino.find((x) => x.ean === ean);
-  const libero = (ean) => { const m = infoEan(ean); return m ? m.disponibile - m.in_preparazione : 0; };
+  const infoEan = (ean) => imballabili.find((x) => x.ean === ean);
+  const libero = (ean) => { const m = infoEan(ean); return m ? m.disponibile : 0; };
 
   const update = (i, k, v) => { const n = [...righe]; n[i][k] = v; setRighe(n); };
   const addRow = () => setRighe([...righe, { ean: "", quantita: "" }]);
@@ -204,9 +205,8 @@ function NuovoBoxClienteDialog({ clienteId, magazzino, onCreated }) {
         return { ean: r.ean, sku: info?.skus?.[0] || null, fnsku: "", quantita: Number(r.quantita) };
       });
     if (cont.length === 0) { toast.error("Aggiungi almeno una referenza con quantità"); return; }
-    // Controllo lato client (il backend valida comunque)
     const eccesso = cont.find((c) => c.quantita > libero(c.ean));
-    if (eccesso) { toast.error(`Quantità oltre il disponibile per EAN ${eccesso.ean} (max ${libero(eccesso.ean)}).`); return; }
+    if (eccesso) { toast.error(`Quantità oltre la merce in preparazione per EAN ${eccesso.ean} (max ${libero(eccesso.ean)}).`); return; }
     setSaving(true);
     try {
       await api.post("/box", {
@@ -229,7 +229,7 @@ function NuovoBoxClienteDialog({ clienteId, magazzino, onCreated }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="sm" disabled={magazzino.length === 0} data-testid="comp-nuovo-box-btn">
+        <Button size="sm" disabled={imballabili.length === 0} data-testid="comp-nuovo-box-btn">
           <Plus className="h-4 w-4 mr-1" /> Nuovo box
         </Button>
       </DialogTrigger>
@@ -247,7 +247,7 @@ function NuovoBoxClienteDialog({ clienteId, magazzino, onCreated }) {
             <div><Label className="text-xs">H cm</Label><Input value={dim.h} onChange={(e) => setDim({ ...dim, h: e.target.value })} className="mt-1" /></div>
           </div>
           <div>
-            <Label className="text-xs">Contenuto — aggiungi referenze dal magazzino disponibile</Label>
+            <Label className="text-xs">Contenuto — aggiungi referenze dalla merce in preparazione</Label>
             <div className="mt-1 space-y-2 max-h-64 overflow-auto">
               {righe.map((r, i) => (
                 <div key={i} className="grid grid-cols-12 gap-2 items-center" data-testid={`comp-cont-row-${i}`}>
@@ -255,9 +255,9 @@ function NuovoBoxClienteDialog({ clienteId, magazzino, onCreated }) {
                     <Select value={r.ean} onValueChange={(v) => update(i, "ean", v)}>
                       <SelectTrigger className="h-9" data-testid={`comp-cont-ean-${i}`}><SelectValue placeholder="Scegli EAN / SKU" /></SelectTrigger>
                       <SelectContent>
-                        {magazzino.map((m) => (
+                        {imballabili.map((m) => (
                           <SelectItem key={m.ean} value={m.ean}>
-                            {m.ean}{m.skus?.length ? ` · ${m.skus.join("/")}` : ""} — {m.titolo || ""} (libero {m.disponibile - m.in_preparazione})
+                            {m.ean}{m.skus?.length ? ` · ${m.skus.join("/")}` : ""} — {m.titolo || ""} (da imballare {m.disponibile})
                           </SelectItem>
                         ))}
                       </SelectContent>

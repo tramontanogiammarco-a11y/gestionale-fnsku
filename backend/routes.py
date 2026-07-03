@@ -399,17 +399,18 @@ async def crea_box(payload: M.BoxCreate, user: dict = Depends(require_admin)):
     if not cid:
         raise HTTPException(status_code=400, detail="cliente_id, entrata_id o preparazione_id richiesto")
 
-    # Guardrail giacenza: il contenuto non può superare la quantità libera del
-    # magazzino (disponibile - già impegnata in box non spediti).
-    if payload.contenuto:
-        mag = await _magazzino_per_cliente(cid)
-        libero = {m["ean"]: m["disponibile"] - m["in_preparazione"] for m in mag}
+    # Guardrail: nella composizione a livello cliente si può imballare SOLO la
+    # merce in preparazione (somma richiesta dalle preparazioni attive) meno
+    # quanto già inserito in box non spediti.
+    if payload.contenuto and not payload.entrata_id and not payload.preparazione_id:
+        prep = await _preparato_per_cliente(cid)
+        disp = {p["ean"]: p["disponibile"] for p in prep}
         for c in payload.contenuto:
-            disp = libero.get(c.ean, 0)
-            if c.quantita > disp:
+            avail = disp.get(c.ean, 0)
+            if c.quantita > avail:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Quantità non disponibile per EAN {c.ean}: richiesti {c.quantita}, liberi {disp}")
+                    detail=f"EAN {c.ean}: puoi imballare solo la merce in preparazione (richiesti {c.quantita}, imballabili {avail}).")
 
     box = M.Box(entrata_id=payload.entrata_id, preparazione_id=payload.preparazione_id,
                 cliente_id=cid, numero_box=payload.numero_box, peso_kg=payload.peso_kg,
@@ -588,6 +589,64 @@ async def magazzino(cliente_id: Optional[str] = Query(None),
     else:
         cid = user.get("cliente_id")
     return await _magazzino_per_cliente(cid)
+
+
+async def _preparato_per_cliente(cid: str):
+    """Merce IMBALLABILE per un cliente: solo ciò che è stato messo in preparazione.
+
+    richiesto   = somma quantità richieste nelle preparazioni attive (non spedite)
+    in_box      = somma quantità già inserite in box non spediti
+    disponibile = richiesto - in_box (quantità ancora da imballare)
+    Vengono restituiti SOLO gli EAN presenti in almeno una preparazione attiva.
+    """
+    preps = await db.preparazioni.find(
+        {"cliente_id": cid, "stato": {"$in": ["richiesta", "in_lavorazione", "pronto"]}},
+        {"id": 1}).to_list(5000)
+    prep_ids = [p["id"] for p in preps]
+    richiesto, sku_map = {}, {}
+    if prep_ids:
+        righe = await db.preparazioni_righe.find({"preparazione_id": {"$in": prep_ids}}).to_list(None)
+        for r in righe:
+            richiesto[r["ean"]] = richiesto.get(r["ean"], 0) + int(r.get("quantita", 0))
+            if r.get("sku"):
+                sku_map.setdefault(r["ean"], set()).add(r["sku"])
+
+    in_box = {}
+    box_list = await db.box.find({"cliente_id": cid, "stato": {"$ne": "spedito"}}).to_list(5000)
+    for b in box_list:
+        for c in b.get("contenuto", []):
+            in_box[c["ean"]] = in_box.get(c["ean"], 0) + int(c.get("quantita", 0))
+
+    refs = await db.referenze.find({"cliente_id": cid}).to_list(5000)
+    titolo_map = {}
+    for rf in refs:
+        titolo_map.setdefault(rf["ean"], rf.get("titolo"))
+
+    result = []
+    for ean in sorted(richiesto):
+        ric = richiesto[ean]
+        ib = in_box.get(ean, 0)
+        result.append({
+            "ean": ean,
+            "titolo": titolo_map.get(ean),
+            "skus": sorted(sku_map.get(ean, [])),
+            "richiesto": ric,
+            "in_box": ib,
+            "disponibile": ric - ib,
+        })
+    return result
+
+
+@router.get("/preparato")
+async def preparato(cliente_id: Optional[str] = Query(None),
+                    user: dict = Depends(get_current_user)):
+    if is_staff(user):
+        if not cliente_id:
+            raise HTTPException(status_code=400, detail="cliente_id richiesto")
+        cid = cliente_id
+    else:
+        cid = user.get("cliente_id")
+    return await _preparato_per_cliente(cid)
 
 
 async def _prep_con_righe(prep: dict) -> dict:

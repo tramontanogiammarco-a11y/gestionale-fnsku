@@ -40,6 +40,11 @@ Stack richiesto originale: React+Vite+Tailwind + Supabase + Vercel.
 - Ottimizzazione query N+1 (entrate/box) per deploy readiness
 - **Magazzino virtuale + Preparazioni**: giacenze per EAN (ricevuto/in_preparazione/spedito/disponibile); cliente crea preparazioni (EAN+SKU da dropdown+quantità); box legato alla preparazione (multi-arrivo); scarico giacenza a "spedito"; aree admin e cliente dedicate. Testato 28/28 backend.
 
+## Iterazioni (2026-07-03)
+- **Dettaglio Entrata (admin)** ripulito: rimossa gestione Box; resta ricezione merce + FNSKU + generazione etichette Code128.
+- **Nuova sezione admin "Composizione Box"** (`/admin/composizione-box`): seleziona cliente → componi box multi-referenza a livello cliente, mescolando SKU di preparazioni diverse. Endpoint `GET /api/preparato?cliente_id=`.
+- **Regola imballaggio**: nella composizione a livello cliente si può imballare SOLO la merce in preparazione (somma richiesta dalle preparazioni attive − già in box non spediti). Guardrail backend in `POST /api/box` (400 se oltre quota o EAN non in preparazione). Aggiunto campo `sku` al contenuto box. Testato via curl (valido/oltre-quota/non-in-prep).
+
 ## Backlog / prossime fasi (non implementate — fuori scope MVP)
 - P1: Import via Amazon SP-API (agganciare a importer.py)
 - P1: Brute-force lockout su login (5 tentativi), reset password via email
