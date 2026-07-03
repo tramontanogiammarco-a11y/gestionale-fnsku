@@ -1,149 +1,101 @@
 {
+  "project_name": "FBA Prep Center SaaS",
   "theme": "light",
-  "archetype": "4_swiss_and_high_contrast",
-  "domain": "b2b_logistics_warehouse_erp",
-  "global_vibe": "Serious, data-dense, trustworthy, operational, clear. Built for high-volume scanning, data entry, and status tracking in a warehouse environment.",
-  "typography": {
-    "fonts": {
-      "headings": "Chivo",
-      "body": "IBM Plex Sans",
-      "mono": "JetBrains Mono"
-    },
-    "hierarchy": {
-      "h1": "text-3xl sm:text-4xl font-bold tracking-tight text-slate-900",
-      "h2": "text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900",
-      "h3": "text-xl sm:text-2xl font-semibold text-slate-800",
-      "h4": "text-lg sm:text-xl font-medium text-slate-800",
-      "body": "text-sm sm:text-base leading-relaxed text-slate-600",
-      "mono_data": "font-mono text-xs sm:text-sm tracking-tight text-slate-700",
-      "labels": "text-xs font-bold uppercase tracking-[0.1em] text-slate-500"
-    },
-    "rules": [
-      "Use Chivo for all dashboard widget titles and page headers.",
-      "Use IBM Plex Sans for tables, forms, and general UI.",
-      "CRITICAL: ALWAYS use JetBrains Mono for SKUs, ASINs, EANs, FNSKUs, and tracking numbers to avoid character confusion (like 1 vs I, 0 vs O).",
-      "Do not center text inside tables or data-heavy views. Left-align text, right-align numbers/currencies."
-    ]
-  },
+  "archetype": "Swiss & High-Contrast (adapted for Brand Teal)",
   "colors": {
-    "background": {
-      "app": "#F8FAFC",
-      "card": "#FFFFFF",
-      "sidebar": "#0F172A"
-    },
-    "primary": {
-      "default": "#2563EB",
-      "hover": "#1D4ED8",
-      "text_on_primary": "#FFFFFF"
-    },
-    "text": {
-      "primary": "#0F172A",
-      "secondary": "#475569",
-      "tertiary": "#94A3B8"
-    },
-    "border": {
-      "default": "#E2E8F0",
-      "focus": "#2563EB"
-    },
-    "statuses": {
-      "in_attesa": {
-        "bg": "#FEF3C7",
-        "text": "#B45309",
-        "border": "#FDE68A",
-        "icon_color": "#F59E0B",
-        "description": "Waiting for goods to arrive"
-      },
-      "ricevuto": {
-        "bg": "#DBEAFE",
-        "text": "#1D4ED8",
-        "border": "#BFDBFE",
-        "icon_color": "#3B82F6",
-        "description": "Goods physically received at warehouse"
-      },
-      "in_lavorazione": {
-        "bg": "#FFEDD5",
-        "text": "#C2410C",
-        "border": "#FED7AA",
-        "icon_color": "#F97316",
-        "description": "Staff is labeling and packaging"
-      },
-      "pronto": {
-        "bg": "#D1FAE5",
-        "text": "#047857",
-        "border": "#A7F3D0",
-        "icon_color": "#10B981",
-        "description": "Ready, waiting for shipping labels"
-      },
-      "spedito": {
-        "bg": "#F1F5F9",
-        "text": "#0F172A",
-        "border": "#E2E8F0",
-        "icon_color": "#475569",
-        "description": "Successfully shipped to Amazon FBA"
-      }
+    "background": "#F8FAFC",
+    "foreground": "#020617",
+    "sidebar": "#09090B",
+    "sidebar_foreground": "#A1A1AA",
+    "sidebar_hover": "#FFFFFF",
+    "sidebar_active": "#1F9FB3",
+    "primary": "#1F9FB3",
+    "primary_foreground": "#FFFFFF",
+    "card": "#FFFFFF",
+    "card_foreground": "#020617",
+    "border": "#E2E8F0",
+    "ring": "#1F9FB3",
+    "status": {
+      "in_attesa": "#F59E0B",
+      "arrivato": "#3B82F6",
+      "in_lavorazione": "#8B5CF6",
+      "pronto": "#10B981",
+      "spedito": "#1F9FB3"
     }
   },
-  "layout": {
-    "strategy": "control_room",
-    "spacing": "tight",
-    "border_radius": "rounded-md",
-    "navigation": {
-      "admin": "Fixed dark sidebar (w-64) with high contrast. Ensures distinct 'staff' environment.",
-      "client": "Top navigation or light sidebar. Must visually distinguish the client area from the admin area to prevent confusion."
+  "typography": {
+    "headings": {
+      "font_family": "Chivo",
+      "weights": ["300", "400", "700", "900"],
+      "h1": "text-4xl tracking-tighter font-black text-slate-900",
+      "h2": "text-2xl sm:text-3xl tracking-tight font-bold text-slate-900",
+      "h3": "text-xl sm:text-2xl tracking-tight font-bold text-slate-900",
+      "h4": "text-lg sm:text-xl tracking-tight font-semibold text-slate-800"
     },
-    "cards": {
-      "style": "Flat card design with 1px solid border (#E2E8F0), white background, zero shadow by default. On hover: shadow-sm."
+    "body": {
+      "font_family": "IBM Plex Sans",
+      "weights": ["400", "500", "600"],
+      "base": "text-sm text-slate-700 leading-relaxed",
+      "large": "text-base text-slate-800 leading-relaxed",
+      "small": "text-xs text-slate-500 uppercase tracking-[0.2em] font-medium"
     },
-    "data_density": "High. Use compact table rows (py-2 or py-3) to fit maximum SKUs on screen without scrolling."
+    "mono": {
+      "font_family": "JetBrains Mono",
+      "usage": "Strictly for FNSKU barcodes, IDs, tracking numbers, and numeric data in tables. Use text-sm or text-xs."
+    }
+  },
+  "spacing_and_layout": {
+    "general": "B2B dense grid with optical alignment. Use generous padding (p-6 or p-8) inside major containers to prevent text collision.",
+    "dashboard_grid": "Control Room Grid (Dense). Base: grid-cols-1 md:grid-cols-3 lg:grid-cols-4. Gap: gap-6. Every pixel utilized. h-full on children.",
+    "border_radius": "Subtle roundness. Use rounded-md (6px) globally for inputs, cards, and buttons to keep it crisp, technical, and modern."
   },
   "components": {
-    "tables": {
-      "style": "Shadcn Table. Sticky headers. EAN/FNSKU columns must use mono font. Include a thumbnail column for product photos.",
-      "actions": "Use dropdown menus (Shadcn) at the end of rows for actions (Print Label, Edit, Change Status)."
+    "cards": {
+      "style": "Flat solid surfaces. 1px border (border-slate-200), shadow-sm. No heavy shadows. High contrast text.",
+      "kpi": "Large primary metric (text-3xl font-black Chivo), small tracking label above it (text-xs uppercase tracking-[0.2em] text-slate-500)."
+    },
+    "buttons": {
+      "primary": "bg-[#1F9FB3] text-white hover:bg-[#1A899A] rounded-md transition-all px-4 py-2 font-medium focus:ring-2 focus:ring-[#1F9FB3]/50 focus:outline-none",
+      "secondary": "bg-white text-slate-900 border border-slate-200 hover:bg-slate-50 rounded-md transition-all px-4 py-2 font-medium"
     },
     "badges": {
-      "style": "Pill shape (rounded-full), solid pale background, bold dark text, 1px border. MUST map exactly to the 'statuses' color palette."
+      "style": "rounded-full px-2.5 py-0.5 text-[11px] font-bold tracking-wide uppercase border",
+      "variants": "Colors based on status palette. Background is 10% opacity of the color, text is the pure color, border is 20% opacity of the color."
     },
-    "forms": {
-      "inputs": "Shadcn UI inputs. 1px solid border, subtle focus ring (ring-2 ring-blue-500/20 border-blue-500). Left aligned labels.",
-      "file_upload": "Drag and drop zone for Excel/CSV imports and PDF labels. Must show clear success/error states."
+    "tables": {
+      "style": "Grid Borders style. border-collapse. border-b border-slate-200 on rows. Hover state on rows: bg-slate-50. Compact density (py-2 px-4 cells) for fast scanning."
     },
-    "barcode_generator": {
-      "type": "Code128",
-      "library_recommendation": "react-barcode or bwip-js",
-      "format": "50x30mm PDF export (use @react-pdf/renderer or jsPDF)"
+    "sidebar": {
+      "style": "Dark mode exclusive. bg-zinc-950 border-r border-zinc-900. Text is zinc-400, hover is text-white bg-zinc-900/50. Active state uses border-l-2 border-[#1F9FB3] text-white.",
+      "logo_container": "h-24 flex flex-col items-start justify-center px-6 border-b border-zinc-900/50. Massive negative space to let the logo breathe."
     },
-    "icons": {
-      "library": "phosphor-icons/react",
-      "style": "Regular weight for dense UI, Duotone for dashboard summary cards."
+    "client_top_nav": {
+      "style": "Crystal Glassmorphism. backdrop-blur-xl bg-white/80 border-b border-slate-200/50 shadow-sm. Sticky top-0 z-50. Client logo visible but constrained to max-h-10."
     }
   },
-  "interactions": {
-    "hover": "Subtle background shifts (bg-slate-50) on table rows. Action buttons should darken on hover.",
-    "focus": "High contrast blue outline on all inputs for accessibility and fast keyboard navigation.",
-    "transitions": "Keep animations very minimal (150ms ease). The system must feel instantaneous."
+  "media_urls": {
+    "logo": {
+      "url": "https://customer-assets.emergentagent.com/job_6363bdbb-44c0-46c4-b8d5-c90d833c6417/artifacts/lnml187l_imago_Tavola%20disegno%201.png",
+      "description": "Brand Logo (Teal/cyan lemon-slice + arrow + ai wordmark). Transparent background. Pops best on the dark Zinc-950 sidebar background and the dark login hero."
+    },
+    "login_background": {
+      "url": "https://images.unsplash.com/photo-1592085198739-ffcad7f36b54?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzB8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBsb2dpc3RpY3MlMjB3YXJlaG91c2UlMjBuaWdodHxlbnwwfHx8fDE3ODMwODUyNjd8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Premium modern warehouse background for login split screen. MUST use an overlay of bg-zinc-950/85 to ensure the teal logo and typography pop massively without the image overwhelming the layout."
+    }
   },
-  "testing": {
-    "attributes": "All interactive elements (buttons, row actions, tabs, file uploaders) MUST include data-testid. E.g., data-testid='upload-csv-button'."
-  },
-  "media": {
-    "images": [
-      {
-        "category": "login_background",
-        "url": "https://images.unsplash.com/photo-1771530789155-b1f03fbf82b5?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1MTN8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjB3YXJlaG91c2UlMjBsb2dpc3RpY3MlMjBpbnRlcmlvcnxlbnwwfHx8fDE3ODI5NzYyMzl8MA&ixlib=rb-4.1.0&q=85",
-        "description": "Clean, empty modern warehouse interior. Use as a subtle, darkened background (with overlay) for the login page."
-      }
-    ]
+  "animations": {
+    "micro_interactions": "Hover states on all interactive elements. Buttons lift slightly (-translate-y-0.5) with 'transition-transform duration-200'. Table rows use subtle bg color transition.",
+    "page_transitions": "If using framer-motion, implement a staggered fade-up for dashboard KPI cards and table list items (0.05s stagger, y: 10 to 0)."
   },
   "instructions_to_main_agent": [
-    "Install specific fonts: Chivo, IBM Plex Sans, JetBrains Mono.",
-    "Install @phosphor-icons/react for iconography.",
-    "Build Shadcn tables with high data density. Ensure all SKU/EAN/FNSKU fields use JetBrains Mono (font-mono class) for precise readability.",
-    "Implement the 5 strict color-coded statuses defined in colors.statuses across the entire application (Dashboards, Tables, Box details).",
-    "Client UI vs Admin UI: Ensure they share the design system but have distinct layouts (e.g., dark sidebar for Admin, top-nav for Client) so context is immediately obvious.",
-    "Make sure file uploaders for the 'Amazon/UPS PDF labels' show a preview or clear filename upon successful selection.",
-    "Use standard HTML/Tailwind for the dashboard layout (Control Room Grid).",
-    "All interactive elements MUST have data-testid attributes.",
-    "For the FNSKU generator, implement a layout that explicitly supports the required 50x30mm PDF output format."
+    "Ensure all interactive elements have data-testid attributes (kebab-case, role-based).",
+    "Install and use @phosphor-icons/react for sharp, professional dashboard iconography. (yarn add @phosphor-icons/react)",
+    "Implement the login page as a 50/50 split (md:grid-cols-2). Left side: the dark warehouse image with heavy zinc-950/85 overlay, placing the massive brand logo vertically and horizontally centered with a poetic, premium tagline. Right side: clean, high-contrast white form.",
+    "For the Admin Sidebar, strictly use the dark theme (bg-zinc-950) so the transparent teal logo pops. Do not invert the logo, the #1F9FB3 color shines beautifully against near-black.",
+    "Tables must have sticky headers and handle horizontal scrolling gracefully. Do not use generic Shadcn cards everywhere; go cardless and rectangular for dense table views.",
+    "Invoice PDF generation and Barcode generation should use the exact same typography (Chivo/JetBrains Mono).",
+    "Keep Shadcn components but override borders to rounded-md and use the custom #1F9FB3 ring color for focus states.",
+    "For the Client area top-nav, use backdrop-blur-xl bg-white/80 to achieve the 'Crystal Glass' effect, adding a subtle shadow-sm.",
+    "Ensure the progress steppers for 'Preparazioni' are highly visible, using the status colors defined to show the exact lifecycle stage."
   ]
 }
