@@ -29,7 +29,7 @@ export default function ClientLayout() {
         <div className="max-w-[1200px] mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-2">
-              <div className="h-12 w-12 rounded-lg bg-zinc-950 flex items-center justify-center shadow-sm">
+              <div className="h-12 w-12 rounded-lg bg-white border border-slate-200 flex items-center justify-center shadow-sm">
                 <img src={logo} alt="Logo" className="h-9 w-9 object-contain" />
               </div>
               <div>

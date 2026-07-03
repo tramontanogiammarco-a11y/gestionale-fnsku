@@ -33,7 +33,9 @@ export default function AdminLayout() {
       <aside className="hidden md:flex w-64 flex-col bg-zinc-950 text-zinc-100 border-r border-zinc-900 fixed h-screen">
         <div className="flex flex-col items-center justify-center h-28 px-6 border-b border-zinc-900">
           <div className="logo-glow">
-            <img src={logo} alt="Logo" className="h-14 w-auto object-contain" />
+            <div className="bg-white rounded-2xl px-5 py-3 shadow-lg">
+              <img src={logo} alt="Logo" className="h-11 w-auto object-contain" />
+            </div>
           </div>
         </div>
         <nav className="flex-1 px-3 py-4 space-y-1">
@@ -72,7 +74,7 @@ export default function AdminLayout() {
       {/* Top bar mobile */}
       <div className="md:hidden fixed top-0 inset-x-0 z-20 bg-zinc-950 border-b border-zinc-900 text-white flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-2">
-          <img src={logo} alt="Logo" className="h-6 w-6 object-contain" />
+          <div className="bg-white rounded-md p-1"><img src={logo} alt="Logo" className="h-5 w-5 object-contain" /></div>
           <span className="font-heading font-bold text-sm">Gestionale FBA</span>
         </div>
         <button onClick={handleLogout} data-testid="logout-btn-mobile"><LogOut className="h-5 w-5" /></button>

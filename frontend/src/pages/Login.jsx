@@ -38,7 +38,9 @@ export default function Login() {
         <div className="absolute inset-0 bg-zinc-950/55" />
         <div className="relative z-10 flex flex-col items-center text-center text-white animate-fade-up">
           <div className="logo-glow">
-            <img src={logo} alt="Logo" className="h-44 w-auto object-contain" />
+            <div className="bg-white rounded-3xl px-10 py-8 shadow-2xl">
+              <img src={logo} alt="Logo" className="h-28 w-auto object-contain" />
+            </div>
           </div>
           <h1 className="font-heading text-5xl font-black tracking-tight mt-10">Gestionale FBA</h1>
           <p className="mt-4 text-zinc-300 text-base max-w-md leading-relaxed">
