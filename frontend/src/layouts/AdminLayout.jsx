@@ -30,13 +30,10 @@ export default function AdminLayout() {
   return (
     <div className="flex min-h-screen bg-background">
       {/* Sidebar scura — ambiente staff */}
-      <aside className="hidden md:flex w-64 flex-col bg-slate-900 text-slate-100 fixed h-screen">
-        <div className="flex items-center gap-3 px-6 py-5 border-b border-slate-800">
-          <img src={logo} alt="Logo" className="h-9 w-9 object-contain" />
-          <div>
-            <div className="font-heading font-bold text-sm leading-tight">Gestionale FBA</div>
-            <div className="text-[10px] uppercase tracking-widest text-slate-400">Backend Staff</div>
-          </div>
+      <aside className="hidden md:flex w-64 flex-col bg-zinc-950 text-zinc-100 border-r border-zinc-900 fixed h-screen">
+        <div className="flex items-center gap-3 h-24 px-6 border-b border-zinc-900">
+          <img src={logo} alt="Logo" className="h-12 w-auto object-contain drop-shadow-[0_0_14px_rgba(31,159,179,0.4)]" />
+          <span className="text-[10px] uppercase tracking-[0.25em] text-zinc-500 font-medium">Staff</span>
         </div>
         <nav className="flex-1 px-3 py-4 space-y-1">
           {NAV.map((item) => (
@@ -47,10 +44,10 @@ export default function AdminLayout() {
               data-testid={`nav-${item.id}`}
               className={({ isActive }) =>
                 cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                  "flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-all border-l-2",
                   isActive
-                    ? "bg-blue-600 text-white"
-                    : "text-slate-300 hover:bg-slate-800 hover:text-white"
+                    ? "border-[#1F9FB3] bg-zinc-900 text-white"
+                    : "border-transparent text-zinc-400 hover:bg-zinc-900/60 hover:text-white"
                 )
               }
             >
@@ -59,12 +56,12 @@ export default function AdminLayout() {
             </NavLink>
           ))}
         </nav>
-        <div className="border-t border-slate-800 p-4">
-          <div className="text-xs text-slate-400 mb-2 truncate">{user?.email}</div>
+        <div className="border-t border-zinc-900 p-4">
+          <div className="text-xs text-zinc-500 mb-2 truncate">{user?.email}</div>
           <button
             data-testid="logout-btn"
             onClick={handleLogout}
-            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white"
+            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-zinc-400 hover:bg-zinc-900 hover:text-white transition-colors"
           >
             <LogOut className="h-4 w-4" /> Esci
           </button>
@@ -72,7 +69,7 @@ export default function AdminLayout() {
       </aside>
 
       {/* Top bar mobile */}
-      <div className="md:hidden fixed top-0 inset-x-0 z-20 bg-slate-900 text-white flex items-center justify-between px-4 py-3">
+      <div className="md:hidden fixed top-0 inset-x-0 z-20 bg-zinc-950 border-b border-zinc-900 text-white flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-2">
           <img src={logo} alt="Logo" className="h-6 w-6 object-contain" />
           <span className="font-heading font-bold text-sm">Gestionale FBA</span>
@@ -81,7 +78,7 @@ export default function AdminLayout() {
       </div>
 
       <main className="flex-1 md:ml-64 pt-16 md:pt-0">
-        <div className="p-4 sm:p-6 lg:p-8 max-w-[1400px]">
+        <div className="p-4 sm:p-6 lg:p-8 max-w-[1400px] animate-fade-up">
           <Outlet />
         </div>
       </main>

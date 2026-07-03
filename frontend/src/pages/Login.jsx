@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
 import logo from "@/assets/logo.png";
 
-const BG = "https://images.unsplash.com/photo-1771530789155-b1f03fbf82b5?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1MTN8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjB3YXJlaG91c2UlMjBsb2dpc3RpY3MlMjBpbnRlcmlvcnxlbnwwfHx8fDE3ODI5NzYyMzl8MA&ixlib=rb-4.1.0&q=85";
+const BG = "https://images.unsplash.com/photo-1592085198739-ffcad7f36b54?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzB8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBsb2dpc3RpY3MlMjB3YXJlaG91c2UlMjBuaWdodHxlbnwwfHx8fDE3ODMwODUyNjd8MA&ixlib=rb-4.1.0&q=85";
 
 export default function Login() {
   const { login } = useAuth();
@@ -31,25 +31,26 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex">
-      {/* Colonna immagine warehouse */}
-      <div className="hidden lg:block lg:w-1/2 relative">
+    <div className="min-h-screen grid lg:grid-cols-2">
+      {/* Colonna hero — immagine warehouse notturna + logo grande */}
+      <div className="hidden lg:flex relative flex-col items-center justify-center p-12 overflow-hidden">
         <img src={BG} alt="Magazzino" className="absolute inset-0 h-full w-full object-cover" />
-        <div className="absolute inset-0 bg-slate-900/70" />
-        <div className="relative z-10 flex flex-col justify-end h-full p-12 text-white">
-          <img src={logo} alt="Logo" className="h-14 w-14 object-contain mb-4" />
-          <h1 className="font-heading text-4xl font-bold leading-tight">Gestionale FBA</h1>
-          <p className="mt-3 text-slate-300 text-base max-w-md">
-            Gestione completa di referenze, entrate merce, etichettatura FNSKU e spedizioni verso Amazon FBA.
+        <div className="absolute inset-0 bg-zinc-950/85" />
+        <div className="relative z-10 flex flex-col items-center text-center text-white animate-fade-up">
+          <img src={logo} alt="Logo" className="h-28 w-auto object-contain drop-shadow-[0_0_40px_rgba(31,159,179,0.55)]" />
+          <h1 className="font-heading text-4xl font-black tracking-tight mt-8">Gestionale FBA</h1>
+          <p className="mt-4 text-zinc-300 text-base max-w-md leading-relaxed">
+            Ricezione merce, magazzino virtuale, preparazioni, etichette FNSKU e spedizioni verso Amazon — tutto in un unico posto.
           </p>
+          <div className="mt-8 h-1 w-16 rounded-full bg-[#1F9FB3]" />
         </div>
       </div>
 
       {/* Colonna form */}
-      <div className="flex-1 flex items-center justify-center p-6 bg-background">
-        <div className="w-full max-w-sm">
-          <div className="flex items-center gap-2 mb-8 lg:hidden">
-            <img src={logo} alt="Logo" className="h-8 w-8 object-contain" />
+      <div className="flex items-center justify-center p-6 bg-background">
+        <div className="w-full max-w-sm animate-fade-up">
+          <div className="flex items-center gap-3 mb-8 lg:hidden">
+            <img src={logo} alt="Logo" className="h-10 w-auto object-contain" />
             <span className="font-heading font-bold text-lg">Gestionale FBA</span>
           </div>
           <h2 className="font-heading text-2xl font-bold text-slate-900">Accedi</h2>

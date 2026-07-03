@@ -25,12 +25,12 @@ export default function ClientLayout() {
   return (
     <div className="min-h-screen bg-background">
       {/* Top navigation — area cliente (chiara, distinta dal backend) */}
-      <header className="sticky top-0 z-20 bg-white border-b border-border">
+      <header className="sticky top-0 z-30 backdrop-blur-xl bg-white/80 border-b border-slate-200/60 shadow-sm">
         <div className="max-w-[1200px] mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-2">
-              <div className="h-9 w-9 rounded-md bg-slate-900 flex items-center justify-center">
-                <img src={logo} alt="Logo" className="h-6 w-6 object-contain" />
+              <div className="h-11 w-11 rounded-lg bg-zinc-950 flex items-center justify-center shadow-sm">
+                <img src={logo} alt="Logo" className="h-8 w-8 object-contain" />
               </div>
               <div>
                 <div className="font-heading font-bold text-sm leading-tight">{user?.name}</div>

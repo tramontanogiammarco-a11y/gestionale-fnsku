@@ -33,19 +33,21 @@ export default function AdminDashboard() {
   return (
     <div className="space-y-6" data-testid="admin-dashboard">
       <div>
-        <h1 className="font-heading text-3xl font-bold tracking-tight">Dashboard</h1>
+        <h1 className="font-heading text-4xl font-black tracking-tighter">Dashboard</h1>
         <p className="text-muted-foreground text-sm mt-1">Panoramica operativa del prep center.</p>
       </div>
 
       {/* KPI */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {kpis.map((k) => (
-          <Card key={k.label} className="p-5 flex items-center justify-between hover:shadow-sm transition-shadow">
+        {kpis.map((k, i) => (
+          <Card key={k.label} style={{ animationDelay: `${i * 60}ms` }} className="animate-fade-up p-5 flex items-center justify-between hover:-translate-y-0.5 hover:shadow-md transition-all">
             <div>
-              <div className="text-xs uppercase tracking-widest text-muted-foreground">{k.label}</div>
-              <div className="font-heading text-3xl font-bold mt-1">{k.value}</div>
+              <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-medium">{k.label}</div>
+              <div className="font-heading text-4xl font-black mt-2 tracking-tight">{k.value}</div>
             </div>
-            <k.icon className="h-8 w-8 text-blue-500/70" />
+            <div className="h-11 w-11 rounded-lg bg-primary/10 flex items-center justify-center">
+              <k.icon className="h-5 w-5 text-primary" />
+            </div>
           </Card>
         ))}
       </div>

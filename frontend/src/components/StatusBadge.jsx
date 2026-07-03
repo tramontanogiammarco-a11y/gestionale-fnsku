@@ -9,7 +9,7 @@ export function StatusBadge({ stato, tipo = "entrata", className }) {
     <span
       data-testid={`status-badge-${stato}`}
       className={cn(
-        "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold",
+        "inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide",
         cfg.cls,
         className
       )}
