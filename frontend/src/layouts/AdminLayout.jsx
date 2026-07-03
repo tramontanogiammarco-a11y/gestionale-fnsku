@@ -4,6 +4,7 @@ import {
   LayoutDashboard, PackageOpen, Users, Boxes, Tags, Barcode, LogOut, Warehouse, ClipboardList, PackagePlus, Receipt,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import logo from "@/assets/logo.png";
 
 const NAV = [
   { to: "/admin", end: true, label: "Dashboard", icon: LayoutDashboard, id: "dashboard" },
@@ -30,10 +31,10 @@ export default function AdminLayout() {
     <div className="flex min-h-screen bg-background">
       {/* Sidebar scura — ambiente staff */}
       <aside className="hidden md:flex w-64 flex-col bg-slate-900 text-slate-100 fixed h-screen">
-        <div className="flex items-center gap-2 px-6 py-5 border-b border-slate-800">
-          <Warehouse className="h-6 w-6 text-blue-400" />
+        <div className="flex items-center gap-3 px-6 py-5 border-b border-slate-800">
+          <img src={logo} alt="Logo" className="h-9 w-9 object-contain" />
           <div>
-            <div className="font-heading font-bold text-sm leading-tight">Prep Center</div>
+            <div className="font-heading font-bold text-sm leading-tight">Gestionale FBA</div>
             <div className="text-[10px] uppercase tracking-widest text-slate-400">Backend Staff</div>
           </div>
         </div>
@@ -73,8 +74,8 @@ export default function AdminLayout() {
       {/* Top bar mobile */}
       <div className="md:hidden fixed top-0 inset-x-0 z-20 bg-slate-900 text-white flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-2">
-          <Warehouse className="h-5 w-5 text-blue-400" />
-          <span className="font-heading font-bold text-sm">Prep Center</span>
+          <img src={logo} alt="Logo" className="h-6 w-6 object-contain" />
+          <span className="font-heading font-bold text-sm">Gestionale FBA</span>
         </div>
         <button onClick={handleLogout} data-testid="logout-btn-mobile"><LogOut className="h-5 w-5" /></button>
       </div>

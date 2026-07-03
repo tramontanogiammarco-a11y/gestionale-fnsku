@@ -2,6 +2,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Tags, PackageOpen, Boxes, Truck, LogOut, Warehouse, ClipboardList } from "lucide-react";
 import { cn } from "@/lib/utils";
+import logo from "@/assets/logo.png";
 
 const NAV = [
   { to: "/app", end: true, label: "Referenze", icon: Tags, id: "referenze" },
@@ -28,8 +29,8 @@ export default function ClientLayout() {
         <div className="max-w-[1200px] mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-2">
-              <div className="h-9 w-9 rounded-md bg-blue-600 flex items-center justify-center">
-                <Warehouse className="h-5 w-5 text-white" />
+              <div className="h-9 w-9 rounded-md bg-slate-900 flex items-center justify-center">
+                <img src={logo} alt="Logo" className="h-6 w-6 object-contain" />
               </div>
               <div>
                 <div className="font-heading font-bold text-sm leading-tight">{user?.name}</div>
