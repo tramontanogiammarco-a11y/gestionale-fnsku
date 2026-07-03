@@ -7,8 +7,6 @@ import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
 import logo from "@/assets/logo.png";
 
-const BG = "https://static.prod-images.emergentagent.com/jobs/6363bdbb-44c0-46c4-b8d5-c90d833c6417/images/ab19571c313ab8a50da7638f0ea1e3dc7b41d17fdab1c0777da80a3cb8095c48.png";
-
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -33,17 +31,13 @@ export default function Login() {
   return (
     <div className="min-h-screen grid lg:grid-cols-2">
       {/* Colonna hero — immagine warehouse notturna + logo grande */}
-      <div className="hidden lg:flex relative flex-col items-center justify-center p-12 overflow-hidden">
-        <img src={BG} alt="Magazzino" className="absolute inset-0 h-full w-full object-cover" />
-        <div className="absolute inset-0 bg-zinc-950/55" />
-        <div className="relative z-10 flex flex-col items-center text-center text-white animate-fade-up">
-          <div className="logo-glow">
-            <div className="bg-white rounded-3xl px-10 py-8 shadow-2xl">
-              <img src={logo} alt="Logo" className="h-28 w-auto object-contain" />
-            </div>
-          </div>
-          <h1 className="font-heading text-5xl font-black tracking-tight mt-10">Gestionale FBA</h1>
-          <p className="mt-4 text-zinc-300 text-base max-w-md leading-relaxed">
+      <div className="hidden lg:flex relative flex-col items-center justify-center p-12 overflow-hidden bg-gradient-to-br from-slate-50 via-white to-[#e8f7fa]">
+        <div className="absolute -top-24 -left-24 h-96 w-96 rounded-full bg-[#1F9FB3]/15 blur-3xl" />
+        <div className="absolute -bottom-24 -right-24 h-96 w-96 rounded-full bg-[#1F9FB3]/10 blur-3xl" />
+        <div className="relative z-10 flex flex-col items-center text-center animate-fade-up">
+          <img src={logo} alt="Logo" className="h-44 w-auto object-contain" />
+          <h1 className="font-heading text-5xl font-black tracking-tight mt-8 text-slate-900">Gestionale FBA</h1>
+          <p className="mt-4 text-slate-500 text-base max-w-md leading-relaxed">
             Ricezione merce, magazzino virtuale, preparazioni, etichette FNSKU e spedizioni verso Amazon — tutto in un unico posto.
           </p>
           <div className="mt-8 h-1 w-16 rounded-full bg-[#1F9FB3]" />
