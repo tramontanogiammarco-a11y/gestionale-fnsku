@@ -30,13 +30,9 @@ export default function AdminLayout() {
   return (
     <div className="flex min-h-screen bg-background">
       {/* Sidebar scura — ambiente staff */}
-      <aside className="hidden md:flex w-64 flex-col bg-zinc-950 text-zinc-100 border-r border-zinc-900 fixed h-screen">
-        <div className="flex flex-col items-center justify-center h-28 px-6 border-b border-zinc-900">
-          <div className="logo-glow">
-            <div className="bg-white rounded-2xl px-5 py-3 shadow-lg">
-              <img src={logo} alt="Logo" className="h-11 w-auto object-contain" />
-            </div>
-          </div>
+      <aside className="hidden md:flex w-64 flex-col bg-white text-slate-700 border-r border-slate-200 fixed h-screen">
+        <div className="flex items-center justify-center h-28 px-6 border-b border-slate-200">
+          <img src={logo} alt="Logo" className="h-14 w-auto object-contain" />
         </div>
         <nav className="flex-1 px-3 py-4 space-y-1">
           {NAV.map((item) => (
@@ -49,8 +45,8 @@ export default function AdminLayout() {
                 cn(
                   "flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-all border-l-2",
                   isActive
-                    ? "border-[#1F9FB3] bg-zinc-900 text-white"
-                    : "border-transparent text-zinc-400 hover:bg-zinc-900/60 hover:text-white"
+                    ? "border-[#1F9FB3] bg-[#1F9FB3]/10 text-[#0f7c8c] font-semibold"
+                    : "border-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-900"
                 )
               }
             >
@@ -59,12 +55,12 @@ export default function AdminLayout() {
             </NavLink>
           ))}
         </nav>
-        <div className="border-t border-zinc-900 p-4">
-          <div className="text-xs text-zinc-500 mb-2 truncate">{user?.email}</div>
+        <div className="border-t border-slate-200 p-4">
+          <div className="text-xs text-slate-400 mb-2 truncate">{user?.email}</div>
           <button
             data-testid="logout-btn"
             onClick={handleLogout}
-            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-zinc-400 hover:bg-zinc-900 hover:text-white transition-colors"
+            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors"
           >
             <LogOut className="h-4 w-4" /> Esci
           </button>
@@ -72,9 +68,9 @@ export default function AdminLayout() {
       </aside>
 
       {/* Top bar mobile */}
-      <div className="md:hidden fixed top-0 inset-x-0 z-20 bg-zinc-950 border-b border-zinc-900 text-white flex items-center justify-between px-4 py-3">
+      <div className="md:hidden fixed top-0 inset-x-0 z-20 bg-white border-b border-slate-200 text-slate-900 flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-2">
-          <div className="bg-white rounded-md p-1"><img src={logo} alt="Logo" className="h-5 w-5 object-contain" /></div>
+          <img src={logo} alt="Logo" className="h-7 w-auto object-contain" />
           <span className="font-heading font-bold text-sm">Gestionale FBA</span>
         </div>
         <button onClick={handleLogout} data-testid="logout-btn-mobile"><LogOut className="h-5 w-5" /></button>

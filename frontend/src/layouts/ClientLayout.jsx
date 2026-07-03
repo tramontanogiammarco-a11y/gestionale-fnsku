@@ -28,10 +28,8 @@ export default function ClientLayout() {
       <header className="sticky top-0 z-30 backdrop-blur-xl bg-white/80 border-b border-slate-200/60 shadow-sm">
         <div className="max-w-[1200px] mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-2">
-              <div className="h-12 w-12 rounded-lg bg-white border border-slate-200 flex items-center justify-center shadow-sm">
-                <img src={logo} alt="Logo" className="h-9 w-9 object-contain" />
-              </div>
+            <div className="flex items-center gap-3">
+              <img src={logo} alt="Logo" className="h-10 w-auto object-contain" />
               <div>
                 <div className="font-heading font-bold text-sm leading-tight">{user?.name}</div>
                 <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Area Cliente</div>
