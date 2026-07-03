@@ -107,5 +107,4 @@ async def _write_test_credentials():
 async def run_seed():
     await _ensure_indexes()
     await _ensure_admin()
-    await _ensure_demo_data()
     await _write_test_credentials()
