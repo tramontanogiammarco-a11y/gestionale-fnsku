@@ -3,11 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { api, formatApiError } from "@/lib/api";
 import { StatusBadge } from "@/components/StatusBadge";
-import { FLUSSO_PREP, STATI_PREP } from "@/lib/statuses";
+import { FLUSSO_PREP, STATI_PREP, SERVIZI } from "@/lib/statuses";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
@@ -26,7 +27,7 @@ export default function ClientPreparazioni() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-heading text-2xl font-bold tracking-tight">Preparazioni</h1>
-          <p className="text-muted-foreground text-sm mt-1">Chiedi al prep center di preparare pezzi dal tuo magazzino.</p>
+          <p className="text-muted-foreground text-sm mt-1">Chiedi al prep center di preparare pezzi dal tuo magazzino, scegliendo le lavorazioni.</p>
         </div>
         <NuovaPreparazioneDialog onDone={load} />
       </div>
@@ -34,7 +35,7 @@ export default function ClientPreparazioni() {
       {!preps ? (
         <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
       ) : preps.length === 0 ? (
-        <Card className="p-10 text-center text-muted-foreground">Nessuna preparazione. Creane una scegliendo EAN, SKU e quantità dal magazzino.</Card>
+        <Card className="p-10 text-center text-muted-foreground">Nessuna preparazione. Creane una scegliendo EAN, SKU, quantità e lavorazioni.</Card>
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
           {preps.map((p) => (
@@ -53,7 +54,7 @@ export default function ClientPreparazioni() {
                 })}
               </div>
               <div className="flex items-center justify-end gap-1 mt-3 text-xs font-medium text-blue-600">
-                {p.stato === "pronto" ? "Carica etichette" : "Apri dettaglio"}<ChevronRight className="h-4 w-4" />
+                Apri dettaglio<ChevronRight className="h-4 w-4" />
               </div>
             </Card>
           ))}
@@ -67,7 +68,7 @@ function NuovaPreparazioneDialog({ onDone }) {
   const [open, setOpen] = useState(false);
   const [magazzino, setMagazzino] = useState([]);
   const [note, setNote] = useState("");
-  const [righe, setRighe] = useState([{ ean: "", sku: "", quantita: "" }]);
+  const [righe, setRighe] = useState([{ ean: "", sku: "", quantita: "", servizi: [] }]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => { if (open) api.get("/magazzino").then((r) => setMagazzino(r.data)); }, [open]);
@@ -80,19 +81,26 @@ function NuovaPreparazioneDialog({ onDone }) {
     if (k === "ean") { const skus = skusPerEan(v); next[i].sku = skus.length === 1 ? skus[0] : ""; }
     setRighe(next);
   };
-  const addRow = () => setRighe([...righe, { ean: "", sku: "", quantita: "" }]);
+  const toggleServ = (i, key) => {
+    const next = [...righe];
+    const set = new Set(next[i].servizi);
+    set.has(key) ? set.delete(key) : set.add(key);
+    next[i].servizi = [...set];
+    setRighe(next);
+  };
+  const addRow = () => setRighe([...righe, { ean: "", sku: "", quantita: "", servizi: [] }]);
   const delRow = (i) => setRighe(righe.filter((_, idx) => idx !== i));
 
   const salva = async () => {
     const valide = righe
       .filter((r) => r.ean && Number(r.quantita) > 0)
-      .map((r) => ({ ean: r.ean, sku: r.sku || null, quantita: Number(r.quantita) }));
+      .map((r) => ({ ean: r.ean, sku: r.sku || null, quantita: Number(r.quantita), servizi: r.servizi }));
     if (valide.length === 0) { toast.error("Aggiungi almeno una riga con EAN e quantità"); return; }
     setSaving(true);
     try {
       await api.post("/preparazioni", { note, righe: valide });
       toast.success("Preparazione inviata al prep center");
-      setOpen(false); setNote(""); setRighe([{ ean: "", sku: "", quantita: "" }]);
+      setOpen(false); setNote(""); setRighe([{ ean: "", sku: "", quantita: "", servizi: [] }]);
       onDone();
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail));
@@ -104,29 +112,39 @@ function NuovaPreparazioneDialog({ onDone }) {
       <DialogTrigger asChild><Button data-testid="nuova-prep-btn"><ClipboardList className="h-4 w-4 mr-2" /> Nuova preparazione</Button></DialogTrigger>
       <DialogContent className="max-w-2xl">
         <DialogHeader><DialogTitle>Richiedi preparazione</DialogTitle></DialogHeader>
-        <div className="space-y-4">
+        <div className="space-y-4 max-h-[70vh] overflow-auto pr-1">
           <datalist id="mag-ean-list">
             {magazzino.map((m) => <option key={m.ean} value={m.ean}>{`${m.titolo || m.ean} (disp. ${m.disponibile})`}</option>)}
           </datalist>
           <div>
-            <Label className="text-xs">Righe (EAN · SKU · quantità)</Label>
-            <div className="mt-1 space-y-2">
+            <Label className="text-xs">Righe (EAN · SKU · quantità · lavorazioni)</Label>
+            <div className="mt-1 space-y-3">
               {righe.map((r, i) => {
                 const skus = skusPerEan(r.ean);
                 const disp = dispPerEan(r.ean);
                 return (
-                  <div key={i} className="grid grid-cols-12 gap-2 items-center" data-testid={`prep-riga-${i}`}>
-                    <Input list="mag-ean-list" className="col-span-4 font-mono text-xs" data-testid={`prep-ean-${i}`} value={r.ean} onChange={(e) => update(i, "ean", e.target.value)} placeholder="EAN" />
-                    {skus.length > 0 ? (
-                      <select className="col-span-4 h-9 rounded-md border border-input bg-background px-2 text-xs font-mono" data-testid={`prep-sku-${i}`} value={r.sku} onChange={(e) => update(i, "sku", e.target.value)}>
-                        <option value="">— scegli SKU —</option>
-                        {skus.map((s) => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                    ) : (
-                      <Input className="col-span-4 font-mono text-xs" data-testid={`prep-sku-${i}`} value={r.sku} onChange={(e) => update(i, "sku", e.target.value)} placeholder="SKU" />
-                    )}
-                    <Input type="number" min={1} className="col-span-3" data-testid={`prep-qta-${i}`} value={r.quantita} onChange={(e) => update(i, "quantita", e.target.value)} placeholder={disp != null ? `max ${disp}` : "Q.tà"} />
-                    <Button variant="ghost" size="icon" className="col-span-1" onClick={() => delRow(i)} disabled={righe.length === 1} data-testid={`prep-del-${i}`}><Trash2 className="h-4 w-4" /></Button>
+                  <div key={i} className="rounded-md border border-border p-3" data-testid={`prep-riga-${i}`}>
+                    <div className="grid grid-cols-12 gap-2 items-center">
+                      <Input list="mag-ean-list" className="col-span-5 font-mono text-xs" data-testid={`prep-ean-${i}`} value={r.ean} onChange={(e) => update(i, "ean", e.target.value)} placeholder="EAN" />
+                      {skus.length > 0 ? (
+                        <select className="col-span-4 h-9 rounded-md border border-input bg-background px-2 text-xs font-mono" data-testid={`prep-sku-${i}`} value={r.sku} onChange={(e) => update(i, "sku", e.target.value)}>
+                          <option value="">— scegli SKU —</option>
+                          {skus.map((s) => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      ) : (
+                        <Input className="col-span-4 font-mono text-xs" data-testid={`prep-sku-${i}`} value={r.sku} onChange={(e) => update(i, "sku", e.target.value)} placeholder="SKU" />
+                      )}
+                      <Input type="number" min={1} className="col-span-2" data-testid={`prep-qta-${i}`} value={r.quantita} onChange={(e) => update(i, "quantita", e.target.value)} placeholder={disp != null ? `max ${disp}` : "Q.tà"} />
+                      <Button variant="ghost" size="icon" className="col-span-1" onClick={() => delRow(i)} disabled={righe.length === 1} data-testid={`prep-del-${i}`}><Trash2 className="h-4 w-4" /></Button>
+                    </div>
+                    <div className="flex flex-wrap gap-4 mt-2 pl-1">
+                      {Object.keys(SERVIZI).map((key) => (
+                        <label key={key} className="flex items-center gap-1.5 text-xs cursor-pointer">
+                          <Checkbox checked={r.servizi.includes(key)} onCheckedChange={() => toggleServ(i, key)} data-testid={`prep-serv-${i}-${key}`} />
+                          {SERVIZI[key].label}
+                        </label>
+                      ))}
+                    </div>
                   </div>
                 );
               })}

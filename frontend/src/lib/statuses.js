@@ -21,6 +21,14 @@ export const STATI_PREP = {
   spedito: { label: "Spedito", cls: "bg-slate-100 text-slate-700 border-slate-200" },
 };
 
+// Servizi di lavorazione richiedibili sulle righe di preparazione
+export const SERVIZI = {
+  fnsku: { label: "FNSKU" },
+  busta: { label: "Busta trasparente" },
+  nastratura: { label: "Nastratura" },
+  pluriball: { label: "Pluriball" },
+};
+
 export const FLUSSO_PREP = ["richiesta", "in_lavorazione", "pronto", "spedito"];
 
 export const FLUSSO_ENTRATA = ["in_attesa", "ricevuto"];

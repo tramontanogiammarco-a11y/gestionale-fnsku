@@ -83,6 +83,7 @@ export default function ClientEntrate() {
 function NuovaEntrataDialog({ onDone }) {
   const [open, setOpen] = useState(false);
   const [tipo, setTipo] = useState("pallet");
+  const [colli, setColli] = useState(1);
   const [ddt, setDdt] = useState("");
   const [tracking, setTracking] = useState("");
   const [note, setNote] = useState("");
@@ -111,9 +112,9 @@ function NuovaEntrataDialog({ onDone }) {
     if (valide.length === 0) { toast.error("Aggiungi almeno una riga con EAN e quantità"); return; }
     setSaving(true);
     try {
-      await api.post("/entrate", { tipo, ddt: ddt || null, tracking: tracking || null, note, righe: valide });
+      await api.post("/entrate", { tipo, colli: Number(colli) || 1, ddt: ddt || null, tracking: tracking || null, note, righe: valide });
       toast.success("Entrata annunciata");
-      setOpen(false); setTipo("pallet"); setDdt(""); setTracking(""); setNote(""); setRighe([{ ean: "", quantita: "", fnsku: "" }]);
+      setOpen(false); setTipo("pallet"); setColli(1); setDdt(""); setTracking(""); setNote(""); setRighe([{ ean: "", quantita: "", fnsku: "" }]);
       onDone();
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail));
@@ -126,7 +127,7 @@ function NuovaEntrataDialog({ onDone }) {
       <DialogContent className="max-w-2xl">
         <DialogHeader><DialogTitle>Annuncia arrivo merce</DialogTitle></DialogHeader>
         <div className="space-y-4">
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-4 gap-3">
             <div>
               <Label>Tipo</Label>
               <Select value={tipo} onValueChange={setTipo}>
@@ -136,6 +137,10 @@ function NuovaEntrataDialog({ onDone }) {
                   <SelectItem value="scatola">Scatola</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div>
+              <Label>N. colli</Label>
+              <Input type="number" min={1} data-testid="entrata-colli" value={colli} onChange={(e) => setColli(e.target.value)} className="mt-1" />
             </div>
             <div>
               <Label>N. DDT</Label>

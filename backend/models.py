@@ -22,16 +22,31 @@ def _uuid() -> str:
 # ---------------------------------------------------------------------------
 # CLIENTI
 # ---------------------------------------------------------------------------
+class Listino(BaseModel):
+    """Prezzi personalizzati per cliente (in euro)."""
+    fnsku: float = 0.10            # €/pezzo
+    busta: float = 0.0            # €/pezzo (busta trasparente)
+    nastratura: float = 0.0       # €/pezzo
+    pluriball: float = 0.0        # €/pezzo
+    inscatolamento: float = 0.0   # €/box spedito ad Amazon
+    stoccaggio_pallet: float = 0.0  # €/pallet al mese
+    entrata_pallet: float = 0.0   # €/pallet in entrata
+    entrata_scatola: float = 0.0  # €/scatola in entrata
+    iva: float = 22.0             # % IVA
+
+
 class ClienteCreate(BaseModel):
     ragione_sociale: str
     email: EmailStr
     password: str
     note: Optional[str] = None
+    listino: Optional[Listino] = None
 
 
 class ClienteUpdate(BaseModel):
     ragione_sociale: Optional[str] = None
     note: Optional[str] = None
+    listino: Optional[Listino] = None
 
 
 class Cliente(BaseModel):
@@ -40,6 +55,7 @@ class Cliente(BaseModel):
     email: str
     user_id: str
     note: Optional[str] = None
+    listino: Listino = Field(default_factory=Listino)
     created_at: str = Field(default_factory=_now_iso)
 
 
@@ -90,6 +106,7 @@ class RigaEntrataInput(BaseModel):
 class EntrataCreate(BaseModel):
     cliente_id: Optional[str] = None  # richiesto solo per admin
     tipo: str  # "pallet" | "scatola"
+    colli: int = 1  # numero di pallet o scatole in arrivo (per fatturazione entrata)
     ddt: Optional[str] = None  # numero DDT (documento di trasporto)
     tracking: Optional[str] = None  # codice tracking corriere
     note: Optional[str] = None
@@ -100,6 +117,7 @@ class Entrata(BaseModel):
     id: str = Field(default_factory=_uuid)
     cliente_id: str
     tipo: str
+    colli: int = 1
     ddt: Optional[str] = None
     tracking: Optional[str] = None
     stato: str = "in_attesa"  # in_attesa|ricevuto|in_lavorazione|pronto|spedito
@@ -169,6 +187,7 @@ class Box(BaseModel):
     etichetta_amazon_pdf_url: Optional[str] = None
     etichetta_ups_pdf_url: Optional[str] = None
     contenuto: List[BoxContenutoInput] = []
+    data_spedito: Optional[str] = None  # quando il box passa a "spedito" (per fatturazione)
     created_at: str = Field(default_factory=_now_iso)
 
 
@@ -194,6 +213,7 @@ class PrepRigaInput(BaseModel):
     ean: str
     sku: Optional[str] = None  # scelto dal cliente (un EAN può avere più SKU)
     quantita: int
+    servizi: List[str] = []  # fnsku|busta|nastratura|pluriball
 
 
 class PreparazioneCreate(BaseModel):
@@ -207,6 +227,7 @@ class Preparazione(BaseModel):
     cliente_id: str
     stato: str = "richiesta"  # richiesta|in_lavorazione|pronto|spedito
     note: Optional[str] = None
+    data_pronto: Optional[str] = None  # quando diventa "pronto" (per fatturazione)
     created_at: str = Field(default_factory=_now_iso)
 
 
@@ -216,3 +237,4 @@ class PrepRiga(BaseModel):
     ean: str
     sku: Optional[str] = None
     quantita: int
+    servizi: List[str] = []

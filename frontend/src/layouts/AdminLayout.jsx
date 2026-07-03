@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import {
-  LayoutDashboard, PackageOpen, Users, Boxes, Tags, Barcode, LogOut, Warehouse, ClipboardList, PackagePlus,
+  LayoutDashboard, PackageOpen, Users, Boxes, Tags, Barcode, LogOut, Warehouse, ClipboardList, PackagePlus, Receipt,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -14,6 +14,7 @@ const NAV = [
   { to: "/admin/referenze", label: "Referenze", icon: Tags, id: "referenze" },
   { to: "/admin/etichette", label: "Etichette FNSKU", icon: Barcode, id: "etichette" },
   { to: "/admin/clienti", label: "Clienti", icon: Users, id: "clienti" },
+  { to: "/admin/fatturazione", label: "Fatturazione", icon: Receipt, id: "fatturazione" },
 ];
 
 export default function AdminLayout() {

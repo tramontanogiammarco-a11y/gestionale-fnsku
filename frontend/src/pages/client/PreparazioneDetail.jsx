@@ -3,21 +3,19 @@ import { useParams, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { StatusBadge } from "@/components/StatusBadge";
-import { FLUSSO_PREP, STATI_PREP } from "@/lib/statuses";
-import { ClientBoxUpload } from "@/components/ClientBoxUpload";
+import { FLUSSO_PREP, STATI_PREP, SERVIZI } from "@/lib/statuses";
 import { Card } from "@/components/ui/card";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Loader2, ArrowLeft, Box as BoxIcon, ClipboardList } from "lucide-react";
+import { Loader2, ArrowLeft, ClipboardList } from "lucide-react";
 
 export default function ClientPreparazioneDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [prep, setPrep] = useState(null);
-  const [boxes, setBoxes] = useState([]);
 
-  const load = () => {
+  useEffect(() => {
     api.get(`/preparazioni/${id}`).then((r) => setPrep(r.data)).catch((e) => {
       const s = e?.response?.status;
       if (s === 403) toast.error("Questa preparazione non appartiene al tuo account.");
@@ -25,9 +23,7 @@ export default function ClientPreparazioneDetail() {
       else if (s !== 401) toast.error("Impossibile caricare la preparazione.");
       navigate("/app/preparazioni");
     });
-    api.get(`/box?preparazione_id=${id}`).then((r) => setBoxes(r.data)).catch(() => {});
-  };
-  useEffect(() => { load(); }, [id]);
+  }, [id, navigate]);
 
   if (!prep)
     return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
@@ -53,16 +49,26 @@ export default function ClientPreparazioneDetail() {
       </div>
 
       <Card className="p-5">
-        <h2 className="font-heading text-lg font-semibold flex items-center gap-2 mb-3"><ClipboardList className="h-5 w-5 text-blue-600" /> Prodotti richiesti</h2>
+        <h2 className="font-heading text-lg font-semibold flex items-center gap-2 mb-3"><ClipboardList className="h-5 w-5 text-blue-600" /> Prodotti e lavorazioni richieste</h2>
         <Table>
           <TableHeader>
-            <TableRow><TableHead>EAN</TableHead><TableHead>SKU</TableHead><TableHead className="text-right">Quantità</TableHead></TableRow>
+            <TableRow><TableHead>EAN</TableHead><TableHead>SKU</TableHead><TableHead>Lavorazioni</TableHead><TableHead className="text-right">Quantità</TableHead></TableRow>
           </TableHeader>
           <TableBody>
             {prep.righe.map((r) => (
               <TableRow key={r.id} data-testid={`cprep-riga-${r.id}`}>
                 <TableCell className="font-mono text-xs">{r.ean}</TableCell>
                 <TableCell className="font-mono text-xs">{r.sku || "—"}</TableCell>
+                <TableCell>
+                  <div className="flex flex-wrap gap-1">
+                    {(r.servizi || []).length === 0 && <span className="text-xs text-muted-foreground">—</span>}
+                    {(r.servizi || []).map((s) => (
+                      <span key={s} className="inline-flex rounded-full bg-blue-50 border border-blue-200 text-blue-700 px-2 py-0.5 text-[10px] font-medium">
+                        {SERVIZI[s]?.label || s}
+                      </span>
+                    ))}
+                  </div>
+                </TableCell>
                 <TableCell className="text-right">{r.quantita}</TableCell>
               </TableRow>
             ))}
@@ -71,16 +77,9 @@ export default function ClientPreparazioneDetail() {
       </Card>
 
       <Card className="p-5">
-        <h2 className="font-heading text-lg font-semibold flex items-center gap-2 mb-3"><BoxIcon className="h-5 w-5 text-blue-600" /> Scatole preparate</h2>
-        {boxes.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Il prep center non ha ancora preparato le scatole. Quando saranno pronte, qui potrai caricare le etichette Amazon e UPS.
-          </p>
-        ) : (
-          <div className="grid gap-3 md:grid-cols-2">
-            {boxes.map((b) => <ClientBoxUpload key={b.id} box={b} onDone={load} />)}
-          </div>
-        )}
+        <p className="text-sm text-muted-foreground">
+          Le etichette Amazon e UPS si caricano sui <b>colli</b> nella sezione <b>Spedizioni</b>, quando il prep center li ha preparati.
+        </p>
       </Card>
     </div>
   );

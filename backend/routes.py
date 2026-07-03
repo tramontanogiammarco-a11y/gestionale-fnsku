@@ -16,6 +16,7 @@ from auth import (get_current_user, require_admin, is_staff, hash_password)
 from bson import ObjectId
 import models as M
 import barcode_gen
+import invoice_gen
 from importer import parse_referenze_file
 
 router = APIRouter(prefix="/api", tags=["app"])
@@ -90,7 +91,8 @@ async def crea_cliente(payload: M.ClienteCreate, user: dict = Depends(require_ad
         raise HTTPException(status_code=400, detail="Email gia' registrata")
 
     cliente = M.Cliente(ragione_sociale=payload.ragione_sociale, email=email,
-                        user_id="", note=payload.note)
+                        user_id="", note=payload.note,
+                        listino=payload.listino or M.Listino())
     # crea utente auth con ruolo cliente collegato al cliente
     res = await db.users.insert_one({
         "email": email,
@@ -256,8 +258,8 @@ async def lista_entrate(cliente_id: Optional[str] = Query(None),
 @router.post("/entrate")
 async def crea_entrata(payload: M.EntrataCreate, user: dict = Depends(get_current_user)):
     cid = _resolve_cliente_id(user, payload.cliente_id)
-    entrata = M.Entrata(cliente_id=cid, tipo=payload.tipo, ddt=payload.ddt,
-                        tracking=payload.tracking, note=payload.note)
+    entrata = M.Entrata(cliente_id=cid, tipo=payload.tipo, colli=payload.colli,
+                        ddt=payload.ddt, tracking=payload.tracking, note=payload.note)
     await db.entrate.insert_one(entrata.model_dump())
     for r in payload.righe:
         riga = M.RigaEntrata(entrata_id=entrata.id, ean=r.ean,
@@ -350,7 +352,12 @@ async def _sync_stato_preparazione(preparazione_id: str):
         nuovo = "pronto"
     else:
         nuovo = "in_lavorazione"
-    await db.preparazioni.update_one({"id": preparazione_id}, {"$set": {"stato": nuovo}})
+    upd = {"stato": nuovo}
+    if nuovo == "pronto":
+        pd = await db.preparazioni.find_one({"id": preparazione_id}, {"data_pronto": 1})
+        if pd and not pd.get("data_pronto"):
+            upd["data_pronto"] = M._now_iso()
+    await db.preparazioni.update_one({"id": preparazione_id}, {"$set": upd})
 
 
 @router.get("/box")
@@ -447,7 +454,10 @@ async def cambia_stato_box(box_id: str, payload: M.StatoUpdate,
     d = await db.box.find_one({"id": box_id})
     if not d:
         raise HTTPException(status_code=404, detail="Box non trovato")
-    await db.box.update_one({"id": box_id}, {"$set": {"stato": payload.stato}})
+    box_upd = {"stato": payload.stato}
+    if payload.stato == "spedito" and not d.get("data_spedito"):
+        box_upd["data_spedito"] = M._now_iso()
+    await db.box.update_one({"id": box_id}, {"$set": box_upd})
     await _sync_stato_entrata(d.get("entrata_id"))
     await _sync_stato_preparazione(d.get("preparazione_id"))
     return _clean(await db.box.find_one({"id": box_id}))
@@ -600,7 +610,7 @@ async def _preparato_per_cliente(cid: str):
     Vengono restituiti SOLO gli EAN presenti in almeno una preparazione attiva.
     """
     preps = await db.preparazioni.find(
-        {"cliente_id": cid, "stato": {"$in": ["richiesta", "in_lavorazione", "pronto"]}},
+        {"cliente_id": cid, "stato": "pronto"},
         {"id": 1}).to_list(5000)
     prep_ids = [p["id"] for p in preps]
     richiesto, sku_map = {}, {}
@@ -612,7 +622,7 @@ async def _preparato_per_cliente(cid: str):
                 sku_map.setdefault(r["ean"], set()).add(r["sku"])
 
     in_box = {}
-    box_list = await db.box.find({"cliente_id": cid, "stato": {"$ne": "spedito"}}).to_list(5000)
+    box_list = await db.box.find({"cliente_id": cid}).to_list(5000)
     for b in box_list:
         for c in b.get("contenuto", []):
             in_box[c["ean"]] = in_box.get(c["ean"], 0) + int(c.get("quantita", 0))
@@ -651,8 +661,23 @@ async def preparato(cliente_id: Optional[str] = Query(None),
 
 async def _prep_con_righe(prep: dict) -> dict:
     righe = await db.preparazioni_righe.find({"preparazione_id": prep["id"]}).to_list(1000)
+    # Arricchisci ogni riga con FNSKU/titolo/referenza dalla referenza del cliente
+    refs = await db.referenze.find({"cliente_id": prep["cliente_id"]}).to_list(5000)
+    by_ean_sku, by_ean = {}, {}
+    for rf in refs:
+        by_ean.setdefault(rf["ean"], rf)
+        if rf.get("sku"):
+            by_ean_sku[(rf["ean"], rf["sku"])] = rf
     prep = _clean(prep)
-    prep["righe"] = [_clean(r) for r in righe]
+    out = []
+    for r in righe:
+        r = _clean(r)
+        ref = by_ean_sku.get((r["ean"], r.get("sku"))) or by_ean.get(r["ean"])
+        r["fnsku"] = ref.get("fnsku") if ref else None
+        r["titolo"] = ref.get("titolo") if ref else None
+        r["referenza_id"] = ref.get("id") if ref else None
+        out.append(r)
+    prep["righe"] = out
     return prep
 
 
@@ -693,7 +718,7 @@ async def crea_preparazione(payload: M.PreparazioneCreate, user: dict = Depends(
     prep = M.Preparazione(cliente_id=cid, note=payload.note)
     await db.preparazioni.insert_one(prep.model_dump())
     for r in payload.righe:
-        riga = M.PrepRiga(preparazione_id=prep.id, ean=r.ean, sku=r.sku, quantita=r.quantita)
+        riga = M.PrepRiga(preparazione_id=prep.id, ean=r.ean, sku=r.sku, quantita=r.quantita, servizi=r.servizi)
         await db.preparazioni_righe.insert_one(riga.model_dump())
     return await _prep_con_righe(await db.preparazioni.find_one({"id": prep.id}))
 
@@ -718,5 +743,101 @@ async def cambia_stato_preparazione(prep_id: str, payload: M.StatoUpdate,
     d = await db.preparazioni.find_one({"id": prep_id})
     if not d:
         raise HTTPException(status_code=404, detail="Preparazione non trovata")
-    await db.preparazioni.update_one({"id": prep_id}, {"$set": {"stato": payload.stato}})
+    updates = {"stato": payload.stato}
+    if payload.stato == "pronto" and not d.get("data_pronto"):
+        updates["data_pronto"] = M._now_iso()
+    await db.preparazioni.update_one({"id": prep_id}, {"$set": updates})
     return await _prep_con_righe(await db.preparazioni.find_one({"id": prep_id}))
+
+
+# ============================================================================
+# FATTURAZIONE (calcolo costi + PDF) — solo admin/staff
+# ============================================================================
+_SERV_LABEL = {"fnsku": "Etichettatura FNSKU", "busta": "Busta trasparente",
+               "nastratura": "Nastratura", "pluriball": "Protezione pluriball"}
+
+
+async def _calcola_fattura(cid: str, anno: int, mese: int, pallet: int):
+    cli = await db.clienti.find_one({"id": cid})
+    if not cli:
+        raise HTTPException(status_code=404, detail="Cliente non trovato")
+    listino = cli.get("listino") or {}
+
+    def prezzo(k):
+        return float(listino.get(k, 0) or 0)
+
+    period = f"{anno:04d}-{mese:02d}"
+    righe_out = []
+
+    # Servizi dalle preparazioni diventate "pronto" nel periodo
+    serv_qty = {"fnsku": 0, "busta": 0, "nastratura": 0, "pluriball": 0}
+    preps = await db.preparazioni.find(
+        {"cliente_id": cid, "stato": {"$in": ["pronto", "spedito"]}}).to_list(5000)
+    prep_ids = [p["id"] for p in preps if (p.get("data_pronto") or "").startswith(period)]
+    if prep_ids:
+        prighe = await db.preparazioni_righe.find({"preparazione_id": {"$in": prep_ids}}).to_list(None)
+        for r in prighe:
+            for s in r.get("servizi", []):
+                if s in serv_qty:
+                    serv_qty[s] += int(r.get("quantita", 0))
+    for s in ["fnsku", "busta", "nastratura", "pluriball"]:
+        if serv_qty[s] > 0:
+            righe_out.append({"descrizione": _SERV_LABEL[s], "quantita": serv_qty[s],
+                              "prezzo": prezzo(s), "importo": round(serv_qty[s] * prezzo(s), 2)})
+
+    # Inscatolamento: box spediti nel periodo
+    box_sped = await db.box.find({"cliente_id": cid, "stato": "spedito"}).to_list(5000)
+    nbox = sum(1 for b in box_sped if (b.get("data_spedito") or "").startswith(period))
+    if nbox > 0:
+        righe_out.append({"descrizione": "Inscatolamento (box spediti)", "quantita": nbox,
+                          "prezzo": prezzo("inscatolamento"), "importo": round(nbox * prezzo("inscatolamento"), 2)})
+
+    # Entrata merce ricevuta nel periodo (pallet / scatole)
+    entrate = await db.entrate.find({"cliente_id": cid}).to_list(5000)
+    pallet_colli = scatola_colli = 0
+    for e in entrate:
+        if (e.get("data_ricezione") or "").startswith(period):
+            n = int(e.get("colli", 1) or 1)
+            if e.get("tipo") == "pallet":
+                pallet_colli += n
+            else:
+                scatola_colli += n
+    if pallet_colli > 0:
+        righe_out.append({"descrizione": "Entrata merce (pallet)", "quantita": pallet_colli,
+                          "prezzo": prezzo("entrata_pallet"), "importo": round(pallet_colli * prezzo("entrata_pallet"), 2)})
+    if scatola_colli > 0:
+        righe_out.append({"descrizione": "Entrata merce (scatole)", "quantita": scatola_colli,
+                          "prezzo": prezzo("entrata_scatola"), "importo": round(scatola_colli * prezzo("entrata_scatola"), 2)})
+
+    # Stoccaggio: numero pallet (input admin) × prezzo pallet/mese
+    if pallet and pallet > 0 and prezzo("stoccaggio_pallet") > 0:
+        righe_out.append({"descrizione": "Stoccaggio (pallet/mese)", "quantita": pallet,
+                          "prezzo": prezzo("stoccaggio_pallet"), "importo": round(pallet * prezzo("stoccaggio_pallet"), 2)})
+
+    subtotale = round(sum(r["importo"] for r in righe_out), 2)
+    iva_perc = float(listino.get("iva", 22) or 0)
+    iva_importo = round(subtotale * iva_perc / 100, 2)
+    totale = round(subtotale + iva_importo, 2)
+    return {"cliente_id": cid, "ragione_sociale": cli.get("ragione_sociale"),
+            "periodo": f"{mese:02d}/{anno}", "righe": righe_out,
+            "subtotale": subtotale, "iva_perc": iva_perc,
+            "iva_importo": iva_importo, "totale": totale}
+
+
+@router.get("/fatturazione")
+async def fatturazione(cliente_id: str = Query(...), anno: int = Query(...),
+                       mese: int = Query(...), pallet: int = Query(0),
+                       user: dict = Depends(require_admin)):
+    return await _calcola_fattura(cliente_id, anno, mese, pallet)
+
+
+@router.get("/fatturazione/pdf")
+async def fatturazione_pdf(cliente_id: str = Query(...), anno: int = Query(...),
+                           mese: int = Query(...), pallet: int = Query(0),
+                           user: dict = Depends(require_admin)):
+    f = await _calcola_fattura(cliente_id, anno, mese, pallet)
+    pdf = invoice_gen.genera_fattura_pdf(
+        f["ragione_sociale"], f["periodo"], f["righe"],
+        f["subtotale"], f["iva_perc"], f["iva_importo"], f["totale"])
+    return StreamingResponse(io.BytesIO(pdf), media_type="application/pdf",
+                             headers={"Content-Disposition": f"inline; filename=fattura_{f['periodo'].replace('/', '_')}.pdf"})

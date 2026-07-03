@@ -19,6 +19,7 @@ import AdminClienti from "@/pages/admin/Clienti";
 import AdminPreparazioni from "@/pages/admin/Preparazioni";
 import AdminPreparazioneDetail from "@/pages/admin/PreparazioneDetail";
 import AdminComposizioneBox from "@/pages/admin/ComposizioneBox";
+import AdminFatturazione from "@/pages/admin/Fatturazione";
 
 import ClientReferenze from "@/pages/client/Referenze";
 import ClientEntrate from "@/pages/client/Entrate";
@@ -70,6 +71,7 @@ function App() {
               <Route path="preparazioni" element={<AdminPreparazioni />} />
               <Route path="preparazioni/:id" element={<AdminPreparazioneDetail />} />
               <Route path="clienti" element={<AdminClienti />} />
+              <Route path="fatturazione" element={<AdminFatturazione />} />
             </Route>
 
             {/* Area cliente */}
