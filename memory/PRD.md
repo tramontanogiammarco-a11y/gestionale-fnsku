@@ -43,7 +43,19 @@ Stack richiesto originale: React+Vite+Tailwind + Supabase + Vercel.
 ## Iterazioni (2026-07-03)
 - **Dettaglio Entrata (admin)** ripulito: rimossa gestione Box; resta ricezione merce + FNSKU + generazione etichette Code128.
 - **Nuova sezione admin "Composizione Box"** (`/admin/composizione-box`): seleziona cliente → componi box multi-referenza a livello cliente, mescolando SKU di preparazioni diverse. Endpoint `GET /api/preparato?cliente_id=`.
-- **Regola imballaggio**: nella composizione a livello cliente si può imballare SOLO la merce in preparazione (somma richiesta dalle preparazioni attive − già in box non spediti). Guardrail backend in `POST /api/box` (400 se oltre quota o EAN non in preparazione). Aggiunto campo `sku` al contenuto box. Testato via curl (valido/oltre-quota/non-in-prep).
+- **Regola imballaggio**: nella composizione a livello cliente si può imballare SOLO la merce in preparazione (somma richiesta dalle preparazioni attive − già in box non spediti). Guardrail backend in `POST /api/box` (400 se oltre quota o EAN non in preparazione). Aggiunto campo `sku` al contenuto box.
+- **RESET dati**: cancellati tutti i clienti/dati tranne l'account admin e il cliente **avesta**. Disattivato re-seed del cliente demo.
+
+## Iterazioni (2026-07-03) — Servizi di lavorazione + Fatturazione automatica
+FASE A:
+- **Servizi per riga di preparazione** (lato cliente): fnsku, busta trasparente, nastratura, pluriball. Campo `servizi` su `PrepRiga`. Badge visibili lato cliente e admin.
+- **FNSKU spostato in Preparazioni (admin)**: la pagina Dettaglio Preparazione genera i PDF FNSKU (Code128) dalle righe (FNSKU letto/salvato sulla referenza). Ricezione merce (Dettaglio Entrata) ora è SOLA LETTURA (arrivo + Segna Arrivato + righe).
+- **Composizione Box** ora considera imballabile SOLO le preparazioni in stato **"Pronto"** (`_preparato_per_cliente` filtra stato=pronto; in_box conta tutti i box). Timestamp `data_pronto` su preparazione, `data_spedito` su box.
+FASE B — Fatturazione:
+- **Listino prezzi per cliente** (`Cliente.listino`): fnsku, busta, nastratura, pluriball (€/pezzo), inscatolamento (€/box), stoccaggio_pallet (€/pallet·mese), entrata_pallet, entrata_scatola (€/collo), iva (%). Creazione + modifica da pagina Clienti.
+- **Entrata**: campo `colli` (n. pallet/scatole) per il costo entrata merce.
+- **Fatturazione automatica** (`GET /api/fatturazione`, `GET /api/fatturazione/pdf`): servizi addebitati quando la preparazione è "Pronto" (per mese via `data_pronto`); inscatolamento = box spediti nel mese; entrata = colli × prezzo per tipo; stoccaggio = n. pallet (input admin) × prezzo. Imponibile + IVA + Totale. PDF estratto conto mensile (`invoice_gen.py`). Nuova pagina admin **Fatturazione**.
+- Testato E2E (testing agent, iter 10): 100% flussi OK; backend curl-verificato (breakdown corretto + PDF application/pdf).
 
 ## Backlog / prossime fasi (non implementate — fuori scope MVP)
 - P1: Import via Amazon SP-API (agganciare a importer.py)
