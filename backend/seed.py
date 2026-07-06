@@ -90,14 +90,12 @@ async def _write_test_credentials():
     content = f"""# Test Credentials
 
 ## Admin (staff)
-- Email: {os.environ.get('ADMIN_EMAIL', 'admin@prepcenter.it')}
-- Password: {os.environ.get('ADMIN_PASSWORD', 'Admin123!')}
+- Email: {_clean_env(os.environ.get('ADMIN_EMAIL', 'admin@prepcenter.it'))}
+- Password: {_clean_env(os.environ.get('ADMIN_PASSWORD', 'Admin123!'))}
 - Role: admin
 
-## Cliente demo
-- Email: cliente@demo.it
-- Password: Cliente123!
-- Role: cliente
+## Clienti
+- Gestiti dall'admin (password impostata alla creazione)
 
 ## Auth endpoints
 - POST /api/auth/login

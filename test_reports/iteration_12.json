@@ -1,0 +1,22 @@
+{
+  "summary": "Frontend UI verification after seed hardening and .to_list(50000) change. All 5 requested flows pass. Admin login redirects to /admin with all 4 KPI (Referenze/Entrate/Box/Clienti) visible. Client (avesta) login redirects to /app. Wrong password shows data-testid=login-error 'Email o password non corretti' without redirect. Logout + re-login admin works. Dashboard, Ricezione merce (/admin/entrate) and Preparazioni (/admin/preparazioni) load with no page errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Console shows 401 responses on /login page load (likely /api/auth/me while unauthenticated). Not a bug — expected — but could be silenced client-side to reduce console noise."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "100% (5/5 flows)"},
+  "test_credentials": "Admin aimagosrl@gmail.com / Aimago123@! ; Cliente avesta@gmail.com / Avesta123! — both work.",
+  "seed_data_creation": "",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Login flows and post-login list pages verified on preview URL. Auth uses httpOnly cookie with axios withCredentials — DO NOT suggest cache/incognito fixes. Admin routes are under /admin (dashboard, /admin/entrate, /admin/preparazioni). Client area is under /app.",
+  "rca of the issue": "N/A — no issues found."
+}

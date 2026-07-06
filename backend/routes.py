@@ -238,12 +238,12 @@ async def lista_entrate(cliente_id: Optional[str] = Query(None),
     # Batch fetch righe e clienti per evitare query N+1
     righe_map = {}
     if entrata_ids:
-        all_righe = await db.entrate_righe.find({"entrata_id": {"$in": entrata_ids}}).to_list(None)
+        all_righe = await db.entrate_righe.find({"entrata_id": {"$in": entrata_ids}}).to_list(50000)
         for r in all_righe:
             righe_map.setdefault(r["entrata_id"], []).append(_clean(r))
     clienti_map = {}
     if cliente_ids:
-        all_cli = await db.clienti.find({"id": {"$in": cliente_ids}}).to_list(None)
+        all_cli = await db.clienti.find({"id": {"$in": cliente_ids}}).to_list(50000)
         clienti_map = {c["id"]: c for c in all_cli}
     result = []
     for d in docs:
@@ -379,7 +379,7 @@ async def lista_box(cliente_id: Optional[str] = Query(None),
     cliente_ids = list({d["cliente_id"] for d in docs})
     clienti_map = {}
     if cliente_ids:
-        all_cli = await db.clienti.find({"id": {"$in": cliente_ids}}).to_list(None)
+        all_cli = await db.clienti.find({"id": {"$in": cliente_ids}}).to_list(50000)
         clienti_map = {c["id"]: c for c in all_cli}
     result = []
     for d in docs:
@@ -552,7 +552,7 @@ async def _magazzino_per_cliente(cid: str):
     entrata_ids = [e["id"] for e in entrate]
     ricevuto = {}
     if entrata_ids:
-        righe = await db.entrate_righe.find({"entrata_id": {"$in": entrata_ids}}).to_list(None)
+        righe = await db.entrate_righe.find({"entrata_id": {"$in": entrata_ids}}).to_list(50000)
         for r in righe:
             ricevuto[r["ean"]] = ricevuto.get(r["ean"], 0) + int(r.get("quantita", 0))
 
@@ -615,7 +615,7 @@ async def _preparato_per_cliente(cid: str):
     prep_ids = [p["id"] for p in preps]
     richiesto, sku_map = {}, {}
     if prep_ids:
-        righe = await db.preparazioni_righe.find({"preparazione_id": {"$in": prep_ids}}).to_list(None)
+        righe = await db.preparazioni_righe.find({"preparazione_id": {"$in": prep_ids}}).to_list(50000)
         for r in righe:
             richiesto[r["ean"]] = richiesto.get(r["ean"], 0) + int(r.get("quantita", 0))
             if r.get("sku"):
@@ -695,12 +695,12 @@ async def lista_preparazioni(cliente_id: Optional[str] = Query(None),
     cliente_ids = list({d["cliente_id"] for d in docs})
     righe_map = {}
     if prep_ids:
-        all_righe = await db.preparazioni_righe.find({"preparazione_id": {"$in": prep_ids}}).to_list(None)
+        all_righe = await db.preparazioni_righe.find({"preparazione_id": {"$in": prep_ids}}).to_list(50000)
         for r in all_righe:
             righe_map.setdefault(r["preparazione_id"], []).append(_clean(r))
     clienti_map = {}
     if cliente_ids:
-        all_cli = await db.clienti.find({"id": {"$in": cliente_ids}}).to_list(None)
+        all_cli = await db.clienti.find({"id": {"$in": cliente_ids}}).to_list(50000)
         clienti_map = {c["id"]: c for c in all_cli}
     result = []
     for d in docs:
@@ -775,7 +775,7 @@ async def _calcola_fattura(cid: str, anno: int, mese: int, pallet: int):
         {"cliente_id": cid, "stato": {"$in": ["pronto", "spedito"]}}).to_list(5000)
     prep_ids = [p["id"] for p in preps if (p.get("data_pronto") or "").startswith(period)]
     if prep_ids:
-        prighe = await db.preparazioni_righe.find({"preparazione_id": {"$in": prep_ids}}).to_list(None)
+        prighe = await db.preparazioni_righe.find({"preparazione_id": {"$in": prep_ids}}).to_list(50000)
         for r in prighe:
             for s in r.get("servizi", []):
                 if s in serv_qty:
