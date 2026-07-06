@@ -16,7 +16,7 @@ import { Loader2, UserPlus, Pencil } from "lucide-react";
 
 const DEFAULT_LISTINO = {
   fnsku: 0.10, busta: 0, nastratura: 0, pluriball: 0,
-  inscatolamento: 0, stoccaggio_pallet: 0, entrata_pallet: 0, entrata_scatola: 0, iva: 22,
+  inscatolamento: 0, scatola_60: 0, scatola_40: 0, stoccaggio_pallet: 0, entrata_pallet: 0, entrata_scatola: 0, iva: 22,
 };
 
 const PREZZO_FIELDS = [
@@ -25,6 +25,8 @@ const PREZZO_FIELDS = [
   ["nastratura", "Nastratura (€/pezzo)"],
   ["pluriball", "Pluriball (€/pezzo)"],
   ["inscatolamento", "Inscatolamento (€/box)"],
+  ["scatola_60", "Scatola 60×40×40 (€/pz)"],
+  ["scatola_40", "Scatola 40×30×30 (€/pz)"],
   ["stoccaggio_pallet", "Stoccaggio (€/pallet·mese)"],
   ["entrata_pallet", "Entrata pallet (€/pallet)"],
   ["entrata_scatola", "Entrata scatola (€/scatola)"],

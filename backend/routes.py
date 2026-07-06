@@ -419,10 +419,16 @@ async def crea_box(payload: M.BoxCreate, user: dict = Depends(require_admin)):
                     status_code=400,
                     detail=f"EAN {c.ean}: puoi imballare solo la merce in preparazione (richiesti {c.quantita}, imballabili {avail}).")
 
+    # Scatola: se "nostra", precompila le dimensioni standard del collo.
+    dims = {"lunghezza_cm": payload.lunghezza_cm, "larghezza_cm": payload.larghezza_cm, "altezza_cm": payload.altezza_cm}
+    if payload.scatola_tipo == "60x40x40":
+        dims = {"lunghezza_cm": 60, "larghezza_cm": 40, "altezza_cm": 40}
+    elif payload.scatola_tipo == "40x30x30":
+        dims = {"lunghezza_cm": 40, "larghezza_cm": 30, "altezza_cm": 30}
     box = M.Box(entrata_id=payload.entrata_id, preparazione_id=payload.preparazione_id,
                 cliente_id=cid, numero_box=payload.numero_box, peso_kg=payload.peso_kg,
-                lunghezza_cm=payload.lunghezza_cm, larghezza_cm=payload.larghezza_cm,
-                altezza_cm=payload.altezza_cm, contenuto=payload.contenuto)
+                scatola_tipo=payload.scatola_tipo or "cliente",
+                contenuto=payload.contenuto, **dims)
     await db.box.insert_one(box.model_dump())
     if payload.entrata_id:
         await _sync_stato_entrata(payload.entrata_id)
@@ -785,12 +791,21 @@ async def _calcola_fattura(cid: str, anno: int, mese: int, pallet: int):
             righe_out.append({"descrizione": _SERV_LABEL[s], "quantita": serv_qty[s],
                               "prezzo": prezzo(s), "importo": round(serv_qty[s] * prezzo(s), 2)})
 
-    # Inscatolamento: box spediti nel periodo
+    # Inscatolamento + costo scatole nostre (box spediti nel periodo)
     box_sped = await db.box.find({"cliente_id": cid, "stato": "spedito"}).to_list(5000)
-    nbox = sum(1 for b in box_sped if (b.get("data_spedito") or "").startswith(period))
+    box_periodo = [b for b in box_sped if (b.get("data_spedito") or "").startswith(period)]
+    nbox = len(box_periodo)
     if nbox > 0:
         righe_out.append({"descrizione": "Inscatolamento (box spediti)", "quantita": nbox,
                           "prezzo": prezzo("inscatolamento"), "importo": round(nbox * prezzo("inscatolamento"), 2)})
+    n60 = sum(1 for b in box_periodo if b.get("scatola_tipo") == "60x40x40")
+    n40 = sum(1 for b in box_periodo if b.get("scatola_tipo") == "40x30x30")
+    if n60 > 0:
+        righe_out.append({"descrizione": "Scatola 60×40×40", "quantita": n60,
+                          "prezzo": prezzo("scatola_60"), "importo": round(n60 * prezzo("scatola_60"), 2)})
+    if n40 > 0:
+        righe_out.append({"descrizione": "Scatola 40×30×30", "quantita": n40,
+                          "prezzo": prezzo("scatola_40"), "importo": round(n40 * prezzo("scatola_40"), 2)})
 
     # Entrata merce ricevuta nel periodo (pallet / scatole)
     entrate = await db.entrate.find({"cliente_id": cid}).to_list(5000)

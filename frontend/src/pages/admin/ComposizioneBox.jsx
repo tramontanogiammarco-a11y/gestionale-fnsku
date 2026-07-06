@@ -147,6 +147,7 @@ export default function AdminComposizioneBox() {
                       {b.peso_kg ? `${b.peso_kg} kg · ` : ""}
                       {b.lunghezza_cm && b.larghezza_cm && b.altezza_cm
                         ? `${b.lunghezza_cm}×${b.larghezza_cm}×${b.altezza_cm} cm` : "dimensioni n/d"}
+                      {b.scatola_tipo && b.scatola_tipo !== "cliente" ? ` · Scatola nostra ${b.scatola_tipo}` : " · Scatola cliente"}
                     </div>
                     {b.contenuto?.length > 0 && (
                       <div className="mt-2 rounded bg-slate-50 p-2 text-xs">
@@ -186,8 +187,15 @@ function NuovoBoxClienteDialog({ clienteId, imballabili, onCreated }) {
   const [numero, setNumero] = useState("");
   const [peso, setPeso] = useState("");
   const [dim, setDim] = useState({ l: "", w: "", h: "" });
+  const [scatolaTipo, setScatolaTipo] = useState("cliente");
   const [righe, setRighe] = useState([{ ean: "", quantita: "" }]);
   const [saving, setSaving] = useState(false);
+
+  const onScatola = (v) => {
+    setScatolaTipo(v);
+    if (v === "60x40x40") setDim({ l: "60", w: "40", h: "40" });
+    else if (v === "40x30x30") setDim({ l: "40", w: "30", h: "30" });
+  };
 
   const infoEan = (ean) => imballabili.find((x) => x.ean === ean);
   const libero = (ean) => { const m = infoEan(ean); return m ? m.disponibile : 0; };
@@ -216,10 +224,11 @@ function NuovoBoxClienteDialog({ clienteId, imballabili, onCreated }) {
         lunghezza_cm: dim.l ? Number(dim.l) : null,
         larghezza_cm: dim.w ? Number(dim.w) : null,
         altezza_cm: dim.h ? Number(dim.h) : null,
+        scatola_tipo: scatolaTipo,
         contenuto: cont,
       });
       toast.success("Box creato");
-      setOpen(false); setNumero(""); setPeso(""); setDim({ l: "", w: "", h: "" }); setRighe([{ ean: "", quantita: "" }]);
+      setOpen(false); setNumero(""); setPeso(""); setDim({ l: "", w: "", h: "" }); setScatolaTipo("cliente"); setRighe([{ ean: "", quantita: "" }]);
       onCreated();
     } catch (e) {
       toast.error(azioneErrore(e));
@@ -240,11 +249,22 @@ function NuovoBoxClienteDialog({ clienteId, imballabili, onCreated }) {
             <Label>Numero box</Label>
             <Input data-testid="comp-box-numero" value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="BOX-001" className="mt-1" />
           </div>
+          <div>
+            <Label className="text-xs">Scatola</Label>
+            <Select value={scatolaTipo} onValueChange={onScatola}>
+              <SelectTrigger className="mt-1" data-testid="comp-scatola-tipo"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="cliente">Scatola del cliente (nessun costo)</SelectItem>
+                <SelectItem value="60x40x40">Scatola nostra — 60×40×40 cm</SelectItem>
+                <SelectItem value="40x30x30">Scatola nostra — 40×30×30 cm</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <div className="grid grid-cols-4 gap-2">
             <div><Label className="text-xs">Peso kg</Label><Input data-testid="comp-box-peso" value={peso} onChange={(e) => setPeso(e.target.value)} className="mt-1" /></div>
-            <div><Label className="text-xs">L cm</Label><Input value={dim.l} onChange={(e) => setDim({ ...dim, l: e.target.value })} className="mt-1" /></div>
-            <div><Label className="text-xs">W cm</Label><Input value={dim.w} onChange={(e) => setDim({ ...dim, w: e.target.value })} className="mt-1" /></div>
-            <div><Label className="text-xs">H cm</Label><Input value={dim.h} onChange={(e) => setDim({ ...dim, h: e.target.value })} className="mt-1" /></div>
+            <div><Label className="text-xs">L cm</Label><Input disabled={scatolaTipo !== "cliente"} value={dim.l} onChange={(e) => setDim({ ...dim, l: e.target.value })} className="mt-1" /></div>
+            <div><Label className="text-xs">W cm</Label><Input disabled={scatolaTipo !== "cliente"} value={dim.w} onChange={(e) => setDim({ ...dim, w: e.target.value })} className="mt-1" /></div>
+            <div><Label className="text-xs">H cm</Label><Input disabled={scatolaTipo !== "cliente"} value={dim.h} onChange={(e) => setDim({ ...dim, h: e.target.value })} className="mt-1" /></div>
           </div>
           <div>
             <Label className="text-xs">Contenuto — aggiungi referenze dalla merce in preparazione</Label>

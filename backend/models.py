@@ -29,6 +29,8 @@ class Listino(BaseModel):
     nastratura: float = 0.0       # €/pezzo
     pluriball: float = 0.0        # €/pezzo
     inscatolamento: float = 0.0   # €/box spedito ad Amazon
+    scatola_60: float = 0.0       # €/scatola nostra 60x40x40
+    scatola_40: float = 0.0       # €/scatola nostra 40x30x30
     stoccaggio_pallet: float = 0.0  # €/pallet al mese
     entrata_pallet: float = 0.0   # €/pallet in entrata
     entrata_scatola: float = 0.0  # €/scatola in entrata
@@ -161,6 +163,7 @@ class BoxCreate(BaseModel):
     lunghezza_cm: Optional[float] = None
     larghezza_cm: Optional[float] = None
     altezza_cm: Optional[float] = None
+    scatola_tipo: Optional[str] = "cliente"  # cliente | 60x40x40 | 40x30x30
     contenuto: List[BoxContenutoInput] = []
 
 
@@ -184,6 +187,7 @@ class Box(BaseModel):
     larghezza_cm: Optional[float] = None
     altezza_cm: Optional[float] = None
     stato: str = "in_preparazione"  # in_preparazione|pronto|spedito
+    scatola_tipo: str = "cliente"  # cliente | 60x40x40 | 40x30x30
     etichetta_amazon_pdf_url: Optional[str] = None
     etichetta_ups_pdf_url: Optional[str] = None
     contenuto: List[BoxContenutoInput] = []
