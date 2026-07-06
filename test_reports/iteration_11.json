@@ -1,0 +1,22 @@
+{
+  "summary": "Frontend login flow E2E test (Italian UI). All 4 requested scenarios PASS: admin login redirects to /admin, client login redirects to /app, wrong password shows error 'Email o password non corretti' with data-testid=login-error and no redirect, and re-login after logout works correctly (the originally reported bug).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Console shows 401 errors on initial load of /login (likely /api/auth/me probe before login) - benign but could be silenced by not calling protected endpoints when no session cookie exists."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped per request)", "frontend": "100% (4/4)"},
+  "test_credentials": "Admin: aimagosrl@gmail.com / Aimago123@! ; Client: avesta@gmail.com / Avesta123!",
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Login bug reported by user ('credenziali errate' on re-login) is NOT reproducible. Admin login, client login, wrong-password error, and admin logout+re-login all work correctly. Frontend URL: https://prep-center-hub.preview.emergentagent.com/login.",
+  "rca of the issue": "Original user complaint of 'credenziali errate' on re-login could not be reproduced. Likely root cause was the previously reset password for client 'avesta' (backend fix already applied by main agent) and/or user typing password incorrectly. Current bcrypt verification via /api/auth/login works consistently, cookie httpOnly session and axios withCredentials flow behave properly across logout+re-login cycles."
+}
