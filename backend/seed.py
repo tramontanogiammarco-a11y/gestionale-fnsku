@@ -7,9 +7,17 @@ from auth import hash_password, verify_password
 import models as M
 
 
+def _clean_env(v: str) -> str:
+    """Rimuove spazi e virgolette residue (in produzione il valore del .env
+    può arrivare con le virgolette incluse, causando password non corrispondenti)."""
+    if v is None:
+        return v
+    return v.strip().strip('"').strip("'")
+
+
 async def _ensure_admin():
-    email = os.environ.get("ADMIN_EMAIL", "admin@prepcenter.it")
-    password = os.environ.get("ADMIN_PASSWORD", "Admin123!")
+    email = _clean_env(os.environ.get("ADMIN_EMAIL", "admin@prepcenter.it")).lower()
+    password = _clean_env(os.environ.get("ADMIN_PASSWORD", "Admin123!"))
     existing = await db.users.find_one({"email": email})
     if existing is None:
         await db.users.insert_one({
