@@ -57,6 +57,21 @@ FASE B — Fatturazione:
 - **Fatturazione automatica** (`GET /api/fatturazione`, `GET /api/fatturazione/pdf`): servizi addebitati quando la preparazione è "Pronto" (per mese via `data_pronto`); inscatolamento = box spediti nel mese; entrata = colli × prezzo per tipo; stoccaggio = n. pallet (input admin) × prezzo. Imponibile + IVA + Totale. PDF estratto conto mensile (`invoice_gen.py`). Nuova pagina admin **Fatturazione**.
 - Testato E2E (testing agent, iter 10): 100% flussi OK; backend curl-verificato (breakdown corretto + PDF application/pdf).
 
+## Iterazioni (2026-07-06) — Branding, Redesign, Deploy readiness
+- **Branding aimago**: logo cliente + colore brand teal #1F9FB3 (scala `blue` Tailwind rimappata + `--primary`/`--ring` teal). Login chiaro con logo grande trasparente + glow teal; sidebar admin chiara con logo trasparente; area cliente glass. Badge maiuscoli, KPI "control room", animazioni fade-up.
+- **Fix login produzione**: `seed.py` hardening — `_clean_env()` rimuove virgolette/spazi da `ADMIN_EMAIL`/`ADMIN_PASSWORD` (il valore .env può arrivare con le virgolette in produzione) + email lowercase; reset idempotente password admin all'avvio. Password cliente avesta reimpostata (Avesta123!).
+- **Deploy readiness**: deployment agent = PASS. Query `.to_list(None)` sostituite con `.to_list(50000)` (routes.py) per evitare fetch illimitati. App deployata in produzione su https://prep-center-control.emergent.host (ambiente separato: DB + env dedicati; le modifiche vanno rilasciate con redeploy).
+- Verificato (testing agent iter 12): login admin/cliente, errore password errata, logout+re-login, caricamento liste — 100% (5/5).
+
+## Backlog concordato con l'utente (da implementare)
+- FASE A servizi/box: **scatola nel box** (cliente / nostra 60×40×40 o 40×30×30) + voci listino Scatola_60 e Scatola_40 in fatturazione.
+- F1: ricerca/filtri liste (entrate/preparazioni/box), campo **corriere** entrate (GLS/BRT/…).
+- F2: preventivo automatico costo in fase di preparazione (lato cliente).
+- F3: reset password cliente da admin; storico fatture salvate/riscaricabili; dashboard fatturato mensile.
+- F4: box "spedito" → chiude preparazione (solo se tutta la merce pronta è nei box) + notifica cliente (scelta a/b/c in sospeso).
+- F5: import massivo referenze (Excel/CSV).
+- Fattura "vera": dati fiscali azienda (P.IVA, indirizzo, logo) + numerazione progressiva sul PDF.
+
 ## Backlog / prossime fasi (non implementate — fuori scope MVP)
 - P1: Import via Amazon SP-API (agganciare a importer.py)
 - P1: Brute-force lockout su login (5 tentativi), reset password via email
