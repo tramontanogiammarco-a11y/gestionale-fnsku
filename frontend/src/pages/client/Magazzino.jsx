@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Loader2, Warehouse } from "lucide-react";
+import { Loader2, Warehouse, Layers } from "lucide-react";
 
 // Magazzino virtuale del cliente: giacenze per EAN
 export default function ClientMagazzino() {
@@ -41,14 +42,28 @@ export default function ClientMagazzino() {
                 <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-10">Magazzino vuoto. La merce comparirà qui quando il prep center la segna come "ricevuta".</TableCell></TableRow>
               )}
               {items.map((it) => (
-                <TableRow key={it.ean} data-testid={`mag-row-${it.ean}`}>
+                <TableRow key={it.ean} data-testid={`mag-row-${it.ean}`} className={it.is_bundle ? "bg-primary/5" : ""}>
                   <TableCell className="font-mono text-xs">{it.ean}</TableCell>
-                  <TableCell className="max-w-xs truncate">{it.titolo || "—"}</TableCell>
+                  <TableCell className="max-w-xs">
+                    <div className="flex items-center gap-2">
+                      {it.is_bundle && (
+                        <Badge variant="secondary" className="gap-1 shrink-0"><Layers className="h-3 w-3" /> Bundle</Badge>
+                      )}
+                      <span className="truncate">{it.titolo || "—"}</span>
+                    </div>
+                    {it.is_bundle && it.componenti?.length > 0 && (
+                      <div className="text-[11px] text-muted-foreground mt-0.5">
+                        {it.componenti.map((c) => `${c.quantita}× ${c.titolo || c.ean} (disp. ${c.disponibile})`).join(" + ")}
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell className="font-mono text-xs">{it.skus.join(", ") || "—"}</TableCell>
-                  <TableCell className="text-right">{it.ricevuto}</TableCell>
+                  <TableCell className="text-right">{it.is_bundle ? "—" : it.ricevuto}</TableCell>
                   <TableCell className="text-right text-orange-600">{it.in_preparazione}</TableCell>
                   <TableCell className="text-right text-slate-500">{it.spedito}</TableCell>
-                  <TableCell className="text-right font-bold text-emerald-700">{it.disponibile}</TableCell>
+                  <TableCell className="text-right font-bold text-emerald-700">
+                    {it.disponibile}{it.is_bundle && <span className="text-[10px] font-normal text-muted-foreground ml-1">realizzabili</span>}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

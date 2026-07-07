@@ -11,7 +11,9 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, Upload, ImageOff, Save, Image } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
+import { Loader2, Plus, Upload, ImageOff, Save, Image, Trash2, Package, Layers } from "lucide-react";
 
 export default function ClientReferenze() {
   const [referenze, setReferenze] = useState(null);
@@ -46,7 +48,7 @@ export default function ClientReferenze() {
         </div>
         <div className="flex gap-2">
           <ImportDialog onDone={load} />
-          <AddDialog onDone={load} />
+          <AddDialog onDone={load} referenze={referenze || []} />
         </div>
       </div>
 
@@ -74,7 +76,21 @@ export default function ClientReferenze() {
                   <TableCell>
                     <FotoCell ref_id={r.id} url={r.foto_url} onUpload={uploadFoto} />
                   </TableCell>
-                  <TableCell className="font-medium max-w-xs truncate">{r.titolo}</TableCell>
+                  <TableCell className="font-medium max-w-xs truncate">
+                    <div className="flex items-center gap-2">
+                      {r.is_bundle && (
+                        <Badge variant="secondary" className="gap-1 shrink-0" data-testid={`cref-bundle-badge-${r.id}`}>
+                          <Layers className="h-3 w-3" /> Bundle
+                        </Badge>
+                      )}
+                      <span className="truncate">{r.titolo}</span>
+                    </div>
+                    {r.is_bundle && r.componenti?.length > 0 && (
+                      <div className="text-[11px] text-muted-foreground font-normal mt-0.5">
+                        {r.componenti.map((c) => `${c.quantita}× ${c.ean}`).join(" + ")}
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell className="font-mono text-xs">{r.ean}</TableCell>
                   <TableCell className="font-mono text-xs">{r.sku || "—"}</TableCell>
                   <TableCell>
@@ -118,23 +134,46 @@ function FotoCell({ ref_id, url, onUpload }) {
   );
 }
 
-function AddDialog({ onDone }) {
+function AddDialog({ onDone, referenze }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ ean: "", titolo: "", sku: "", asin: "", fnsku: "" });
   const [file, setFile] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [isBundle, setIsBundle] = useState(false);
+  const [componenti, setComponenti] = useState([{ ean: "", quantita: "1" }]);
+
+  // Prodotti selezionabili come componenti (esclusi altri bundle)
+  const prodotti = (referenze || []).filter((r) => !r.is_bundle);
+
+  const reset = () => {
+    setForm({ ean: "", titolo: "", sku: "", asin: "", fnsku: "" });
+    setFile(null); setIsBundle(false); setComponenti([{ ean: "", quantita: "1" }]);
+  };
+
+  const updComp = (i, k, v) => { const n = [...componenti]; n[i][k] = v; setComponenti(n); };
+  const addComp = () => setComponenti([...componenti, { ean: "", quantita: "1" }]);
+  const delComp = (i) => setComponenti(componenti.filter((_, idx) => idx !== i));
 
   const salva = async () => {
     if (!form.ean || !form.titolo) { toast.error("EAN e titolo sono obbligatori"); return; }
+    let comps = [];
+    if (isBundle) {
+      comps = componenti
+        .filter((c) => c.ean && Number(c.quantita) > 0)
+        .map((c) => ({ ean: c.ean, quantita: Number(c.quantita) }));
+      if (comps.length === 0) { toast.error("Aggiungi almeno un componente al bundle"); return; }
+    }
     setSaving(true);
     try {
-      const { data } = await api.post("/referenze", form);
+      const { data } = await api.post("/referenze", {
+        ...form, is_bundle: isBundle, componenti: comps,
+      });
       if (file) {
         const fd = new FormData(); fd.append("file", file);
         await api.post(`/referenze/${data.id}/foto`, fd);
       }
-      toast.success("Referenza aggiunta");
-      setOpen(false); setForm({ ean: "", titolo: "", sku: "", asin: "", fnsku: "" }); setFile(null);
+      toast.success(isBundle ? "Bundle creato" : "Referenza aggiunta");
+      setOpen(false); reset();
       onDone();
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail));
@@ -142,18 +181,54 @@ function AddDialog({ onDone }) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset(); }}>
       <DialogTrigger asChild><Button data-testid="add-ref-btn"><Plus className="h-4 w-4 mr-2" /> Aggiungi</Button></DialogTrigger>
-      <DialogContent>
-        <DialogHeader><DialogTitle>Nuova referenza</DialogTitle></DialogHeader>
-        <div className="space-y-3">
-          <div><Label>EAN *</Label><Input data-testid="add-ean" value={form.ean} onChange={(e) => setForm({ ...form, ean: e.target.value })} className="mt-1 font-mono" /></div>
+      <DialogContent className="max-w-lg">
+        <DialogHeader><DialogTitle>{isBundle ? "Nuovo bundle" : "Nuova referenza"}</DialogTitle></DialogHeader>
+        <div className="space-y-3 max-h-[70vh] overflow-auto pr-1">
+          <label className="flex items-center gap-2 rounded-md border border-border bg-muted/40 p-3 cursor-pointer">
+            <Checkbox checked={isBundle} onCheckedChange={(v) => setIsBundle(!!v)} data-testid="add-is-bundle" />
+            <div>
+              <div className="text-sm font-medium flex items-center gap-1.5"><Package className="h-4 w-4" /> Questo è un bundle</div>
+              <div className="text-xs text-muted-foreground">Unisce più prodotti esistenti (es. X + Y) in un'unica referenza Amazon con EAN e FNSKU propri.</div>
+            </div>
+          </label>
+
+          <div><Label>EAN (del bundle) *</Label><Input data-testid="add-ean" value={form.ean} onChange={(e) => setForm({ ...form, ean: e.target.value })} className="mt-1 font-mono" /></div>
           <div><Label>Titolo *</Label><Input data-testid="add-titolo" value={form.titolo} onChange={(e) => setForm({ ...form, titolo: e.target.value })} className="mt-1" /></div>
           <div className="grid grid-cols-2 gap-2">
             <div><Label>SKU</Label><Input data-testid="add-sku" value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} className="mt-1 font-mono" /></div>
             <div><Label>ASIN</Label><Input data-testid="add-asin" value={form.asin} onChange={(e) => setForm({ ...form, asin: e.target.value })} className="mt-1 font-mono" /></div>
           </div>
           <div><Label>FNSKU</Label><Input data-testid="add-fnsku" value={form.fnsku} onChange={(e) => setForm({ ...form, fnsku: e.target.value })} className="mt-1 font-mono" placeholder="opzionale, aggiungibile dopo" /></div>
+
+          {isBundle && (
+            <div className="rounded-md border border-border p-3 space-y-2" data-testid="bundle-componenti">
+              <Label className="text-xs">Componenti del bundle (prodotto · quantità per bundle)</Label>
+              {prodotti.length === 0 && (
+                <div className="text-xs text-amber-600">Nessun prodotto disponibile. Crea prima i prodotti singoli, poi il bundle.</div>
+              )}
+              {componenti.map((c, i) => (
+                <div key={i} className="grid grid-cols-12 gap-2 items-center" data-testid={`bundle-comp-row-${i}`}>
+                  <select
+                    className="col-span-8 h-9 rounded-md border border-input bg-background px-2 text-xs"
+                    data-testid={`bundle-comp-ean-${i}`}
+                    value={c.ean}
+                    onChange={(e) => updComp(i, "ean", e.target.value)}
+                  >
+                    <option value="">— scegli prodotto —</option>
+                    {prodotti.map((p) => (
+                      <option key={p.id} value={p.ean}>{`${p.titolo} (${p.ean})`}</option>
+                    ))}
+                  </select>
+                  <Input type="number" min={1} className="col-span-3" data-testid={`bundle-comp-qta-${i}`} value={c.quantita} onChange={(e) => updComp(i, "quantita", e.target.value)} placeholder="Q.tà" />
+                  <Button variant="ghost" size="icon" className="col-span-1" onClick={() => delComp(i)} disabled={componenti.length === 1} data-testid={`bundle-comp-del-${i}`}><Trash2 className="h-4 w-4" /></Button>
+                </div>
+              ))}
+              <Button variant="outline" size="sm" onClick={addComp} data-testid="bundle-comp-add"><Plus className="h-4 w-4 mr-1" /> Aggiungi componente</Button>
+            </div>
+          )}
+
           <div><Label>Foto prodotto</Label><Input data-testid="add-foto" type="file" accept="image/*" onChange={(e) => setFile(e.target.files[0])} className="mt-1" /></div>
         </div>
         <DialogFooter>

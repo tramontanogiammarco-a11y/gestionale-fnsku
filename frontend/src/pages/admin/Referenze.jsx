@@ -7,7 +7,8 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Loader2, ImageOff } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Loader2, ImageOff, Layers } from "lucide-react";
 
 export default function AdminReferenze() {
   const [referenze, setReferenze] = useState(null);
@@ -64,7 +65,19 @@ export default function AdminReferenze() {
                       <div className="h-10 w-10 rounded bg-slate-100 flex items-center justify-center"><ImageOff className="h-4 w-4 text-slate-400" /></div>
                     )}
                   </TableCell>
-                  <TableCell className="font-medium max-w-xs truncate">{r.titolo}</TableCell>
+                  <TableCell className="font-medium max-w-xs truncate">
+                    <div className="flex items-center gap-2">
+                      {r.is_bundle && (
+                        <Badge variant="secondary" className="gap-1 shrink-0"><Layers className="h-3 w-3" /> Bundle</Badge>
+                      )}
+                      <span className="truncate">{r.titolo}</span>
+                    </div>
+                    {r.is_bundle && r.componenti?.length > 0 && (
+                      <div className="text-[11px] text-muted-foreground font-normal mt-0.5">
+                        {r.componenti.map((c) => `${c.quantita}× ${c.ean}`).join(" + ")}
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell className="font-mono text-xs">{r.ean}</TableCell>
                   <TableCell className="font-mono text-xs">{r.sku || "—"}</TableCell>
                   <TableCell className="font-mono text-xs">{r.asin || "—"}</TableCell>

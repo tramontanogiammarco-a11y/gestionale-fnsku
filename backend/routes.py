@@ -152,6 +152,8 @@ async def crea_referenza(payload: M.ReferenzaCreate, user: dict = Depends(get_cu
     ref = M.Referenza(
         cliente_id=cid, ean=payload.ean, sku=payload.sku, asin=payload.asin,
         titolo=payload.titolo, fnsku=payload.fnsku, foto_url=payload.foto_url,
+        is_bundle=payload.is_bundle,
+        componenti=payload.componenti if payload.is_bundle else [],
         origine="manuale",
     )
     await db.referenze.insert_one(ref.model_dump())
@@ -562,27 +564,47 @@ async def _magazzino_per_cliente(cid: str):
         for r in righe:
             ricevuto[r["ean"]] = ricevuto.get(r["ean"], 0) + int(r.get("quantita", 0))
 
-    # Box del cliente: spediti -> scarico; non spediti -> impegnato
-    spedito, in_prep = {}, {}
-    box_list = await db.box.find({"cliente_id": cid}).to_list(5000)
-    for b in box_list:
-        target = spedito if b.get("stato") == "spedito" else in_prep
-        for c in b.get("contenuto", []):
-            target[c["ean"]] = target.get(c["ean"], 0) + int(c.get("quantita", 0))
-
-    # Referenze per titolo + elenco SKU per EAN
+    # Referenze per titolo + elenco SKU per EAN + mappa bundle
     refs = await db.referenze.find({"cliente_id": cid}).to_list(5000)
-    titolo_map, sku_map = {}, {}
+    titolo_map, sku_map, bundle_map, bundle_refs = {}, {}, {}, []
     for rf in refs:
         titolo_map.setdefault(rf["ean"], rf.get("titolo"))
         if rf.get("sku"):
             sku_map.setdefault(rf["ean"], set()).add(rf["sku"])
+        if rf.get("is_bundle") and rf.get("componenti"):
+            bundle_map[rf["ean"]] = rf["componenti"]
+            bundle_refs.append(rf)
 
-    eans = set(ricevuto) | set(spedito) | set(in_prep) | set(titolo_map)
-    result = []
+    # Box del cliente: spediti -> scarico; non spediti -> impegnato.
+    # I bundle vengono espansi nei loro componenti (lo scarico avviene sui
+    # prodotti reali X e Y, non sull'EAN virtuale del bundle).
+    spedito, in_prep = {}, {}
+    bundle_spedito, bundle_in_prep = {}, {}
+    box_list = await db.box.find({"cliente_id": cid}).to_list(5000)
+    for b in box_list:
+        is_sped = b.get("stato") == "spedito"
+        for c in b.get("contenuto", []):
+            ean = c["ean"]
+            qta = int(c.get("quantita", 0))
+            if ean in bundle_map:
+                btarget = bundle_spedito if is_sped else bundle_in_prep
+                btarget[ean] = btarget.get(ean, 0) + qta
+                for comp in bundle_map[ean]:
+                    cq = qta * int(comp.get("quantita", 1) or 1)
+                    target = spedito if is_sped else in_prep
+                    target[comp["ean"]] = target.get(comp["ean"], 0) + cq
+            else:
+                target = spedito if is_sped else in_prep
+                target[ean] = target.get(ean, 0) + qta
+
+    # Linee prodotti singoli / componenti (esclusi gli EAN dei bundle)
+    eans = (set(ricevuto) | set(spedito) | set(in_prep) | set(titolo_map)) - set(bundle_map)
+    result, disp_comp = [], {}
     for ean in sorted(eans):
         ric = ricevuto.get(ean, 0)
         spe = spedito.get(ean, 0)
+        disp = ric - spe
+        disp_comp[ean] = disp
         result.append({
             "ean": ean,
             "titolo": titolo_map.get(ean),
@@ -590,7 +612,34 @@ async def _magazzino_per_cliente(cid: str):
             "ricevuto": ric,
             "spedito": spe,
             "in_preparazione": in_prep.get(ean, 0),
-            "disponibile": ric - spe,
+            "disponibile": disp,
+            "is_bundle": False,
+            "componenti": [],
+        })
+
+    # Linee bundle (virtuali): realizzabile = min su ogni componente di
+    # floor(disponibile_componente / quantita_per_bundle)
+    for rf in bundle_refs:
+        comps = bundle_map[rf["ean"]]
+        realizzabile, comp_out = None, []
+        for comp in comps:
+            ceq = int(comp.get("quantita", 1) or 1)
+            cdisp = disp_comp.get(comp["ean"], ricevuto.get(comp["ean"], 0) - spedito.get(comp["ean"], 0))
+            possibile = cdisp // ceq if ceq else 0
+            realizzabile = possibile if realizzabile is None else min(realizzabile, possibile)
+            comp_out.append({"ean": comp["ean"], "quantita": ceq,
+                             "titolo": titolo_map.get(comp["ean"]), "disponibile": cdisp})
+        realizzabile = max(0, realizzabile if realizzabile is not None else 0)
+        result.append({
+            "ean": rf["ean"],
+            "titolo": rf.get("titolo"),
+            "skus": sorted(sku_map.get(rf["ean"], [])),
+            "ricevuto": 0,
+            "spedito": bundle_spedito.get(rf["ean"], 0),
+            "in_preparazione": bundle_in_prep.get(rf["ean"], 0),
+            "disponibile": realizzabile,
+            "is_bundle": True,
+            "componenti": comp_out,
         })
     return result
 
@@ -634,9 +683,11 @@ async def _preparato_per_cliente(cid: str):
             in_box[c["ean"]] = in_box.get(c["ean"], 0) + int(c.get("quantita", 0))
 
     refs = await db.referenze.find({"cliente_id": cid}).to_list(5000)
-    titolo_map = {}
+    titolo_map, bundle_map = {}, {}
     for rf in refs:
         titolo_map.setdefault(rf["ean"], rf.get("titolo"))
+        if rf.get("is_bundle") and rf.get("componenti"):
+            bundle_map[rf["ean"]] = rf["componenti"]
 
     result = []
     for ean in sorted(richiesto):
@@ -649,6 +700,8 @@ async def _preparato_per_cliente(cid: str):
             "richiesto": ric,
             "in_box": ib,
             "disponibile": ric - ib,
+            "is_bundle": ean in bundle_map,
+            "componenti": bundle_map.get(ean, []),
         })
     return result
 

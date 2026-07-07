@@ -63,6 +63,15 @@ FASE B — Fatturazione:
 - **Deploy readiness**: deployment agent = PASS. Query `.to_list(None)` sostituite con `.to_list(50000)` (routes.py) per evitare fetch illimitati. App deployata in produzione su https://prep-center-control.emergent.host (ambiente separato: DB + env dedicati; le modifiche vanno rilasciate con redeploy).
 - Verificato (testing agent iter 12): login admin/cliente, errore password errata, logout+re-login, caricamento liste — 100% (5/5).
 
+## Iterazione (2026-07-07) — Bundle (Boundle) [FATTO]
+- **Modello**: `Referenza` estesa con `is_bundle: bool` + `componenti: [{ean, quantita}]` (models.py: `ComponenteBundle`). Il bundle è una referenza Amazon a sé (EAN + FNSKU propri).
+- **Creazione**: cliente crea il bundle da "Le mie referenze" (checkbox "Questo è un bundle" + selezione prodotti esistenti e quantità per bundle). Bundle immutabile: le varianti = nuovi bundle.
+- **Scarico giacenza** (`_magazzino_per_cliente`, routes.py): i box che contengono l'EAN bundle vengono ESPANSI nei componenti → lo scarico avviene su X e Y (non sull'EAN virtuale). Linea bundle virtuale con `disponibile` = min floor(disp_componente / qta) = "realizzabili".
+- **Preparazioni/Box**: il cliente ordina l'EAN del bundle; box e composizione usano l'EAN bundle direttamente (nessuna doppia richiesta dei componenti). `_preparato_per_cliente` espone `is_bundle`.
+- **Fatturazione**: lavorazioni conteggiate PER bundle assemblato (es. 30 bundle nastratura = 30 nastrature). Nessuna modifica a `_calcola_fattura` necessaria (riga prep quantita = n. bundle).
+- **Verifica curl e2e**: bundle Z=X1+Y2, entrata X100/Y100 → Z realizzabile 50; spediti 10 bundle → X disp90, Y disp80, Z realizzabile 40, Z sped10, fattura Nastratura 10. ✅ Smoke UI dialog bundle ✅.
+
+
 ## Backlog concordato con l'utente (da implementare)
 - FASE A servizi/box: **scatola nel box** (cliente / nostra 60×40×40 o 40×30×30) + voci listino Scatola_60 e Scatola_40 in fatturazione.
 - F1: ricerca/filtri liste (entrate/preparazioni/box), campo **corriere** entrate (GLS/BRT/…).

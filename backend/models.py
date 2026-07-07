@@ -64,6 +64,12 @@ class Cliente(BaseModel):
 # ---------------------------------------------------------------------------
 # REFERENZE (prodotti del cliente)
 # ---------------------------------------------------------------------------
+class ComponenteBundle(BaseModel):
+    """Componente di un bundle: EAN di un prodotto esistente + quantità per bundle."""
+    ean: str
+    quantita: int = 1
+
+
 class ReferenzaCreate(BaseModel):
     cliente_id: Optional[str] = None  # richiesto solo per admin
     ean: str
@@ -72,6 +78,8 @@ class ReferenzaCreate(BaseModel):
     titolo: str
     fnsku: Optional[str] = None
     foto_url: Optional[str] = None
+    is_bundle: bool = False
+    componenti: List[ComponenteBundle] = []
 
 
 class ReferenzaUpdate(BaseModel):
@@ -81,6 +89,8 @@ class ReferenzaUpdate(BaseModel):
     titolo: Optional[str] = None
     fnsku: Optional[str] = None
     foto_url: Optional[str] = None
+    is_bundle: Optional[bool] = None
+    componenti: Optional[List[ComponenteBundle]] = None
 
 
 class Referenza(BaseModel):
@@ -92,6 +102,8 @@ class Referenza(BaseModel):
     titolo: str
     foto_url: Optional[str] = None
     fnsku: Optional[str] = None
+    is_bundle: bool = False
+    componenti: List[ComponenteBundle] = []
     origine: str = "manuale"  # "manuale" | "import"
     created_at: str = Field(default_factory=_now_iso)
 
