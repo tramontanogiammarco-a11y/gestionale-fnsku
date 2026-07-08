@@ -4,7 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2 } from "lucide-react";
+import { ArrowRight, Boxes, Loader2, ShieldCheck, Truck } from "lucide-react";
 import logo from "@/assets/logo.png";
 
 export default function Login() {
@@ -29,34 +29,61 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen grid lg:grid-cols-2">
-      {/* Colonna hero — immagine warehouse notturna + logo grande */}
-      <div className="hidden lg:flex relative flex-col items-center justify-center p-12 overflow-hidden bg-gradient-to-br from-slate-50 via-white to-[#e8f7fa]">
-        <div className="absolute -top-24 -left-24 h-96 w-96 rounded-full bg-[#1F9FB3]/15 blur-3xl" />
-        <div className="absolute -bottom-24 -right-24 h-96 w-96 rounded-full bg-[#1F9FB3]/10 blur-3xl" />
-        <div className="relative z-10 flex flex-col items-center text-center animate-fade-up">
-          <img src={logo} alt="Logo" className="h-44 w-auto object-contain" />
-          <h1 className="font-heading text-5xl font-black tracking-tight mt-8 text-slate-900">Gestionale FBA</h1>
-          <p className="mt-4 text-slate-500 text-base max-w-md leading-relaxed">
-            Ricezione merce, magazzino virtuale, preparazioni, etichette FNSKU e spedizioni verso Amazon — tutto in un unico posto.
-          </p>
-          <div className="mt-8 h-1 w-16 rounded-full bg-[#1F9FB3]" />
+    <div className="min-h-screen grid bg-[#f4f7fb] text-slate-950 lg:grid-cols-[1.05fr_0.95fr]">
+      <div className="relative hidden overflow-hidden bg-[#0c1324] p-12 lg:flex lg:flex-col lg:justify-between">
+        <div className="absolute inset-0 login-grid" />
+        <div className="absolute inset-x-0 bottom-0 h-2/3 bg-[radial-gradient(circle_at_50%_100%,rgba(33,183,198,0.32),transparent_58%)]" />
+        <div className="relative z-10 flex items-center gap-3 text-sm font-semibold text-white/70">
+          <span className="h-2.5 w-2.5 rounded-full bg-[#25d0c7]" />
+          Prep center operations
         </div>
+
+        <div className="relative z-10 mx-auto flex max-w-xl flex-col items-center text-center animate-fade-up">
+          <div className="logo-glow rounded-[28px] bg-white/95 px-9 py-8 shadow-2xl shadow-cyan-950/30 ring-1 ring-white/50">
+            <img src={logo} alt="Aimago" className="h-64 w-auto object-contain" />
+          </div>
+          <h1 className="mt-10 font-heading text-6xl font-black leading-none text-white">Gestionale FBA</h1>
+          <p className="mt-5 max-w-lg text-lg leading-8 text-slate-300">
+            Un pannello operativo per ricezione merce, magazzino virtuale, preparazioni, etichette FNSKU e spedizioni Amazon.
+          </p>
+          <div className="mt-9 grid w-full max-w-lg grid-cols-3 gap-3 text-left">
+            <div className="rounded-lg border border-white/10 bg-white/[0.07] p-4 backdrop-blur">
+              <Boxes className="h-5 w-5 text-[#25d0c7]" />
+              <p className="mt-3 text-sm font-semibold text-white">Magazzino</p>
+            </div>
+            <div className="rounded-lg border border-white/10 bg-white/[0.07] p-4 backdrop-blur">
+              <ShieldCheck className="h-5 w-5 text-[#f5b95b]" />
+              <p className="mt-3 text-sm font-semibold text-white">Controlli</p>
+            </div>
+            <div className="rounded-lg border border-white/10 bg-white/[0.07] p-4 backdrop-blur">
+              <Truck className="h-5 w-5 text-[#7c8cff]" />
+              <p className="mt-3 text-sm font-semibold text-white">Spedizioni</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="relative z-10 h-10" />
       </div>
 
-      {/* Colonna form */}
-      <div className="flex items-center justify-center p-6 bg-background">
-        <div className="w-full max-w-sm animate-fade-up">
-          <div className="flex items-center gap-3 mb-8 lg:hidden">
-            <img src={logo} alt="Logo" className="h-10 w-auto object-contain" />
-            <span className="font-heading font-bold text-lg">Gestionale FBA</span>
+      <div className="flex items-center justify-center px-5 py-10 sm:px-8">
+        <div className="w-full max-w-md animate-fade-up">
+          <div className="mb-9 flex flex-col items-start lg:hidden">
+            <div className="rounded-2xl bg-white px-5 py-4 shadow-xl shadow-slate-200/80 ring-1 ring-slate-200">
+              <img src={logo} alt="Aimago" className="h-24 w-auto object-contain" />
+            </div>
+            <span className="mt-4 font-heading text-2xl font-extrabold text-slate-950">Gestionale FBA</span>
           </div>
-          <h2 className="font-heading text-2xl font-bold text-slate-900">Accedi</h2>
-          <p className="text-sm text-muted-foreground mt-1 mb-6">Inserisci le tue credenziali per continuare.</p>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <Label htmlFor="email">Email</Label>
+          <div className="rounded-lg border border-slate-200 bg-white p-7 shadow-xl shadow-slate-200/70 sm:p-8">
+            <div className="mb-7">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#168a99]">Area riservata</p>
+              <h2 className="mt-3 font-heading text-3xl font-extrabold text-slate-950">Bentornato</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-500">Inserisci le tue credenziali per accedere al gestionale.</p>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div>
+                <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
                 data-testid="login-email"
@@ -65,11 +92,11 @@ export default function Login() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="nome@azienda.it"
                 required
-                className="mt-1"
+                className="mt-2 h-12 rounded-lg border-slate-200 bg-slate-50/80"
               />
-            </div>
-            <div>
-              <Label htmlFor="password">Password</Label>
+              </div>
+              <div>
+                <Label htmlFor="password">Password</Label>
               <Input
                 id="password"
                 data-testid="login-password"
@@ -78,17 +105,18 @@ export default function Login() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 required
-                className="mt-1"
+                className="mt-2 h-12 rounded-lg border-slate-200 bg-slate-50/80"
               />
-            </div>
-            {error && (
-              <p data-testid="login-error" className="text-sm text-destructive">{error}</p>
-            )}
-            <Button data-testid="login-submit" type="submit" className="w-full" disabled={loading}>
-              {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Accedi
-            </Button>
-          </form>
+              </div>
+              {error && (
+                <p data-testid="login-error" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-destructive">{error}</p>
+              )}
+              <Button data-testid="login-submit" type="submit" className="h-12 w-full rounded-lg text-base font-bold" disabled={loading}>
+                {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <ArrowRight className="h-4 w-4 mr-2" />}
+                Accedi
+              </Button>
+            </form>
+          </div>
         </div>
       </div>
     </div>
