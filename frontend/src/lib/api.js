@@ -474,45 +474,119 @@ async function updatePreparazioneStato(id, stato) {
 
 async function magazzino(params) {
   const cid = await resolveClienteId(params.get("cliente_id") || undefined);
-  const [{ data: entrate }, { data: righe }, { data: boxes }, { data: refs }] = await Promise.all([
+  const [{ data: entrate, error: entrateError }, { data: righe, error: righeError }, { data: boxes, error: boxesError }, { data: refs, error: refsError }] = await Promise.all([
     supabase.from("entrate").select("*").eq("cliente_id", cid).in("stato", ["ricevuto", "in_lavorazione", "pronto", "spedito"]),
     supabase.from("entrate_righe").select("*"),
     supabase.from("box").select("*").eq("cliente_id", cid),
     supabase.from("referenze").select("*").eq("cliente_id", cid),
   ]);
+  const firstError = entrateError || righeError || boxesError || refsError;
+  if (firstError) fail(firstError.message);
+
   const entrataIds = new Set((entrate || []).map((e) => e.id));
   const ricevuto = {};
   for (const r of righe || []) {
     if (entrataIds.has(r.entrata_id)) ricevuto[r.ean] = (ricevuto[r.ean] || 0) + Number(r.quantita || 0);
   }
-  const spedito = {};
-  const inPreparazione = {};
-  for (const b of boxes || []) {
-    for (const c of b.contenuto || []) {
-      const target = b.stato === "spedito" ? spedito : inPreparazione;
-      target[c.ean] = (target[c.ean] || 0) + Number(c.quantita || 0);
+
+  const titoloMap = {};
+  const fnskuMap = {};
+  const skuMap = {};
+  const bundleMap = {};
+  const bundleRefs = [];
+  for (const ref of refs || []) {
+    titoloMap[ref.ean] ??= ref.titolo;
+    fnskuMap[ref.ean] ??= ref.fnsku;
+    if (ref.sku) {
+      skuMap[ref.ean] ||= new Set();
+      skuMap[ref.ean].add(ref.sku);
+    }
+    if (ref.is_bundle && ref.componenti?.length) {
+      bundleMap[ref.ean] = ref.componenti;
+      bundleRefs.push(ref);
     }
   }
-  const eans = [...new Set([...(refs || []).map((r) => r.ean), ...Object.keys(ricevuto)])];
-  return ok(eans.map((ean) => {
-    const refRows = (refs || []).filter((r) => r.ean === ean);
-    const ref = refRows[0] || {};
+
+  const spedito = {};
+  const inPreparazione = {};
+  const bundleSpedito = {};
+  const bundleInPreparazione = {};
+  for (const b of boxes || []) {
+    const isSpedito = b.stato === "spedito";
+    for (const c of b.contenuto || []) {
+      const ean = c.ean;
+      const qta = Number(c.quantita || 0);
+      if (bundleMap[ean]) {
+        const bundleTarget = isSpedito ? bundleSpedito : bundleInPreparazione;
+        bundleTarget[ean] = (bundleTarget[ean] || 0) + qta;
+        for (const comp of bundleMap[ean]) {
+          const compQty = Number(comp.quantita || 1);
+          const target = isSpedito ? spedito : inPreparazione;
+          target[comp.ean] = (target[comp.ean] || 0) + qta * compQty;
+        }
+      } else {
+        const target = isSpedito ? spedito : inPreparazione;
+        target[ean] = (target[ean] || 0) + qta;
+      }
+    }
+  }
+
+  const bundleEans = new Set(Object.keys(bundleMap));
+  const componentDisponibile = {};
+  const eans = [...new Set([...Object.keys(titoloMap), ...Object.keys(ricevuto), ...Object.keys(spedito), ...Object.keys(inPreparazione)])]
+    .filter((ean) => !bundleEans.has(ean))
+    .sort();
+
+  const rows = eans.map((ean) => {
     const ric = ricevuto[ean] || 0;
     const prep = inPreparazione[ean] || 0;
     const spe = spedito[ean] || 0;
+    const disponibile = Math.max(0, ric - spe);
+    componentDisponibile[ean] = disponibile;
     return {
       ean,
-      titolo: ref.titolo,
-      fnsku: ref.fnsku,
-      is_bundle: ref.is_bundle || false,
-      componenti: ref.componenti || [],
-      skus: refRows.map((r) => r.sku).filter(Boolean),
+      titolo: titoloMap[ean],
+      fnsku: fnskuMap[ean],
+      is_bundle: false,
+      componenti: [],
+      skus: [...(skuMap[ean] || [])].sort(),
       ricevuto: ric,
       in_preparazione: prep,
       spedito: spe,
-      disponibile: Math.max(0, ric - prep - spe),
+      disponibile,
     };
-  }));
+  });
+
+  for (const ref of bundleRefs) {
+    let realizzabile = null;
+    const componenti = (bundleMap[ref.ean] || []).map((comp) => {
+      const quantita = Number(comp.quantita || 1);
+      const disponibile = componentDisponibile[comp.ean] ?? Math.max(0, (ricevuto[comp.ean] || 0) - (spedito[comp.ean] || 0));
+      const possibile = quantita > 0 ? Math.floor(disponibile / quantita) : 0;
+      realizzabile = realizzabile === null ? possibile : Math.min(realizzabile, possibile);
+      return {
+        ean: comp.ean,
+        quantita,
+        titolo: titoloMap[comp.ean],
+        disponibile,
+      };
+    });
+
+    rows.push({
+      ean: ref.ean,
+      titolo: ref.titolo,
+      fnsku: ref.fnsku,
+      is_bundle: true,
+      componenti,
+      skus: [...(skuMap[ref.ean] || [])].sort(),
+      ricevuto: 0,
+      in_preparazione: bundleInPreparazione[ref.ean] || 0,
+      spedito: bundleSpedito[ref.ean] || 0,
+      disponibile: Math.max(0, realizzabile ?? 0),
+    });
+  }
+
+  return ok(rows);
 }
 
 async function preparato(params) {
