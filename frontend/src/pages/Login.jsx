@@ -33,10 +33,7 @@ export default function Login() {
       <div className="relative hidden overflow-hidden bg-[#0c1324] p-12 lg:flex lg:flex-col lg:justify-between">
         <div className="absolute inset-0 login-grid" />
         <div className="absolute inset-x-0 bottom-0 h-2/3 bg-[radial-gradient(circle_at_50%_100%,rgba(33,183,198,0.32),transparent_58%)]" />
-        <div className="relative z-10 flex items-center gap-3 text-sm font-semibold text-white/70">
-          <span className="h-2.5 w-2.5 rounded-full bg-[#25d0c7]" />
-          Prep center operations
-        </div>
+        <div className="relative z-10 h-8" />
 
         <div className="relative z-10 mx-auto flex max-w-xl flex-col items-center text-center animate-fade-up">
           <div className="logo-glow rounded-[28px] bg-white/95 px-9 py-8 shadow-2xl shadow-cyan-950/30 ring-1 ring-white/50">
