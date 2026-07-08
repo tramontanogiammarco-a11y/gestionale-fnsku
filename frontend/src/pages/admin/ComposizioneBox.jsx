@@ -24,6 +24,11 @@ function azioneErrore(e) {
   return e?.response?.data?.detail || "Operazione non riuscita.";
 }
 
+function skusFor(item) {
+  if (Array.isArray(item?.skus)) return item.skus.filter(Boolean);
+  return item?.sku ? [item.sku] : [];
+}
+
 // Componi box a livello di CLIENTE pescando SOLO dalla merce in preparazione
 // (richiesta nelle Preparazioni). Un box può mescolare SKU di richieste diverse.
 export default function AdminComposizioneBox() {
@@ -118,7 +123,7 @@ export default function AdminComposizioneBox() {
                   <TableRow key={m.ean} data-testid={`comp-prep-${m.ean}`}>
                     <TableCell className="font-mono text-xs">{m.ean}</TableCell>
                     <TableCell className="max-w-xs truncate">{m.titolo || "—"}</TableCell>
-                    <TableCell className="font-mono text-xs">{m.skus.join(", ") || "—"}</TableCell>
+                    <TableCell className="font-mono text-xs">{skusFor(m).join(", ") || "—"}</TableCell>
                     <TableCell className="text-right">{m.richiesto}</TableCell>
                     <TableCell className="text-right text-orange-600">{m.in_box}</TableCell>
                     <TableCell className="text-right font-bold text-emerald-700">{m.disponibile}</TableCell>
@@ -210,7 +215,7 @@ function NuovoBoxClienteDialog({ clienteId, imballabili, onCreated }) {
       .filter((r) => r.ean && Number(r.quantita) > 0)
       .map((r) => {
         const info = infoEan(r.ean);
-        return { ean: r.ean, sku: info?.skus?.[0] || null, fnsku: "", quantita: Number(r.quantita) };
+        return { ean: r.ean, sku: skusFor(info)[0] || null, fnsku: info?.fnsku || "", quantita: Number(r.quantita) };
       });
     if (cont.length === 0) { toast.error("Aggiungi almeno una referenza con quantità"); return; }
     const eccesso = cont.find((c) => c.quantita > libero(c.ean));
@@ -277,7 +282,7 @@ function NuovoBoxClienteDialog({ clienteId, imballabili, onCreated }) {
                       <SelectContent>
                         {imballabili.map((m) => (
                           <SelectItem key={m.ean} value={m.ean}>
-                            {m.ean}{m.skus?.length ? ` · ${m.skus.join("/")}` : ""} — {m.titolo || ""} (da imballare {m.disponibile})
+                            {m.ean}{skusFor(m).length ? ` · ${skusFor(m).join("/")}` : ""} — {m.titolo || ""} (da imballare {m.disponibile})
                           </SelectItem>
                         ))}
                       </SelectContent>

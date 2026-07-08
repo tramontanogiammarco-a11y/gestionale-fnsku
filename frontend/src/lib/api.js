@@ -629,28 +629,44 @@ async function magazzino(params) {
 
 async function preparato(params) {
   const cid = await resolveClienteId(params.get("cliente_id") || undefined);
-  const [{ data: preps }, { data: boxes }, { data: refs }] = await Promise.all([
+  const [{ data: preps, error: prepsError }, { data: boxes, error: boxesError }, { data: refs, error: refsError }] = await Promise.all([
     supabase.from("preparazioni").select("*").eq("cliente_id", cid).in("stato", ["pronto", "spedito"]),
     supabase.from("box").select("*").eq("cliente_id", cid).neq("stato", "spedito"),
     supabase.from("referenze").select("*").eq("cliente_id", cid),
   ]);
+  const firstError = prepsError || boxesError || refsError;
+  if (firstError) fail(firstError.message);
+
   const prepIds = (preps || []).map((p) => p.id);
-  const { data: righe } = prepIds.length
+  const { data: righe, error: righeError } = prepIds.length
     ? await supabase.from("preparazioni_righe").select("*").in("preparazione_id", prepIds)
     : { data: [] };
+  if (righeError) fail(righeError.message);
+
   const richiesto = {};
   for (const r of righe || []) richiesto[r.ean] = (richiesto[r.ean] || 0) + Number(r.quantita || 0);
   const inBox = {};
   for (const b of boxes || []) {
     for (const c of b.contenuto || []) inBox[c.ean] = (inBox[c.ean] || 0) + Number(c.quantita || 0);
   }
+  const refByEan = {};
+  const skusByEan = {};
+  for (const ref of refs || []) {
+    refByEan[ref.ean] ??= ref;
+    if (ref.sku) {
+      skusByEan[ref.ean] ||= [];
+      if (!skusByEan[ref.ean].includes(ref.sku)) skusByEan[ref.ean].push(ref.sku);
+    }
+  }
+
   return ok(Object.keys(richiesto).map((ean) => {
-    const ref = (refs || []).find((r) => r.ean === ean) || {};
+    const ref = refByEan[ean] || {};
     return {
       ean,
       titolo: ref.titolo,
       fnsku: ref.fnsku,
       sku: ref.sku,
+      skus: skusByEan[ean] || (ref.sku ? [ref.sku] : []),
       richiesto: richiesto[ean],
       in_box: inBox[ean] || 0,
       disponibile: Math.max(0, richiesto[ean] - (inBox[ean] || 0)),
