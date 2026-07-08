@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
 } from "@/components/ui/dialog";
@@ -92,6 +93,8 @@ function NuovaPreparazioneDialog({ onDone }) {
   const [magazzino, setMagazzino] = useState([]);
   const [note, setNote] = useState("");
   const [righe, setRighe] = useState([{ ean: "", fnsku: "", quantita: "", servizi: [] }]);
+  const [tipoPrep, setTipoPrep] = useState("standard");
+  const [gruppiAmazon, setGruppiAmazon] = useState([{ nome: "Gruppo 1", quantita: "" }]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => { if (open) api.get("/magazzino").then((r) => setMagazzino(r.data)); }, [open]);
@@ -113,17 +116,52 @@ function NuovaPreparazioneDialog({ onDone }) {
   };
   const addRow = () => setRighe([...righe, { ean: "", fnsku: "", quantita: "", servizi: [] }]);
   const delRow = (i) => setRighe(righe.filter((_, idx) => idx !== i));
+  const updateGruppo = (i, k, v) => {
+    const next = [...gruppiAmazon]; next[i][k] = v; setGruppiAmazon(next);
+  };
+  const addGruppo = () => setGruppiAmazon([...gruppiAmazon, { nome: `Gruppo ${gruppiAmazon.length + 1}`, quantita: "" }]);
+  const delGruppo = (i) => setGruppiAmazon(gruppiAmazon.filter((_, idx) => idx !== i));
+
+  const totalePezzi = righe.reduce((sum, r) => sum + (Number(r.quantita) || 0), 0);
+  const totaleGruppi = gruppiAmazon.reduce((sum, g) => sum + (Number(g.quantita) || 0), 0);
+  const gruppiValidi = gruppiAmazon
+    .map((g, index) => ({ nome: (g.nome || `Gruppo ${index + 1}`).trim(), quantita: Number(g.quantita) || 0 }))
+    .filter((g) => g.quantita > 0);
+
+  const buildNote = () => {
+    if (tipoPrep !== "gruppi_amazon") return note;
+    const bloccoGruppi = [
+      "[GRUPPI AMAZON]",
+      "Tipo preparazione: Gruppi Amazon",
+      `Totale pezzi: ${totalePezzi}`,
+      "Composizione gruppi:",
+      ...gruppiValidi.map((g, index) => `- ${g.nome || `Gruppo ${index + 1}`}: ${g.quantita} pz`),
+      "[/GRUPPI AMAZON]",
+    ].join("\n");
+    return note?.trim() ? `${bloccoGruppi}\n\nNote cliente:\n${note.trim()}` : bloccoGruppi;
+  };
 
   const salva = async () => {
     const valide = righe
       .filter((r) => r.ean && Number(r.quantita) > 0)
       .map((r) => ({ ean: r.ean, fnsku: r.fnsku || null, quantita: Number(r.quantita), servizi: r.servizi }));
     if (valide.length === 0) { toast.error("Aggiungi almeno una riga con EAN e quantità"); return; }
+    if (tipoPrep === "gruppi_amazon") {
+      if (gruppiValidi.length === 0) { toast.error("Aggiungi almeno un gruppo Amazon con quantità"); return; }
+      if (totaleGruppi !== totalePezzi) {
+        toast.error(`La somma dei gruppi Amazon deve essere ${totalePezzi} pezzi. Ora è ${totaleGruppi}.`);
+        return;
+      }
+    }
     setSaving(true);
     try {
-      await api.post("/preparazioni", { note, righe: valide });
+      await api.post("/preparazioni", { note: buildNote(), righe: valide });
       toast.success("Preparazione inviata al prep center");
-      setOpen(false); setNote(""); setRighe([{ ean: "", fnsku: "", quantita: "", servizi: [] }]);
+      setOpen(false);
+      setNote("");
+      setRighe([{ ean: "", fnsku: "", quantita: "", servizi: [] }]);
+      setTipoPrep("standard");
+      setGruppiAmazon([{ nome: "Gruppo 1", quantita: "" }]);
       onDone();
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail));
@@ -165,6 +203,61 @@ function NuovaPreparazioneDialog({ onDone }) {
               })}
             </div>
             <Button variant="outline" size="sm" className="mt-2" onClick={addRow} data-testid="prep-add-row"><Plus className="h-4 w-4 mr-1" /> Aggiungi riga</Button>
+          </div>
+          <div className="rounded-md border border-border p-3">
+            <Label className="text-xs">Tipo preparazione</Label>
+            <RadioGroup value={tipoPrep} onValueChange={setTipoPrep} className="mt-2 grid gap-2 sm:grid-cols-2">
+              <label className="flex items-start gap-2 rounded-md border border-border bg-white p-3 cursor-pointer">
+                <RadioGroupItem value="standard" className="mt-0.5" data-testid="prep-tipo-standard" />
+                <span>
+                  <span className="block text-sm font-semibold">Standard</span>
+                  <span className="block text-xs text-muted-foreground">Preparazione unica, senza gruppi separati.</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 rounded-md border border-border bg-white p-3 cursor-pointer">
+                <RadioGroupItem value="gruppi_amazon" className="mt-0.5" data-testid="prep-tipo-gruppi-amazon" />
+                <span>
+                  <span className="block text-sm font-semibold">Gruppi Amazon</span>
+                  <span className="block text-xs text-muted-foreground">Dividi i pezzi nei gruppi comunicati da Amazon.</span>
+                </span>
+              </label>
+            </RadioGroup>
+            {tipoPrep === "gruppi_amazon" && (
+              <div className="mt-3 space-y-2">
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span className="font-medium text-muted-foreground">Totale preparazione: {totalePezzi} pezzi</span>
+                  <span className={totaleGruppi === totalePezzi ? "font-semibold text-emerald-700" : "font-semibold text-amber-700"}>
+                    Totale gruppi: {totaleGruppi}
+                  </span>
+                </div>
+                {gruppiAmazon.map((g, i) => (
+                  <div key={i} className="grid grid-cols-12 gap-2 items-center" data-testid={`prep-gruppo-amazon-${i}`}>
+                    <Input
+                      className="col-span-7"
+                      value={g.nome}
+                      onChange={(e) => updateGruppo(i, "nome", e.target.value)}
+                      placeholder={`Gruppo ${i + 1}`}
+                      data-testid={`prep-gruppo-nome-${i}`}
+                    />
+                    <Input
+                      type="number"
+                      min={1}
+                      className="col-span-4"
+                      value={g.quantita}
+                      onChange={(e) => updateGruppo(i, "quantita", e.target.value)}
+                      placeholder="Pezzi"
+                      data-testid={`prep-gruppo-qta-${i}`}
+                    />
+                    <Button variant="ghost" size="icon" className="col-span-1" onClick={() => delGruppo(i)} disabled={gruppiAmazon.length === 1} data-testid={`prep-gruppo-del-${i}`}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+                <Button variant="outline" size="sm" onClick={addGruppo} data-testid="prep-gruppo-add">
+                  <Plus className="h-4 w-4 mr-1" /> Aggiungi gruppo
+                </Button>
+              </div>
+            )}
           </div>
           <div>
             <Label>Note</Label>

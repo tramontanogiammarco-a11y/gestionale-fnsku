@@ -23,6 +23,28 @@ function azioneErrore(e) {
   return e?.response?.data?.detail || "Operazione non riuscita.";
 }
 
+function parseGruppiAmazon(note = "") {
+  const match = note.match(/\[GRUPPI AMAZON\]([\s\S]*?)\[\/GRUPPI AMAZON\]/);
+  if (!match) return { hasGruppi: false, noteCliente: note };
+  const block = match[1] || "";
+  const totalMatch = block.match(/Totale pezzi:\s*(\d+)/i);
+  const gruppi = [...block.matchAll(/-\s*(.+?):\s*(\d+)\s*pz/gi)].map((m) => ({
+    nome: m[1].trim(),
+    quantita: Number(m[2]),
+  }));
+  const noteCliente = note
+    .replace(match[0], "")
+    .trim()
+    .replace(/^Note cliente:\s*/i, "")
+    .trim();
+  return {
+    hasGruppi: true,
+    totale: totalMatch ? Number(totalMatch[1]) : gruppi.reduce((sum, g) => sum + g.quantita, 0),
+    gruppi,
+    noteCliente,
+  };
+}
+
 export default function AdminPreparazioneDetail() {
   const { id } = useParams();
   const [prep, setPrep] = useState(null);
@@ -94,6 +116,8 @@ export default function AdminPreparazioneDetail() {
   if (!prep)
     return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
 
+  const gruppiAmazon = parseGruppiAmazon(prep.note || "");
+
   return (
     <div className="space-y-6" data-testid="admin-prep-detail">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -103,7 +127,7 @@ export default function AdminPreparazioneDetail() {
             <StatusBadge stato={prep.stato} tipo="prep" />
             <span className="text-xs text-muted-foreground">Richiesta il {new Date(prep.created_at).toLocaleDateString("it-IT")}</span>
           </div>
-          {prep.note && <p className="text-sm text-muted-foreground mt-2">{prep.note}</p>}
+          {gruppiAmazon.noteCliente && <p className="text-sm text-muted-foreground mt-2">{gruppiAmazon.noteCliente}</p>}
         </div>
         <div>
           <Label className="text-xs">Stato lavorazione</Label>
@@ -115,6 +139,29 @@ export default function AdminPreparazioneDetail() {
           </Select>
         </div>
       </div>
+
+      {gruppiAmazon.hasGruppi && (
+        <Card className="p-5 border-teal-200 bg-teal-50/70" data-testid="prep-gruppi-amazon">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="font-heading text-lg font-semibold text-teal-950">Gruppi Amazon</h2>
+              <p className="text-sm text-teal-800">Composizione da rispettare nella preparazione.</p>
+            </div>
+            <div className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-teal-800 border border-teal-200">
+              Totale {gruppiAmazon.totale} pezzi
+            </div>
+          </div>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {gruppiAmazon.gruppi.map((g, index) => (
+              <div key={`${g.nome}-${index}`} className="rounded-md border border-teal-200 bg-white p-3" data-testid={`prep-gruppo-amazon-${index}`}>
+                <div className="text-sm font-semibold text-slate-900">{g.nome}</div>
+                <div className="text-2xl font-bold text-teal-700 mt-1">{g.quantita}</div>
+                <div className="text-xs text-muted-foreground">pezzi</div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <Card className="p-5">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
