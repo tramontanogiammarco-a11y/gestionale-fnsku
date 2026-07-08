@@ -1,0 +1,19 @@
+project_id = "gestionale-fnsku"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage"]
+extra_search_path = ["public"]
+max_rows = 10000
+
+[auth]
+enabled = true
+site_url = "https://gestionale-fnsku-web.vercel.app"
+additional_redirect_urls = ["http://localhost:3000", "http://localhost:3001"]
+
+[storage]
+enabled = true
+
+[functions.create-client]
+verify_jwt = true

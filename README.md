@@ -1,19 +1,15 @@
 # Gestionale Prep Center Amazon FBA
 
-Gestionale web per prep center Amazon FBA con **due aree**: backend (admin/staff) e area cliente.
+Gestionale web per prep center Amazon FBA con **due aree**: admin/staff e area cliente.
 Ogni cliente vede e gestisce **solo i propri dati**.
 
 ## Stack
 - **Frontend:** React (CRA) + TailwindCSS + shadcn/ui — responsive (desktop/tablet)
-- **Backend:** FastAPI (Python)
-- **Database:** MongoDB
-- **Auth:** JWT email/password con ruoli (`admin`, `staff`, `cliente`) via cookie httpOnly
-- **Barcode:** `reportlab` — Code128 in PDF con dimensioni **reali in mm** (50x30 di default, parametrico)
+- **Backend/database/auth:** Supabase (Postgres + Auth + Storage + Edge Functions)
+- **Deploy:** codice su GitHub, ambiente dati e utenti su Supabase
 
-> Nota: il progetto è stato realizzato su stack React + FastAPI + MongoDB (runtime della piattaforma).
-> L'isolamento multi-tenant, richiesto originariamente come RLS Supabase, è garantito lato backend:
-> ogni query di un utente `cliente` è filtrata sul suo `cliente_id`; admin/staff vedono tutto.
-> La logica di import è isolata in `backend/importer.py` per aggiungere in futuro un import via Amazon SP-API.
+> Migrazione in corso: il vecchio backend FastAPI/MongoDB resta nel repository solo come riferimento legacy.
+> Il percorso attivo nuovo è Supabase. Vedi `SUPABASE_SETUP.md`.
 
 ## Ruoli e flusso
 `admin`/`staff` → accesso completo. `cliente` → solo i propri dati.
@@ -23,34 +19,32 @@ etichettatura FNSKU (PDF Code128) → preparazione box → upload etichette Amaz
 Gli stati dell'entrata si aggiornano automaticamente in base allo stato dei box.
 
 ## Setup locale
-### Backend
-```bash
-cd backend
-pip install -r requirements.txt
-# configura .env (vedi .env.example)
-```
-Variabili `.env`:
-- `MONGO_URL`, `DB_NAME`
-- `JWT_SECRET` (stringa casuale: `python -c "import secrets; print(secrets.token_hex(32))"`)
-- `ADMIN_EMAIL`, `ADMIN_PASSWORD` (admin creato automaticamente all'avvio)
-- `CORS_ORIGINS` (origine del frontend)
-
 ### Frontend
 ```bash
 cd frontend
 yarn install
-# .env: REACT_APP_BACKEND_URL=<url backend>
+# .env:
+# REACT_APP_SUPABASE_URL=<Project URL Supabase>
+# REACT_APP_SUPABASE_ANON_KEY=<anon public key Supabase>
 yarn start
 ```
 
-## Account di default (seeding automatico)
+## Supabase
+
+Segui `SUPABASE_SETUP.md` per:
+
+- creare schema Postgres e RLS
+- creare admin iniziale
+- deployare la Edge Function `create-client`
+- impostare le variabili frontend
+
+## Account iniziale consigliato
 - **Admin:** `admin@prepcenter.it` / `Admin123!`
-- **Cliente demo:** `cliente@demo.it` / `Cliente123!` (con referenze ed entrata di esempio)
 
-Nuovi clienti si creano dal backend in **Clienti → Nuovo cliente** (l'admin assegna email/password).
+Nuovi clienti si creano dal gestionale in **Clienti → Nuovo cliente**. La password viene creata su Supabase Auth tramite Edge Function protetta.
 
-## Modello dati (collezioni MongoDB)
-`users`, `clienti`, `referenze`, `entrate`, `entrate_righe`, `box` (con `contenuto` embedded), `files`.
+## Modello dati Supabase
+Tabelle principali: `profiles`, `clienti`, `referenze`, `entrate`, `entrate_righe`, `preparazioni`, `preparazioni_righe`, `box`, `files`.
 
 ## Etichette FNSKU
 - Formati: `40x20`, `50x30` (default), `60x30`, `100x50` mm — selezionabili.
@@ -58,10 +52,8 @@ Nuovi clienti si creano dal backend in **Clienti → Nuovo cliente** (l'admin as
 - Validazione caratteri Code128 prima della generazione.
 - Generazione singola/batch e numero di copie per FNSKU.
 
-## API principali (prefisso `/api`)
-- `auth/login`, `auth/me`, `auth/logout`
-- `clienti` (admin), `referenze` (+ `/import`, `/{id}/foto`)
-- `entrate` (+ `/{id}/ricevi`, `/{id}/stato`), `entrate-righe/{id}`
-- `box` (+ `/{id}/stato`, `/{id}/etichetta-amazon`, `/{id}/etichetta-ups`)
-- `etichette/genera`, `etichette/formati`
-- `dashboard/stats`, `files/{id}`
+## Note migrazione
+- Login/logout passano da Supabase Auth.
+- I dati principali passano da Supabase Postgres con RLS.
+- Foto e PDF caricati passano da Supabase Storage.
+- Generazione PDF FNSKU/fatture avanzata va completata come Edge Function Supabase.
