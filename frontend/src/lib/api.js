@@ -693,6 +693,143 @@ function placeholderPdf(message) {
   return new Blob([message], { type: "application/pdf" });
 }
 
+const MM_TO_PT = 72 / 25.4;
+const CODE128_PATTERNS = [
+  "212222", "222122", "222221", "121223", "121322", "131222", "122213", "122312", "132212", "221213",
+  "221312", "231212", "112232", "122132", "122231", "113222", "123122", "123221", "223211", "221132",
+  "221231", "213212", "223112", "312131", "311222", "321122", "321221", "312212", "322112", "322211",
+  "212123", "212321", "232121", "111323", "131123", "131321", "112313", "132113", "132311", "211313",
+  "231113", "231311", "112133", "112331", "132131", "113123", "113321", "133121", "313121", "211331",
+  "231131", "213113", "213311", "213131", "311123", "311321", "331121", "312113", "312311", "332111",
+  "314111", "221411", "431111", "111224", "111422", "121124", "121421", "141122", "141221", "112214",
+  "112412", "122114", "122411", "142112", "142211", "241211", "221114", "413111", "241112", "134111",
+  "111242", "121142", "121241", "114212", "124112", "124211", "411212", "421112", "421211", "212141",
+  "214121", "412121", "111143", "111341", "131141", "114113", "114311", "411113", "411311", "113141",
+  "114131", "311141", "411131", "211412", "211214", "211232", "2331112",
+];
+
+function pdfEscape(value) {
+  return String(value ?? "")
+    .normalize("NFKD")
+    .replace(/[^\x20-\x7E]/g, "")
+    .replace(/\\/g, "\\\\")
+    .replace(/\(/g, "\\(")
+    .replace(/\)/g, "\\)");
+}
+
+function parseLabelFormat(format = "50x30") {
+  const [w, h] = String(format).split("x").map((v) => Number(v));
+  if (!w || !h || w < 20 || h < 10) fail("Formato etichetta non valido");
+  return { widthPt: w * MM_TO_PT, heightPt: h * MM_TO_PT };
+}
+
+function code128BValues(value) {
+  const text = String(value || "").trim();
+  if (!text || /[^\x20-\x7E]/.test(text)) fail(`FNSKU non valido per Code128: ${text}`);
+  const values = [...text].map((char) => char.charCodeAt(0) - 32);
+  let checksum = 104;
+  values.forEach((v, index) => {
+    checksum += v * (index + 1);
+  });
+  return [104, ...values, checksum % 103, 106];
+}
+
+function barcodeOps(fnsku, x, y, width, height) {
+  const patterns = code128BValues(fnsku).map((v) => CODE128_PATTERNS[v]);
+  const modules = patterns.reduce((sum, pattern) => sum + [...pattern].reduce((s, n) => s + Number(n), 0), 0);
+  const moduleWidth = width / modules;
+  let cursor = x;
+  const ops = [];
+
+  for (const pattern of patterns) {
+    [...pattern].forEach((digit, index) => {
+      const barWidth = Number(digit) * moduleWidth;
+      if (index % 2 === 0) {
+        ops.push(`${cursor.toFixed(2)} ${y.toFixed(2)} ${barWidth.toFixed(2)} ${height.toFixed(2)} re f`);
+      }
+      cursor += barWidth;
+    });
+  }
+  return ops.join("\n");
+}
+
+function labelContent({ fnsku, titolo }, widthPt, heightPt, showTitle) {
+  const margin = Math.max(5, Math.min(widthPt, heightPt) * 0.08);
+  const title = pdfEscape(titolo || "");
+  const code = pdfEscape(fnsku);
+  const titleSize = Math.max(5, Math.min(8, heightPt * 0.11));
+  const codeSize = Math.max(7, Math.min(11, heightPt * 0.16));
+  const barcodeHeight = Math.max(18, heightPt * (showTitle && title ? 0.42 : 0.5));
+  const barcodeY = margin + codeSize + 4;
+  const barcodeWidth = widthPt - margin * 2;
+  const barcodeX = margin;
+  const titleY = Math.min(heightPt - margin - titleSize, barcodeY + barcodeHeight + titleSize + 3);
+
+  const ops = [
+    "0 0 0 rg",
+    "BT",
+    `/F2 ${codeSize.toFixed(2)} Tf`,
+    `${(widthPt / 2 - (code.length * codeSize * 0.3)).toFixed(2)} ${margin.toFixed(2)} Td`,
+    `(${code}) Tj`,
+    "ET",
+    barcodeOps(fnsku, barcodeX, barcodeY, barcodeWidth, barcodeHeight),
+  ];
+
+  if (showTitle && title) {
+    const compactTitle = title.length > 48 ? `${title.slice(0, 45)}...` : title;
+    ops.push(
+      "BT",
+      `/F1 ${titleSize.toFixed(2)} Tf`,
+      `${margin.toFixed(2)} ${titleY.toFixed(2)} Td`,
+      `(${compactTitle}) Tj`,
+      "ET"
+    );
+  }
+
+  return ops.join("\n");
+}
+
+function generateLabelsPdfBlob(payload = {}) {
+  const { widthPt, heightPt } = parseLabelFormat(payload.formato);
+  const items = (payload.items || []).flatMap((item) => {
+    const copies = Math.max(1, Math.min(999, Number(item.copie) || 1));
+    return Array.from({ length: copies }, () => item);
+  });
+  if (!items.length) fail("Inserisci almeno un FNSKU");
+
+  const fontHelveticaObj = 3 + items.length * 2;
+  const fontCourierObj = fontHelveticaObj + 1;
+  const pageRefs = [];
+  const objects = ["<< /Type /Catalog /Pages 2 0 R >>"];
+
+  objects.push("");
+  items.forEach((item, index) => {
+    const pageObj = 3 + index * 2;
+    const contentObj = pageObj + 1;
+    pageRefs.push(`${pageObj} 0 R`);
+    const stream = labelContent(item, widthPt, heightPt, payload.mostra_titolo !== false);
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${widthPt.toFixed(2)} ${heightPt.toFixed(2)}] /Resources << /Font << /F1 ${fontHelveticaObj} 0 R /F2 ${fontCourierObj} 0 R >> >> /Contents ${contentObj} 0 R >>`);
+    objects.push(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+  });
+  objects[1] = `<< /Type /Pages /Kids [${pageRefs.join(" ")}] /Count ${items.length} >>`;
+  objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Courier-Bold >>");
+
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((obj, index) => {
+    offsets.push(pdf.length);
+    pdf += `${index + 1} 0 obj\n${obj}\nendobj\n`;
+  });
+  const xrefOffset = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => {
+    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  });
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return new Blob([pdf], { type: "application/pdf" });
+}
+
 export const api = {
   async get(url, config = {}) {
     const { path, params } = pathAndQuery(url);
@@ -726,7 +863,7 @@ export const api = {
       return uploadBoxLabel(id, tipo, payload);
     }
     if (path === "/preparazioni") return createPreparazione(payload);
-    if (path === "/etichette/genera" && config.responseType === "blob") return ok(placeholderPdf("PDF etichette FNSKU in migrazione Supabase."));
+    if (path === "/etichette/genera" && config.responseType === "blob") return ok(generateLabelsPdfBlob(payload));
     fail(`Endpoint non migrato: ${path}`, 404);
   },
 
