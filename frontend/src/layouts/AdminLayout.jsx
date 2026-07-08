@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import {
-  LayoutDashboard, PackageOpen, Users, Boxes, Tags, Barcode, LogOut, Warehouse, ClipboardList, PackagePlus, Receipt,
+  LayoutDashboard, PackageOpen, Users, Boxes, Tags, Barcode, LogOut, ClipboardList, PackagePlus, Receipt,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import logo from "@/assets/logo.png";
@@ -29,55 +29,70 @@ export default function AdminLayout() {
 
   return (
     <div className="flex min-h-screen bg-background">
-      {/* Sidebar scura — ambiente staff */}
-      <aside className="hidden md:flex w-64 flex-col bg-white text-slate-700 border-r border-slate-200 fixed h-screen">
-        <div className="flex items-center justify-center h-28 px-6 border-b border-slate-200">
-          <img src={logo} alt="Logo" className="h-14 w-auto object-contain" />
-        </div>
-        <nav className="flex-1 px-3 py-4 space-y-1">
-          {NAV.map((item) => (
-            <NavLink
-              key={item.id}
-              to={item.to}
-              end={item.end}
-              data-testid={`nav-${item.id}`}
-              className={({ isActive }) =>
-                cn(
-                  "flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-all border-l-2",
-                  isActive
-                    ? "border-[#1F9FB3] bg-[#1F9FB3]/10 text-[#0f7c8c] font-semibold"
-                    : "border-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                )
-              }
+      <aside className="hidden md:flex w-72 flex-col fixed h-screen p-4">
+        <div className="app-surface flex h-full flex-col overflow-hidden">
+          <div className="px-5 py-5 border-b border-slate-200/70">
+            <div className="flex items-center gap-3">
+              <img src={logo} alt="Logo" className="h-12 w-auto object-contain" />
+              <div className="min-w-0">
+                <div className="font-heading text-base font-black tracking-tight">Aimago</div>
+                <div className="text-[10px] uppercase tracking-[0.22em] text-slate-500">Staff Control</div>
+              </div>
+            </div>
+            <div className="mt-5 rounded-lg border border-teal-100 bg-teal-50/80 px-3 py-2">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-teal-700">Workspace</div>
+              <div className="mt-1 truncate text-sm font-semibold text-slate-900">Prep Center FBA</div>
+            </div>
+          </div>
+          <nav className="flex-1 px-3 py-4 space-y-1.5 overflow-y-auto">
+            {NAV.map((item) => (
+              <NavLink
+                key={item.id}
+                to={item.to}
+                end={item.end}
+                data-testid={`nav-${item.id}`}
+                className={({ isActive }) =>
+                  cn(
+                    "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition-all",
+                    isActive
+                      ? "admin-nav-active bg-slate-950 text-white shadow-md shadow-slate-950/15"
+                      : "text-slate-600 hover:bg-white hover:text-slate-950 hover:shadow-sm"
+                  )
+                }
+              >
+                <span className="admin-nav-icon flex h-8 w-8 items-center justify-center rounded-md bg-slate-100 text-slate-500 transition-colors group-hover:bg-teal-50 group-hover:text-teal-700">
+                  <item.icon className="h-4 w-4" />
+                </span>
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
+          <div className="border-t border-slate-200/70 p-4">
+            <div className="mb-3 rounded-lg bg-slate-50 px-3 py-2">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Account</div>
+              <div className="mt-1 truncate text-xs font-semibold text-slate-700">{user?.email}</div>
+            </div>
+            <button
+              data-testid="logout-btn"
+              onClick={handleLogout}
+              className="flex w-full items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 shadow-sm transition-all hover:-translate-y-0.5 hover:text-slate-950 hover:shadow-md"
             >
-              <item.icon className="h-4 w-4" />
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
-        <div className="border-t border-slate-200 p-4">
-          <div className="text-xs text-slate-400 mb-2 truncate">{user?.email}</div>
-          <button
-            data-testid="logout-btn"
-            onClick={handleLogout}
-            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors"
-          >
-            <LogOut className="h-4 w-4" /> Esci
-          </button>
+              <LogOut className="h-4 w-4" /> Esci
+            </button>
+          </div>
         </div>
       </aside>
 
-      {/* Top bar mobile */}
-      <div className="md:hidden fixed top-0 inset-x-0 z-20 bg-white border-b border-slate-200 text-slate-900 flex items-center justify-between px-4 py-3">
+      <div className="md:hidden fixed top-0 inset-x-0 z-20 nav-glass text-slate-900 flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-2">
-          <img src={logo} alt="Logo" className="h-7 w-auto object-contain" />
-          <span className="font-heading font-bold text-sm">Gestionale FBA</span>
+          <img src={logo} alt="Logo" className="h-8 w-auto object-contain" />
+          <span className="font-heading font-black text-sm">Aimago Staff</span>
         </div>
         <button onClick={handleLogout} data-testid="logout-btn-mobile"><LogOut className="h-5 w-5" /></button>
       </div>
 
-      <main className="flex-1 md:ml-64 pt-16 md:pt-0">
-        <div className="p-4 sm:p-6 lg:p-8 max-w-[1400px] animate-fade-up">
+      <main className="flex-1 md:ml-72 pt-16 md:pt-0">
+        <div className="p-4 sm:p-6 lg:p-8 max-w-[1460px] animate-fade-up">
           <Outlet />
         </div>
       </main>

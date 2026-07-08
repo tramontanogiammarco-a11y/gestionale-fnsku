@@ -24,21 +24,20 @@ export default function ClientLayout() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Top navigation — area cliente (chiara, distinta dal backend) */}
-      <header className="sticky top-0 z-30 backdrop-blur-xl bg-white/80 border-b border-slate-200/60 shadow-sm">
+      <header className="sticky top-0 z-30 nav-glass">
         <div className="max-w-[1200px] mx-auto px-4 sm:px-6">
-          <div className="flex items-center justify-between h-16">
+          <div className="flex min-h-[72px] items-center justify-between py-3">
             <div className="flex items-center gap-3">
-              <img src={logo} alt="Logo" className="h-10 w-auto object-contain" />
+              <img src={logo} alt="Logo" className="h-11 w-auto object-contain" />
               <div>
-                <div className="font-heading font-bold text-sm leading-tight">{user?.name}</div>
-                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Area Cliente</div>
+                <div className="font-heading font-black text-sm leading-tight">{user?.name || "Area cliente"}</div>
+                <div className="text-[10px] uppercase tracking-[0.22em] text-teal-700">Portale cliente</div>
               </div>
             </div>
             <button
               data-testid="logout-btn"
               onClick={handleLogout}
-              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+              className="flex items-center gap-2 rounded-md border border-slate-200 bg-white/80 px-3 py-2 text-sm font-semibold text-slate-600 shadow-sm transition-all hover:-translate-y-0.5 hover:text-slate-950 hover:shadow-md"
             >
               <LogOut className="h-4 w-4" /> Esci
             </button>
@@ -52,10 +51,10 @@ export default function ClientLayout() {
                 data-testid={`nav-${item.id}`}
                 className={({ isActive }) =>
                   cn(
-                    "flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-medium whitespace-nowrap transition-colors",
+                    "flex items-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold whitespace-nowrap transition-colors",
                     isActive
-                      ? "border-blue-600 text-blue-600"
-                      : "border-transparent text-muted-foreground hover:text-foreground"
+                      ? "border-teal-700 text-teal-800"
+                      : "border-transparent text-slate-500 hover:text-slate-950"
                   )
                 }
               >
@@ -68,7 +67,9 @@ export default function ClientLayout() {
       </header>
 
       <main className="max-w-[1200px] mx-auto px-4 sm:px-6 py-6 lg:py-8">
-        <Outlet />
+        <div className="animate-fade-up">
+          <Outlet />
+        </div>
       </main>
     </div>
   );
