@@ -5,10 +5,11 @@ import { api } from "@/lib/api";
 import { StatusBadge } from "@/components/StatusBadge";
 import { FLUSSO_PREP, STATI_PREP, SERVIZI } from "@/lib/statuses";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Loader2, ArrowLeft, ClipboardList } from "lucide-react";
+import { Loader2, ArrowLeft, ClipboardList, Trash2 } from "lucide-react";
 
 export default function ClientPreparazioneDetail() {
   const { id } = useParams();
@@ -28,6 +29,17 @@ export default function ClientPreparazioneDetail() {
   if (!prep)
     return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
 
+  const elimina = async () => {
+    if (!window.confirm("Cancellare questa preparazione? Potrai crearne una nuova subito dopo.")) return;
+    try {
+      await api.delete(`/preparazioni/${id}`);
+      toast.success("Preparazione cancellata");
+      navigate("/app/preparazioni");
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Impossibile cancellare la preparazione");
+    }
+  };
+
   return (
     <div className="space-y-6" data-testid="client-prep-detail">
       <button onClick={() => navigate("/app/preparazioni")} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground" data-testid="back-btn">
@@ -35,9 +47,16 @@ export default function ClientPreparazioneDetail() {
       </button>
 
       <div>
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="font-heading text-2xl font-bold tracking-tight">Preparazione</h1>
-          <StatusBadge stato={prep.stato} tipo="prep" />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="font-heading text-2xl font-bold tracking-tight">Preparazione</h1>
+            <StatusBadge stato={prep.stato} tipo="prep" />
+          </div>
+          {prep.stato === "richiesta" && (
+            <Button variant="outline" onClick={elimina} data-testid="delete-prep-detail" className="text-destructive hover:text-destructive">
+              <Trash2 className="h-4 w-4" /> Cancella richiesta
+            </Button>
+          )}
         </div>
         <div className="text-sm text-slate-600 mt-1">Creata il {new Date(prep.created_at).toLocaleDateString("it-IT")}</div>
         <div className="flex items-center gap-1 mt-3 max-w-md">

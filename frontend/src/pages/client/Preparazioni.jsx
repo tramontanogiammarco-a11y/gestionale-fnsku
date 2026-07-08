@@ -53,8 +53,31 @@ export default function ClientPreparazioni() {
                   return <div key={s} className={`h-1.5 flex-1 rounded-full ${done ? "bg-blue-500" : "bg-slate-200"}`} title={STATI_PREP[s].label} />;
                 })}
               </div>
-              <div className="flex items-center justify-end gap-1 mt-3 text-xs font-medium text-blue-600">
-                Apri dettaglio<ChevronRight className="h-4 w-4" />
+              <div className="flex items-center justify-between gap-2 mt-3">
+                {p.stato === "richiesta" ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    data-testid={`delete-prep-${p.id}`}
+                    className="text-destructive hover:text-destructive"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (!window.confirm("Cancellare questa preparazione? Potrai crearne una nuova subito dopo.")) return;
+                      try {
+                        await api.delete(`/preparazioni/${p.id}`);
+                        toast.success("Preparazione cancellata");
+                        load();
+                      } catch (err) {
+                        toast.error(formatApiError(err.response?.data?.detail));
+                      }
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" /> Cancella
+                  </Button>
+                ) : <span />}
+                <div className="flex items-center gap-1 text-xs font-medium text-blue-600">
+                  Apri dettaglio<ChevronRight className="h-4 w-4" />
+                </div>
               </div>
             </Card>
           ))}

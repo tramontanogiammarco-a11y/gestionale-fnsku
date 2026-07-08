@@ -245,6 +245,9 @@ create policy "preparazioni_insert_own_or_staff" on public.preparazioni
 create policy "preparazioni_staff_update" on public.preparazioni
   for update using (public.is_staff()) with check (public.is_staff());
 
+create policy "preparazioni_delete_requested_own_or_staff" on public.preparazioni
+  for delete using (stato = 'richiesta' and public.owns_cliente(cliente_id));
+
 create policy "preparazioni_righe_read_own_or_staff" on public.preparazioni_righe
   for select using (
     exists (

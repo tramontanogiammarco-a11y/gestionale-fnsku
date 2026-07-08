@@ -473,6 +473,26 @@ async function updatePreparazioneStato(id, stato) {
   return getPreparazione(data.id);
 }
 
+async function deletePreparazione(id) {
+  const { data: prep, error: readError } = await requireSupabase()
+    .from("preparazioni")
+    .select("id,stato")
+    .eq("id", id)
+    .single();
+  if (readError || !prep) fail("Preparazione non trovata", 404);
+  if (prep.stato !== "richiesta") {
+    fail("Puoi cancellare solo preparazioni ancora in stato Richiesta", 409);
+  }
+
+  const { error } = await requireSupabase()
+    .from("preparazioni")
+    .delete()
+    .eq("id", id)
+    .eq("stato", "richiesta");
+  if (error) fail(error.message);
+  return ok({ ok: true });
+}
+
 async function magazzino(params) {
   const cid = await resolveClienteId(params.get("cliente_id") || undefined);
   const [{ data: entrate, error: entrateError }, { data: righe, error: righeError }, { data: boxes, error: boxesError }, { data: refs, error: refsError }] = await Promise.all([
@@ -706,6 +726,7 @@ export const api = {
 
   async delete(url) {
     const { path } = pathAndQuery(url);
+    if (path.match(/^\/preparazioni\/[^/]+$/)) return deletePreparazione(path.split("/")[2]);
     if (path.match(/^\/referenze\/[^/]+$/)) {
       const { error } = await requireSupabase().from("referenze").delete().eq("id", path.split("/")[2]);
       if (error) fail(error.message);
