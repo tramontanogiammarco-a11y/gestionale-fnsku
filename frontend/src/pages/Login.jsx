@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ArrowRight, Boxes, Loader2, ShieldCheck, Truck } from "lucide-react";
-import logo from "@/assets/logo.png";
+import logo from "@/assets/logo-transparent.png";
 
 export default function Login() {
   const { login } = useAuth();
@@ -30,31 +30,31 @@ export default function Login() {
 
   return (
     <div className="min-h-screen grid bg-[#f4f7fb] text-slate-950 lg:grid-cols-[1.05fr_0.95fr]">
-      <div className="relative hidden overflow-hidden bg-[#0c1324] p-12 lg:flex lg:flex-col lg:justify-between">
+      <div className="relative hidden overflow-hidden bg-[#e9f4f6] p-12 lg:flex lg:flex-col lg:justify-between">
         <div className="absolute inset-0 login-grid" />
-        <div className="absolute inset-x-0 bottom-0 h-2/3 bg-[radial-gradient(circle_at_50%_100%,rgba(33,183,198,0.32),transparent_58%)]" />
+        <div className="absolute inset-x-0 bottom-0 h-2/3 bg-[radial-gradient(circle_at_50%_100%,rgba(33,183,198,0.2),transparent_60%)]" />
         <div className="relative z-10 h-8" />
 
         <div className="relative z-10 mx-auto flex max-w-xl flex-col items-center text-center animate-fade-up">
-          <div className="logo-glow rounded-[28px] bg-white/95 px-9 py-8 shadow-2xl shadow-cyan-950/30 ring-1 ring-white/50">
-            <img src={logo} alt="Aimago" className="h-64 w-auto object-contain" />
+          <div className="logo-glow">
+            <img src={logo} alt="Aimago" className="h-72 w-auto object-contain drop-shadow-[0_22px_36px_rgba(12,19,36,0.16)]" />
           </div>
-          <h1 className="mt-10 font-heading text-6xl font-black leading-none text-white">Gestionale FBA</h1>
-          <p className="mt-5 max-w-lg text-lg leading-8 text-slate-300">
+          <h1 className="mt-10 font-heading text-6xl font-black leading-none text-slate-950">Gestionale FBA</h1>
+          <p className="mt-5 max-w-lg text-lg leading-8 text-slate-600">
             Un pannello operativo per ricezione merce, magazzino virtuale, preparazioni, etichette FNSKU e spedizioni Amazon.
           </p>
           <div className="mt-9 grid w-full max-w-lg grid-cols-3 gap-3 text-left">
-            <div className="rounded-lg border border-white/10 bg-white/[0.07] p-4 backdrop-blur">
+            <div className="rounded-lg border border-white/80 bg-white/55 p-4 shadow-sm backdrop-blur">
               <Boxes className="h-5 w-5 text-[#25d0c7]" />
-              <p className="mt-3 text-sm font-semibold text-white">Magazzino</p>
+              <p className="mt-3 text-sm font-semibold text-slate-950">Magazzino</p>
             </div>
-            <div className="rounded-lg border border-white/10 bg-white/[0.07] p-4 backdrop-blur">
+            <div className="rounded-lg border border-white/80 bg-white/55 p-4 shadow-sm backdrop-blur">
               <ShieldCheck className="h-5 w-5 text-[#f5b95b]" />
-              <p className="mt-3 text-sm font-semibold text-white">Controlli</p>
+              <p className="mt-3 text-sm font-semibold text-slate-950">Controlli</p>
             </div>
-            <div className="rounded-lg border border-white/10 bg-white/[0.07] p-4 backdrop-blur">
+            <div className="rounded-lg border border-white/80 bg-white/55 p-4 shadow-sm backdrop-blur">
               <Truck className="h-5 w-5 text-[#7c8cff]" />
-              <p className="mt-3 text-sm font-semibold text-white">Spedizioni</p>
+              <p className="mt-3 text-sm font-semibold text-slate-950">Spedizioni</p>
             </div>
           </div>
         </div>
@@ -65,9 +65,7 @@ export default function Login() {
       <div className="flex items-center justify-center px-5 py-10 sm:px-8">
         <div className="w-full max-w-md animate-fade-up">
           <div className="mb-9 flex flex-col items-start lg:hidden">
-            <div className="rounded-2xl bg-white px-5 py-4 shadow-xl shadow-slate-200/80 ring-1 ring-slate-200">
-              <img src={logo} alt="Aimago" className="h-24 w-auto object-contain" />
-            </div>
+            <img src={logo} alt="Aimago" className="h-28 w-auto object-contain drop-shadow-[0_16px_28px_rgba(12,19,36,0.12)]" />
             <span className="mt-4 font-heading text-2xl font-extrabold text-slate-950">Gestionale FBA</span>
           </div>
 
