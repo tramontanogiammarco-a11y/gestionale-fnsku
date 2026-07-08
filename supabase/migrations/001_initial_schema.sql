@@ -175,6 +175,34 @@ as $$
   select public.is_staff() or target_cliente_id = public.current_cliente_id();
 $$;
 
+create or replace function public.delete_requested_preparazione(prep_id uuid)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  deleted_count integer;
+begin
+  delete from public.preparazioni_righe pr
+  using public.preparazioni p
+  where pr.preparazione_id = p.id
+    and p.id = prep_id
+    and p.stato = 'richiesta'
+    and public.owns_cliente(p.cliente_id);
+
+  delete from public.preparazioni p
+  where p.id = prep_id
+    and p.stato = 'richiesta'
+    and public.owns_cliente(p.cliente_id);
+
+  get diagnostics deleted_count = row_count;
+  return deleted_count > 0;
+end;
+$$;
+
+grant execute on function public.delete_requested_preparazione(uuid) to authenticated;
+
 alter table public.profiles enable row level security;
 alter table public.clienti enable row level security;
 alter table public.referenze enable row level security;

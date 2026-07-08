@@ -474,6 +474,19 @@ async function updatePreparazioneStato(id, stato) {
 }
 
 async function deletePreparazione(id) {
+  const { data: deletedViaRpc, error: rpcError } = await requireSupabase()
+    .rpc("delete_requested_preparazione", { prep_id: id });
+
+  if (!rpcError) {
+    if (!deletedViaRpc) {
+      fail("Preparazione non trovata o gia presa in lavorazione", 409);
+    }
+    return ok({ ok: true });
+  }
+
+  const missingRpc = rpcError.code === "PGRST202" || /delete_requested_preparazione|schema cache|function/i.test(rpcError.message || "");
+  if (!missingRpc) fail(rpcError.message);
+
   const { data: prep, error: readError } = await requireSupabase()
     .from("preparazioni")
     .select("id,stato")
@@ -492,7 +505,7 @@ async function deletePreparazione(id) {
     .select("id");
   if (error) fail(error.message);
   if (!deleted?.length) {
-    fail("Supabase non ha cancellato la preparazione: esegui la policy SQL di cancellazione e riprova", 403);
+    fail("Esegui la funzione SQL di cancellazione in Supabase e riprova", 403);
   }
   return ok({ ok: true });
 }
