@@ -1,4 +1,5 @@
-import { requireSupabase, supabase } from "@/lib/supabase";
+import { createClient } from "@supabase/supabase-js";
+import { requireSupabase, supabase, supabaseAnonKey, supabaseUrl } from "@/lib/supabase";
 
 const BUCKET = "gestionale-files";
 
@@ -84,9 +85,81 @@ async function createCliente(payload) {
     body: payload,
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (error) fail(error.message);
+  if (error) {
+    return createClienteFallback(payload, error.message);
+  }
   if (data?.detail) fail(data.detail);
   return ok(data);
+}
+
+async function createClienteFallback(payload, functionError) {
+  const sb = requireSupabase();
+  const profile = await currentProfile();
+  if (!isStaff(profile)) fail("Accesso riservato allo staff", 403);
+  if (!supabaseUrl || !supabaseAnonKey) fail("Supabase non configurato", 500);
+
+  const email = String(payload.email || "").trim().toLowerCase();
+  const password = String(payload.password || "");
+  const ragioneSociale = String(payload.ragione_sociale || "").trim();
+
+  if (!email || !password || !ragioneSociale) {
+    fail("Compila ragione sociale, email e password");
+  }
+
+  const authClient = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+      storageKey: `cliente-create-${Date.now()}`,
+    },
+  });
+
+  const { data: signUpData, error: signUpError } = await authClient.auth.signUp({
+    email,
+    password,
+    options: {
+      data: { name: ragioneSociale, role: "cliente" },
+    },
+  });
+
+  if (signUpError || !signUpData.user) {
+    fail(signUpError?.message || functionError || "Impossibile creare l'utente cliente");
+  }
+
+  const userId = signUpData.user.id;
+  const { data: cliente, error: clienteError } = await sb
+    .from("clienti")
+    .insert({
+      ragione_sociale: ragioneSociale,
+      email,
+      user_id: userId,
+      note: payload.note ?? null,
+      listino: payload.listino ?? undefined,
+    })
+    .select()
+    .single();
+
+  if (clienteError || !cliente) {
+    fail(clienteError?.message || "Utente creato, ma cliente non salvato");
+  }
+
+  const { error: profileError } = await sb.from("profiles").insert({
+    id: userId,
+    email,
+    name: ragioneSociale,
+    role: "cliente",
+    cliente_id: cliente.id,
+  });
+
+  if (profileError) {
+    await sb.from("clienti").delete().eq("id", cliente.id);
+    fail(
+      "Cliente non completato: manca la policy profiles_staff_insert su Supabase. Esegui il mini-SQL che ti ho dato e riprova."
+    );
+  }
+
+  return ok(cliente);
 }
 
 async function updateCliente(id, payload) {

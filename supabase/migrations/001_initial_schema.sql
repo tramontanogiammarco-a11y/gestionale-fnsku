@@ -190,6 +190,9 @@ create policy "profiles_read_own_or_staff" on public.profiles
 create policy "profiles_staff_update" on public.profiles
   for update using (public.is_staff()) with check (public.is_staff());
 
+create policy "profiles_staff_insert" on public.profiles
+  for insert with check (public.is_staff());
+
 create policy "clienti_read_own_or_staff" on public.clienti
   for select using (public.owns_cliente(id));
 
