@@ -56,19 +56,17 @@ Flusso operativo:
     └── .env                # REACT_APP_BACKEND_URL
 ```
 
-## Come eseguire (ambiente Emergent/Kubernetes)
-I servizi sono gestiti da **supervisor** (NON avviare uvicorn/yarn a mano):
-- Backend: `0.0.0.0:8001` — riavvio: `sudo supervisorctl restart backend`
-- Frontend: `:3000` — riavvio: `sudo supervisorctl restart frontend`
-- Hot reload attivo: riavvio necessario solo dopo modifiche a `.env` o nuove dipendenze.
-- Log backend: `/var/log/supervisor/backend.*.log`
+## Come eseguire
+- Frontend locale: `cd frontend && npm run dev`
+- Build frontend: `cd frontend && npm run build`
+- Setup Supabase: seguire `SUPABASE_SETUP.md`
+- Deploy produzione: push su GitHub, Vercel ridistribuisce il frontend.
 
 ### Regole ambiente (IMPORTANTISSIME)
-- Il frontend chiama SEMPRE `process.env.REACT_APP_BACKEND_URL` (mai URL hardcoded).
-- Tutte le rotte backend hanno prefisso **`/api`** (routing K8s ingress → porta 8001).
-- Il backend usa SOLO `MONGO_URL` e `DB_NAME` da `backend/.env`.
-- Non modificare le chiavi protette nei `.env`.
-- Dipendenze: backend `pip install ... && pip freeze > requirements.txt`; frontend `yarn add ...`.
+- Il frontend usa solo `REACT_APP_SUPABASE_URL` e `REACT_APP_SUPABASE_ANON_KEY`.
+- La Supabase service role key non va mai esposta nel frontend.
+- Le regole di accesso dati vanno gestite con RLS/policy SQL.
+- Per creare clienti con credenziali usare la Edge Function `create-client`.
 
 ## Documenti in questa cartella
 - `ARCHITECTURE.md` — architettura, auth, multi-tenancy, logica di business (incl. Bundle).
@@ -481,19 +479,21 @@ Mantenere questa convenzione per ogni nuovo elemento.
 
 ## Auth (attenzione)
 - Modifiche a login/hashing/JWT/seed vanno trattate come integrazione critica.
-- bcrypt: la password nel `.env` in produzione può arrivare con virgolette → `seed._clean_env()` le rimuove. Il seed reimposta la password admin se non combacia (idempotente).
-- NON suggerire "svuota cache/incognito" come fix per bug auth. Controllare i log backend e le credenziali reali.
+- Le credenziali sono gestite da Supabase Auth.
+- L'utente admin va creato in Supabase Auth e collegato alla tabella `profiles`.
+- NON suggerire "svuota cache/incognito" come fix per bug auth. Controllare Supabase Auth, policy RLS e profilo collegato.
 
 ## Ambienti
-- **PREVIEW** (dev): dove si sviluppa e si testa.
-- **PRODUZIONE**: `https://prep-center-control.emergent.host` — ambiente separato (DB + env dedicati). Le modifiche al codice si pubblicano con **Redeploy/"Ridistribuisci le modifiche"** dalla piattaforma Emergent.
-- Se un problema è solo in produzione (env var, dominio): contattare il supporto Emergent.
+- **Repository**: GitHub.
+- **Frontend produzione**: Vercel, progetto `gestionale-fnsku-web`.
+- **Dati/Auth**: Supabase.
+- Le modifiche al codice si pubblicano con commit + push su `main`; Vercel ridistribuisce automaticamente.
 
 ## Lingua
 - Prodotto in **italiano**: UI, messaggi di errore, toast, label, commenti. Mantenere l'italiano in ogni nuova stringa rivolta all'utente.
 
 ## Testing
-- Backend: curl verso `${REACT_APP_BACKEND_URL}/api/...` con cookie jar (`-c`/`-b`).
+- Supabase: verificare RLS e policy con utenti admin/staff/cliente.
 - Frontend: verifica con screenshot/e2e; controllare layout e coerenza immagini.
 - Dopo feature medie/grandi o CRUD completi: usare un giro di test end-to-end.
 
@@ -540,4 +540,3 @@ Mantenere questa convenzione per ogni nuovo elemento.
 - POST `/api/auth/logout`
 - GET  `/api/auth/me`
 - POST `/api/auth/refresh`
-

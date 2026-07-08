@@ -1,34 +1,36 @@
 # Convenzioni e insidie note
 
 ## Regole d'oro (rompere = bug)
-1. **Prefisso `/api`** su TUTTE le rotte backend (routing K8s ingress → porta 8001).
-2. **Frontend**: usa SEMPRE `process.env.REACT_APP_BACKEND_URL` per l'URL API. Mai hardcoded.
-3. **Backend DB**: usa SOLO `os.environ["MONGO_URL"]` e `os.environ["DB_NAME"]`. Non cambiare `DB_NAME`.
-4. **`.env`**: non rimuovere chiavi esistenti, niente commenti, niente valori di default hardcoded nel codice (config mancante = fail fast). Modifica i `.env` solo con editor, mai con `echo`/heredoc.
-5. **Servizi**: gestiti da supervisor. Non avviare uvicorn/yarn manualmente. Riavvio solo dopo modifiche `.env` o nuove dipendenze.
-6. **Dipendenze**: backend → `pip install X && pip freeze > requirements.txt`; frontend → `yarn add X` (NON npm). Non riscrivere a mano requirements.txt/package.json.
+1. **Frontend pubblico**: deploy su Vercel dal repository GitHub.
+2. **Database/Auth/Storage**: Supabase e Supabase Auth sono la fonte dati attiva.
+3. **Frontend env**: usa `REACT_APP_SUPABASE_URL` e `REACT_APP_SUPABASE_ANON_KEY`. Mai hardcoded.
+4. **Backend legacy**: FastAPI/Mongo resta solo come riferimento storico finché non viene eliminato del tutto.
+5. **`.env`**: non committare segreti. La service role key va usata solo lato Supabase Edge Function, mai nel frontend.
+6. **Dipendenze**: frontend → `npm install --legacy-peer-deps` quando serve aggiornare `package-lock`; Supabase → migrazioni SQL in `supabase/migrations`.
 
-## MongoDB
-- ID business = UUID stringa (`models._uuid()`), NON ObjectId. Solo `users` usa `_id` ObjectId.
-- Rimuovere `_id` prima di restituire documenti (`_clean(doc)`).
-- Date: `datetime.now(timezone.utc).isoformat()`, mai `utcnow()`.
-- Evitare `.to_list(None)` (fetch illimitato): usare limiti espliciti (nel codice si usa 5000/50000).
+## Supabase
+- ID business = UUID generati dal database.
+- Le regole multi-tenant vivono in RLS e nelle policy SQL.
+- Le azioni admin sensibili vanno spostate in Edge Function o RPC protette.
+- Storage applicativo nel bucket `gestionale-files`.
 
 ## Auth (attenzione)
 - Modifiche a login/hashing/JWT/seed vanno trattate come integrazione critica.
-- bcrypt: la password nel `.env` in produzione può arrivare con virgolette → `seed._clean_env()` le rimuove. Il seed reimposta la password admin se non combacia (idempotente).
+- Le credenziali sono gestite da Supabase Auth.
+- L'utente admin va creato in Supabase Auth e collegato alla tabella `profiles`.
 - NON suggerire "svuota cache/incognito" come fix per bug auth. Controllare i log backend e le credenziali reali.
 
 ## Ambienti
-- **PREVIEW** (dev): dove si sviluppa e si testa.
-- **PRODUZIONE**: `https://prep-center-control.emergent.host` — ambiente separato (DB + env dedicati). Le modifiche al codice si pubblicano con **Redeploy/"Ridistribuisci le modifiche"** dalla piattaforma Emergent.
-- Se un problema è solo in produzione (env var, dominio): contattare il supporto Emergent.
+- **Repository**: GitHub.
+- **Frontend produzione**: Vercel, progetto `gestionale-fnsku-web`.
+- **Dati/Auth**: Supabase.
+- Le modifiche al codice si pubblicano con commit + push su `main`; Vercel ridistribuisce automaticamente.
 
 ## Lingua
 - Prodotto in **italiano**: UI, messaggi di errore, toast, label, commenti. Mantenere l'italiano in ogni nuova stringa rivolta all'utente.
 
 ## Testing
-- Backend: curl verso `${REACT_APP_BACKEND_URL}/api/...` con cookie jar (`-c`/`-b`).
+- Supabase: verificare RLS e policy con utenti admin/staff/cliente.
 - Frontend: verifica con screenshot/e2e; controllare layout e coerenza immagini.
 - Dopo feature medie/grandi o CRUD completi: usare un giro di test end-to-end.
 
