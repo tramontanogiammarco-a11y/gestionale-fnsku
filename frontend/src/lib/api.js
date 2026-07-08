@@ -484,12 +484,16 @@ async function deletePreparazione(id) {
     fail("Puoi cancellare solo preparazioni ancora in stato Richiesta", 409);
   }
 
-  const { error } = await requireSupabase()
+  const { data: deleted, error } = await requireSupabase()
     .from("preparazioni")
     .delete()
     .eq("id", id)
-    .eq("stato", "richiesta");
+    .eq("stato", "richiesta")
+    .select("id");
   if (error) fail(error.message);
+  if (!deleted?.length) {
+    fail("Supabase non ha cancellato la preparazione: esegui la policy SQL di cancellazione e riprova", 403);
+  }
   return ok({ ok: true });
 }
 
