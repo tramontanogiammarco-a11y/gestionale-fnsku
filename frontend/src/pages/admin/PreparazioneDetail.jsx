@@ -140,7 +140,6 @@ export default function AdminPreparazioneDetail() {
             <TableRow>
               <TableHead className="w-10"></TableHead>
               <TableHead>EAN</TableHead>
-              <TableHead>SKU</TableHead>
               <TableHead>Servizi</TableHead>
               <TableHead>FNSKU</TableHead>
               <TableHead>Q.tà</TableHead>
@@ -159,7 +158,6 @@ export default function AdminPreparazioneDetail() {
                   />
                 </TableCell>
                 <TableCell className="font-mono text-xs">{rg.ean}</TableCell>
-                <TableCell className="font-mono text-xs">{rg.sku || "—"}</TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-1">
                     {(rg.servizi || []).length === 0 && <span className="text-xs text-muted-foreground">—</span>}

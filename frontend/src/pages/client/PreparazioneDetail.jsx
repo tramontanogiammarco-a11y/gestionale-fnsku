@@ -52,13 +52,13 @@ export default function ClientPreparazioneDetail() {
         <h2 className="font-heading text-lg font-semibold flex items-center gap-2 mb-3"><ClipboardList className="h-5 w-5 text-blue-600" /> Prodotti e lavorazioni richieste</h2>
         <Table>
           <TableHeader>
-            <TableRow><TableHead>EAN</TableHead><TableHead>SKU</TableHead><TableHead>Lavorazioni</TableHead><TableHead className="text-right">Quantità</TableHead></TableRow>
+            <TableRow><TableHead>EAN</TableHead><TableHead>FNSKU</TableHead><TableHead>Lavorazioni</TableHead><TableHead className="text-right">Quantità</TableHead></TableRow>
           </TableHeader>
           <TableBody>
             {prep.righe.map((r) => (
               <TableRow key={r.id} data-testid={`cprep-riga-${r.id}`}>
                 <TableCell className="font-mono text-xs">{r.ean}</TableCell>
-                <TableCell className="font-mono text-xs">{r.sku || "—"}</TableCell>
+                <TableCell className="font-mono text-xs">{r.fnsku || "—"}</TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-1">
                     {(r.servizi || []).length === 0 && <span className="text-xs text-muted-foreground">—</span>}

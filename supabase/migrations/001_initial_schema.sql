@@ -102,6 +102,7 @@ create table public.preparazioni_righe (
   preparazione_id uuid not null references public.preparazioni(id) on delete cascade,
   ean text not null,
   sku text,
+  fnsku text,
   quantita integer not null check (quantita > 0),
   servizi jsonb not null default '[]'::jsonb
 );

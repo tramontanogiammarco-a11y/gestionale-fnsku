@@ -413,7 +413,7 @@ async function enrichPreparazioni(preps) {
   for (const r of righe || []) {
     const ref = refs.find((x) => x.cliente_id && x.ean === r.ean);
     byPrep[r.preparazione_id] = byPrep[r.preparazione_id] || [];
-    byPrep[r.preparazione_id].push({ ...r, titolo: ref?.titolo, fnsku: ref?.fnsku, referenza_id: ref?.id });
+    byPrep[r.preparazione_id].push({ ...r, titolo: ref?.titolo, fnsku: r.fnsku || ref?.fnsku || null, referenza_id: ref?.id });
   }
   return preps.map((p) => ({
     ...p,
@@ -452,6 +452,7 @@ async function createPreparazione(payload) {
         preparazione_id: prep.id,
         ean: r.ean,
         sku: r.sku || null,
+        fnsku: r.fnsku || null,
         quantita: r.quantita,
         servizi: r.servizi || [],
       }))
