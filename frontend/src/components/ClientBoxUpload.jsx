@@ -5,18 +5,17 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Loader2, Upload, CheckCircle2 } from "lucide-react";
 
-// Card box lato cliente: mostra composizione + upload etichette Amazon/UPS
+// Card box lato cliente: mostra composizione + upload PDF unico etichette.
 export function ClientBoxUpload({ box, onDone }) {
-  const amazonRef = useRef();
-  const upsRef = useRef();
+  const labelsRef = useRef();
   const [uploading, setUploading] = useState(null);
 
-  const upload = async (tipo, file) => {
-    setUploading(tipo);
+  const upload = async (file) => {
+    setUploading("etichette");
     try {
       const fd = new FormData(); fd.append("file", file);
-      await api.post(`/box/${box.id}/etichetta-${tipo}`, fd);
-      toast.success(`Etichetta ${tipo === "amazon" ? "Amazon" : "UPS"} caricata`);
+      await api.post(`/box/${box.id}/etichette`, fd);
+      toast.success("PDF etichette caricato");
       onDone();
     } catch (e) {
       toast.error("Errore nel caricamento");
@@ -47,39 +46,21 @@ export function ClientBoxUpload({ box, onDone }) {
           ))}
         </div>
       )}
-      <div className="grid grid-cols-2 gap-3 mt-4">
-        <div>
-          <input ref={amazonRef} type="file" accept="application/pdf" className="hidden"
-                 data-testid={`cbu-amazon-input-${box.id}`}
-                 onChange={(e) => e.target.files[0] && upload("amazon", e.target.files[0])} />
-          {box.etichetta_amazon_pdf_url ? (
-            <a href={fileUrl(box.etichetta_amazon_pdf_url)} target="_blank" rel="noreferrer"
-               className="flex items-center gap-1 text-xs text-emerald-600" data-testid={`cbu-amazon-done-${box.id}`}>
-              <CheckCircle2 className="h-4 w-4" /> Amazon caricata
-            </a>
-          ) : (
-            <Button variant="outline" size="sm" className="w-full" disabled={!puoCaricare || uploading === "amazon"}
-                    onClick={() => amazonRef.current.click()} data-testid={`cbu-amazon-btn-${box.id}`}>
-              {uploading === "amazon" ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />} PDF Amazon
-            </Button>
-          )}
-        </div>
-        <div>
-          <input ref={upsRef} type="file" accept="application/pdf" className="hidden"
-                 data-testid={`cbu-ups-input-${box.id}`}
-                 onChange={(e) => e.target.files[0] && upload("ups", e.target.files[0])} />
-          {box.etichetta_ups_pdf_url ? (
-            <a href={fileUrl(box.etichetta_ups_pdf_url)} target="_blank" rel="noreferrer"
-               className="flex items-center gap-1 text-xs text-emerald-600" data-testid={`cbu-ups-done-${box.id}`}>
-              <CheckCircle2 className="h-4 w-4" /> UPS caricata
-            </a>
-          ) : (
-            <Button variant="outline" size="sm" className="w-full" disabled={!puoCaricare || uploading === "ups"}
-                    onClick={() => upsRef.current.click()} data-testid={`cbu-ups-btn-${box.id}`}>
-              {uploading === "ups" ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />} PDF UPS
-            </Button>
-          )}
-        </div>
+      <div className="mt-4">
+        <input ref={labelsRef} type="file" accept="application/pdf" className="hidden"
+               data-testid={`cbu-labels-input-${box.id}`}
+               onChange={(e) => e.target.files[0] && upload(e.target.files[0])} />
+        {box.etichetta_amazon_pdf_url || box.etichetta_ups_pdf_url ? (
+          <a href={fileUrl(box.etichetta_amazon_pdf_url || box.etichetta_ups_pdf_url)} target="_blank" rel="noreferrer"
+             className="flex items-center gap-1 text-xs text-emerald-600" data-testid={`cbu-labels-done-${box.id}`}>
+            <CheckCircle2 className="h-4 w-4" /> PDF etichette caricato
+          </a>
+        ) : (
+          <Button variant="outline" size="sm" className="w-full" disabled={!puoCaricare || uploading === "etichette"}
+                  onClick={() => labelsRef.current.click()} data-testid={`cbu-labels-btn-${box.id}`}>
+            {uploading === "etichette" ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />} PDF etichette Amazon + UPS
+          </Button>
+        )}
       </div>
     </div>
   );

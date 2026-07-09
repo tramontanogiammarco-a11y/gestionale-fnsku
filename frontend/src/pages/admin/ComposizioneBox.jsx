@@ -165,8 +165,14 @@ export default function AdminComposizioneBox() {
                       </div>
                     )}
                     <div className="flex flex-wrap gap-2 mt-2 text-xs">
-                      {b.etichetta_amazon_pdf_url && <a href={fileUrl(b.etichetta_amazon_pdf_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600"><FileText className="h-3 w-3" /> Amazon</a>}
-                      {b.etichetta_ups_pdf_url && <a href={fileUrl(b.etichetta_ups_pdf_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-emerald-600"><FileText className="h-3 w-3" /> UPS</a>}
+                      {b.etichetta_amazon_pdf_url && b.etichetta_amazon_pdf_url === b.etichetta_ups_pdf_url ? (
+                        <a href={fileUrl(b.etichetta_amazon_pdf_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-emerald-600"><FileText className="h-3 w-3" /> Etichette</a>
+                      ) : (
+                        <>
+                          {b.etichetta_amazon_pdf_url && <a href={fileUrl(b.etichetta_amazon_pdf_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600"><FileText className="h-3 w-3" /> Amazon</a>}
+                          {b.etichetta_ups_pdf_url && <a href={fileUrl(b.etichetta_ups_pdf_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-emerald-600"><FileText className="h-3 w-3" /> UPS</a>}
+                        </>
+                      )}
                     </div>
                     <div className="mt-3">
                       <Select value={b.stato} onValueChange={(v) => cambiaStatoBox(b.id, v)}>

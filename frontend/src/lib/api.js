@@ -388,8 +388,12 @@ async function uploadBoxLabel(id, tipo, formData) {
   const path = `${box.cliente_id}/box/${id}-${tipo}-${Date.now()}-${file.name}`;
   const { error: uploadError } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: true });
   if (uploadError) fail(uploadError.message);
+  const url = fileUrl(path);
+  if (tipo === "combined") {
+    return updateBox(id, { etichetta_amazon_pdf_url: url, etichetta_ups_pdf_url: url });
+  }
   const field = tipo === "amazon" ? "etichetta_amazon_pdf_url" : "etichetta_ups_pdf_url";
-  return updateBox(id, { [field]: fileUrl(path) });
+  return updateBox(id, { [field]: url });
 }
 
 async function listPreparazioni(params) {
@@ -874,6 +878,7 @@ export const api = {
     if (path === "/entrate") return createEntrata(payload);
     if (path.match(/^\/entrate\/[^/]+\/ricevi$/)) return riceviEntrata(path.split("/")[2]);
     if (path === "/box") return createBox(payload);
+    if (path.match(/^\/box\/[^/]+\/etichette$/)) return uploadBoxLabel(path.split("/")[2], "combined", payload);
     if (path.match(/^\/box\/[^/]+\/etichetta-(amazon|ups)$/)) {
       const [, id, tipo] = path.match(/^\/box\/([^/]+)\/etichetta-(amazon|ups)$/);
       return uploadBoxLabel(id, tipo, payload);

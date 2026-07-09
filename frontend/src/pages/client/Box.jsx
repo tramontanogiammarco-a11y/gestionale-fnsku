@@ -22,7 +22,7 @@ export default function ClientBox() {
     <div className="space-y-6" data-testid="client-box">
       <div>
         <h1 className="font-heading text-2xl font-bold tracking-tight">I miei box</h1>
-        <p className="text-muted-foreground text-sm mt-1">Carica le etichette Amazon e UPS per i box pronti.</p>
+        <p className="text-muted-foreground text-sm mt-1">Carica un unico PDF con entrambe le etichette del box.</p>
       </div>
 
       {!boxes ? (
@@ -39,16 +39,15 @@ export default function ClientBox() {
 }
 
 function BoxItem({ box, titoli, onDone }) {
-  const amazonRef = useRef();
-  const upsRef = useRef();
+  const labelsRef = useRef();
   const [uploading, setUploading] = useState(null);
 
-  const upload = async (tipo, file) => {
-    setUploading(tipo);
+  const upload = async (file) => {
+    setUploading("etichette");
     try {
       const fd = new FormData(); fd.append("file", file);
-      await api.post(`/box/${box.id}/etichetta-${tipo}`, fd);
-      toast.success(`Etichetta ${tipo === "amazon" ? "Amazon" : "UPS"} caricata`);
+      await api.post(`/box/${box.id}/etichette`, fd);
+      toast.success("PDF etichette caricato");
       onDone();
     } catch (e) {
       toast.error("Errore nel caricamento");
@@ -88,41 +87,21 @@ function BoxItem({ box, titoli, onDone }) {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3 mt-4">
-        {/* Amazon */}
-        <div>
-          <input ref={amazonRef} type="file" accept="application/pdf" className="hidden"
-                 data-testid={`cbox-amazon-input-${box.id}`}
-                 onChange={(e) => e.target.files[0] && upload("amazon", e.target.files[0])} />
-          {box.etichetta_amazon_pdf_url ? (
-            <a href={fileUrl(box.etichetta_amazon_pdf_url)} target="_blank" rel="noreferrer"
-               className="flex items-center gap-1 text-xs text-emerald-600" data-testid={`cbox-amazon-done-${box.id}`}>
-              <CheckCircle2 className="h-4 w-4" /> Amazon caricata
-            </a>
-          ) : (
-            <Button variant="outline" size="sm" className="w-full" disabled={!puoCaricare || uploading === "amazon"}
-                    onClick={() => amazonRef.current.click()} data-testid={`cbox-amazon-btn-${box.id}`}>
-              {uploading === "amazon" ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />} PDF Amazon
-            </Button>
-          )}
-        </div>
-        {/* UPS */}
-        <div>
-          <input ref={upsRef} type="file" accept="application/pdf" className="hidden"
-                 data-testid={`cbox-ups-input-${box.id}`}
-                 onChange={(e) => e.target.files[0] && upload("ups", e.target.files[0])} />
-          {box.etichetta_ups_pdf_url ? (
-            <a href={fileUrl(box.etichetta_ups_pdf_url)} target="_blank" rel="noreferrer"
-               className="flex items-center gap-1 text-xs text-emerald-600" data-testid={`cbox-ups-done-${box.id}`}>
-              <CheckCircle2 className="h-4 w-4" /> UPS caricata
-            </a>
-          ) : (
-            <Button variant="outline" size="sm" className="w-full" disabled={!puoCaricare || uploading === "ups"}
-                    onClick={() => upsRef.current.click()} data-testid={`cbox-ups-btn-${box.id}`}>
-              {uploading === "ups" ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />} PDF UPS
-            </Button>
-          )}
-        </div>
+      <div className="mt-4">
+        <input ref={labelsRef} type="file" accept="application/pdf" className="hidden"
+               data-testid={`cbox-labels-input-${box.id}`}
+               onChange={(e) => e.target.files[0] && upload(e.target.files[0])} />
+        {box.etichetta_amazon_pdf_url || box.etichetta_ups_pdf_url ? (
+          <a href={fileUrl(box.etichetta_amazon_pdf_url || box.etichetta_ups_pdf_url)} target="_blank" rel="noreferrer"
+             className="flex items-center gap-1 text-xs text-emerald-600" data-testid={`cbox-labels-done-${box.id}`}>
+            <CheckCircle2 className="h-4 w-4" /> PDF etichette caricato
+          </a>
+        ) : (
+          <Button variant="outline" size="sm" className="w-full" disabled={!puoCaricare || uploading === "etichette"}
+                  onClick={() => labelsRef.current.click()} data-testid={`cbox-labels-btn-${box.id}`}>
+            {uploading === "etichette" ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />} PDF etichette Amazon + UPS
+          </Button>
+        )}
       </div>
       {!puoCaricare && box.stato === "spedito" && (
         <p className="text-xs text-muted-foreground mt-3 flex items-center gap-1"><FileText className="h-3 w-3" /> Box spedito.</p>

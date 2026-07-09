@@ -69,11 +69,19 @@ export default function AdminBox() {
                   <TableCell>{b.contenuto?.length || 0}</TableCell>
                   <TableCell>
                     <div className="flex gap-2">
-                      {b.etichetta_amazon_pdf_url && (
-                        <a href={fileUrl(b.etichetta_amazon_pdf_url)} target="_blank" rel="noreferrer" title="Amazon" className="text-blue-600"><FileText className="h-4 w-4" /></a>
-                      )}
-                      {b.etichetta_ups_pdf_url && (
-                        <a href={fileUrl(b.etichetta_ups_pdf_url)} target="_blank" rel="noreferrer" title="UPS" className="text-emerald-600"><FileText className="h-4 w-4" /></a>
+                      {b.etichetta_amazon_pdf_url && b.etichetta_amazon_pdf_url === b.etichetta_ups_pdf_url ? (
+                        <a href={fileUrl(b.etichetta_amazon_pdf_url)} target="_blank" rel="noreferrer" title="Etichette Amazon + UPS" className="inline-flex items-center gap-1 text-emerald-600">
+                          <FileText className="h-4 w-4" /><span className="text-xs">Etichette</span>
+                        </a>
+                      ) : (
+                        <>
+                          {b.etichetta_amazon_pdf_url && (
+                            <a href={fileUrl(b.etichetta_amazon_pdf_url)} target="_blank" rel="noreferrer" title="Amazon" className="text-blue-600"><FileText className="h-4 w-4" /></a>
+                          )}
+                          {b.etichetta_ups_pdf_url && (
+                            <a href={fileUrl(b.etichetta_ups_pdf_url)} target="_blank" rel="noreferrer" title="UPS" className="text-emerald-600"><FileText className="h-4 w-4" /></a>
+                          )}
+                        </>
                       )}
                       {!b.etichetta_amazon_pdf_url && !b.etichetta_ups_pdf_url && <span className="text-xs text-muted-foreground">In attesa</span>}
                     </div>
