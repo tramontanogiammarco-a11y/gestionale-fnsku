@@ -21,6 +21,7 @@ import AdminPreparazioneDetail from "@/pages/admin/PreparazioneDetail";
 import AdminComposizioneBox from "@/pages/admin/ComposizioneBox";
 import AdminFatturazione from "@/pages/admin/Fatturazione";
 
+import ClientDashboard from "@/pages/client/Dashboard";
 import ClientReferenze from "@/pages/client/Referenze";
 import ClientEntrate from "@/pages/client/Entrate";
 import ClientEntrataDetail from "@/pages/client/EntrataDetail";
@@ -83,7 +84,8 @@ function App() {
                 </ProtectedRoute>
               }
             >
-              <Route index element={<ClientReferenze />} />
+              <Route index element={<ClientDashboard />} />
+              <Route path="referenze" element={<ClientReferenze />} />
               <Route path="magazzino" element={<ClientMagazzino />} />
               <Route path="preparazioni" element={<ClientPreparazioni />} />
               <Route path="preparazioni/:id" element={<ClientPreparazioneDetail />} />

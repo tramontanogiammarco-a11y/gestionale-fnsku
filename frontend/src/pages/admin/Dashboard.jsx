@@ -1,10 +1,24 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
-import { STATI_ENTRATA } from "@/lib/statuses";
+import { STATI_BOX, STATI_ENTRATA, STATI_PREP } from "@/lib/statuses";
 import { Card } from "@/components/ui/card";
 import { StatusBadge } from "@/components/StatusBadge";
-import { ArrowUpRight, Boxes, ClipboardCheck, Loader2, PackageOpen, Tags, Users } from "lucide-react";
+import {
+  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
+} from "recharts";
+import { ArrowUpRight, Boxes, ClipboardCheck, ClipboardList, Loader2, PackageOpen, Tags, TrendingUp, Users } from "lucide-react";
+
+const CHART_COLORS = ["#0f766e", "#0284c7", "#f59e0b", "#64748b", "#10b981"];
+
+function statusRows(map, labels) {
+  return Object.keys(labels).map((key, index) => ({
+    key,
+    name: labels[key].label,
+    value: map?.[key] || 0,
+    fill: CHART_COLORS[index % CHART_COLORS.length],
+  }));
+}
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState(null);
@@ -24,32 +38,55 @@ export default function AdminDashboard() {
     );
 
   const kpis = [
-    { label: "Referenze", value: stats.totale_referenze, icon: Tags, tone: "text-teal-700 bg-teal-50" },
-    { label: "Entrate totali", value: stats.totale_entrate, icon: PackageOpen, tone: "text-sky-700 bg-sky-50" },
-    { label: "Box", value: stats.totale_box, icon: Boxes, tone: "text-amber-700 bg-amber-50" },
-    { label: "Clienti", value: stats.totale_clienti ?? 0, icon: Users, tone: "text-emerald-700 bg-emerald-50" },
+    { label: "Referenze", value: stats.totale_referenze, icon: Tags, tone: "text-teal-700 bg-teal-50", to: "/admin/referenze" },
+    { label: "Entrate", value: stats.totale_entrate, icon: PackageOpen, tone: "text-sky-700 bg-sky-50", to: "/admin/entrate" },
+    { label: "Preparazioni", value: stats.totale_preparazioni ?? 0, icon: ClipboardList, tone: "text-indigo-700 bg-indigo-50", to: "/admin/preparazioni" },
+    { label: "Box", value: stats.totale_box, icon: Boxes, tone: "text-amber-700 bg-amber-50", to: "/admin/box" },
+    { label: "Clienti", value: stats.totale_clienti ?? 0, icon: Users, tone: "text-emerald-700 bg-emerald-50", to: "/admin/clienti" },
+  ];
+  const entrateChart = statusRows(stats.entrate_per_stato, STATI_ENTRATA);
+  const prepChart = statusRows(stats.preparazioni_per_stato, STATI_PREP);
+  const boxChart = statusRows(stats.box_per_stato, STATI_BOX);
+  const workload = [
+    { name: "Entrate", value: stats.totale_entrate || 0, fill: "#0284c7" },
+    { name: "Preparazioni", value: stats.totale_preparazioni || 0, fill: "#4f46e5" },
+    { name: "Box", value: stats.totale_box || 0, fill: "#f59e0b" },
+  ];
+  const urgenti = [
+    { label: "Entrate in attesa", value: stats.entrate_per_stato?.in_attesa || 0, to: "/admin/entrate?stato=in_attesa" },
+    { label: "Prep richieste", value: stats.preparazioni_per_stato?.richiesta || 0, to: "/admin/preparazioni" },
+    { label: "Box pronti", value: stats.box_per_stato?.pronto || 0, to: "/admin/box" },
   ];
 
   return (
     <div className="space-y-6" data-testid="admin-dashboard">
-      <div className="flex flex-col gap-4 rounded-lg border border-slate-200/70 bg-white/80 p-5 shadow-sm backdrop-blur md:flex-row md:items-end md:justify-between">
-        <div>
-          <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-teal-50 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-teal-700">
-            <ClipboardCheck className="h-3.5 w-3.5" />
-            Operatività live
+      <div className="overflow-hidden rounded-lg border border-slate-200/70 bg-white/85 shadow-sm backdrop-blur">
+        <div className="grid gap-0 lg:grid-cols-[1fr_360px]">
+          <div className="p-6">
+            <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-teal-50 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-teal-700">
+              <ClipboardCheck className="h-3.5 w-3.5" />
+              Control tower
+            </div>
+            <h1 className="font-heading text-4xl font-black tracking-tight text-balance">Dashboard prep center</h1>
+            <p className="text-muted-foreground text-sm mt-1">Volumi, priorità e flussi operativi in un colpo d'occhio.</p>
           </div>
-          <h1 className="font-heading text-4xl font-black tracking-tight text-balance">Dashboard prep center</h1>
-          <p className="text-muted-foreground text-sm mt-1">Volumi, stati e ultime entrate in un colpo d'occhio.</p>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-          <div className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Ambiente</div>
-          <div className="mt-1 text-sm font-bold text-slate-900">Supabase production</div>
+          <div className="border-t border-slate-200 bg-slate-950 p-5 text-white lg:border-l lg:border-t-0">
+            <div className="text-[10px] uppercase tracking-[0.2em] text-teal-200">Oggi da guardare</div>
+            <div className="mt-4 grid gap-2">
+              {urgenti.map((item) => (
+                <button key={item.label} onClick={() => navigate(item.to)} className="flex items-center justify-between rounded-md bg-white/8 px-3 py-2 text-left transition-colors hover:bg-white/14">
+                  <span className="text-sm text-slate-200">{item.label}</span>
+                  <span className="font-heading text-xl font-black">{item.value}</span>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         {kpis.map((k, i) => (
-          <Card key={k.label} style={{ animationDelay: `${i * 60}ms` }} className="animate-fade-up p-5 flex items-start justify-between overflow-hidden transition-all hover:-translate-y-1 hover:shadow-lg">
+          <Card key={k.label} onClick={() => navigate(k.to)} style={{ animationDelay: `${i * 60}ms` }} className="animate-fade-up p-5 flex items-start justify-between overflow-hidden cursor-pointer transition-all hover:-translate-y-1 hover:shadow-lg">
             <div>
               <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-bold">{k.label}</div>
               <div className="font-heading text-4xl font-black mt-3 tracking-tight">{k.value}</div>
@@ -64,26 +101,94 @@ export default function AdminDashboard() {
         ))}
       </div>
 
-      <div className="rounded-lg border border-slate-200/70 bg-white/70 p-4 shadow-sm backdrop-blur">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-heading text-lg font-bold">Entrate per stato</h2>
-          <span className="text-xs font-semibold text-muted-foreground">Click per filtrare</span>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          {Object.keys(STATI_ENTRATA).map((s) => (
-            <Card
-              key={s}
-              data-testid={`stat-${s}`}
-              className="p-4 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md"
-              onClick={() => navigate(`/admin/entrate?stato=${s}`)}
-            >
-              <div className="font-heading text-3xl font-bold">{stats.entrate_per_stato[s] ?? 0}</div>
-              <div className="mt-2">
-                <StatusBadge stato={s} />
+      <div className="grid gap-4 lg:grid-cols-[1.35fr_0.65fr]">
+        <Card className="p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="font-heading text-lg font-bold">Trend operativo</h2>
+              <p className="text-xs text-muted-foreground">Entrate, preparazioni e box creati negli ultimi 7 giorni.</p>
+            </div>
+            <TrendingUp className="h-5 w-5 text-teal-700" />
+          </div>
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={stats.trend_operativo || []}>
+                <defs>
+                  <linearGradient id="colorEntrate" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="5%" stopColor="#0284c7" stopOpacity={0.28} />
+                    <stop offset="95%" stopColor="#0284c7" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="colorPrep" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.25} />
+                    <stop offset="95%" stopColor="#4f46e5" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                <XAxis dataKey="giorno" tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: "#64748b" }} />
+                <YAxis allowDecimals={false} tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: "#64748b" }} />
+                <Tooltip />
+                <Area type="monotone" dataKey="entrate" stroke="#0284c7" fill="url(#colorEntrate)" strokeWidth={2} />
+                <Area type="monotone" dataKey="preparazioni" stroke="#4f46e5" fill="url(#colorPrep)" strokeWidth={2} />
+                <Area type="monotone" dataKey="box" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.08} strokeWidth={2} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <h2 className="font-heading text-lg font-bold">Mix workload</h2>
+          <p className="text-xs text-muted-foreground">Peso relativo dei flussi aperti.</p>
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={workload} dataKey="value" nameKey="name" innerRadius={58} outerRadius={92} paddingAngle={4}>
+                  {workload.map((entry) => <Cell key={entry.name} fill={entry.fill} />)}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="grid gap-2">
+            {workload.map((item) => (
+              <div key={item.name} className="flex items-center justify-between text-sm">
+                <span className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: item.fill }} />{item.name}</span>
+                <span className="font-bold">{item.value}</span>
               </div>
-            </Card>
-          ))}
-        </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        {[
+          { title: "Entrate per stato", data: entrateChart, status: STATI_ENTRATA, base: "/admin/entrate?stato=" },
+          { title: "Preparazioni per stato", data: prepChart, status: STATI_PREP, base: "/admin/preparazioni" },
+          { title: "Box per stato", data: boxChart, status: STATI_BOX, base: "/admin/box" },
+        ].map((chart) => (
+          <Card key={chart.title} className="p-5">
+            <h2 className="font-heading text-lg font-bold">{chart.title}</h2>
+            <div className="mt-4 h-52">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chart.data}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "#64748b" }} />
+                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "#64748b" }} />
+                  <Tooltip />
+                  <Bar dataKey="value" radius={[6, 6, 0, 0]}>
+                    {chart.data.map((entry) => <Cell key={entry.key} fill={entry.fill} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {chart.data.map((row) => (
+                <button key={row.key} onClick={() => navigate(chart.base.includes("?") ? `${chart.base}${row.key}` : chart.base)} className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-white">
+                  {row.name}: {row.value}
+                </button>
+              ))}
+            </div>
+          </Card>
+        ))}
       </div>
 
       <div>

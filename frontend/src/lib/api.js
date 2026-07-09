@@ -679,20 +679,49 @@ async function preparato(params) {
 }
 
 async function dashboardStats() {
-  const [entrateRes, referenzeRes, boxRes, clientiRes] = await Promise.all([
-    supabase.from("entrate").select("stato"),
+  const [entrateRes, preparazioniRes, boxListRes, referenzeRes, clientiRes] = await Promise.all([
+    supabase.from("entrate").select("stato,data_annuncio"),
+    supabase.from("preparazioni").select("id,stato,created_at"),
+    supabase.from("box").select("id,stato,created_at,contenuto"),
     supabase.from("referenze").select("id", { count: "exact", head: true }),
-    supabase.from("box").select("id", { count: "exact", head: true }),
     supabase.from("clienti").select("id", { count: "exact", head: true }),
   ]);
-  if (entrateRes.error) fail(entrateRes.error.message);
-  const conteggi = {};
-  for (const e of entrateRes.data || []) conteggi[e.stato] = (conteggi[e.stato] || 0) + 1;
+  const firstError = entrateRes.error || preparazioniRes.error || boxListRes.error || referenzeRes.error || clientiRes.error;
+  if (firstError) fail(firstError.message);
+
+  const countBy = (rows, key) => (rows || []).reduce((acc, row) => {
+    acc[row[key]] = (acc[row[key]] || 0) + 1;
+    return acc;
+  }, {});
+
+  const dayKey = (date) => new Date(date).toISOString().slice(0, 10);
+  const lastDays = Array.from({ length: 7 }, (_, index) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (6 - index));
+    const key = d.toISOString().slice(0, 10);
+    return { key, label: d.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" }) };
+  });
+  const trend_operativo = lastDays.map((day) => ({
+    giorno: day.label,
+    entrate: (entrateRes.data || []).filter((e) => e.data_annuncio && dayKey(e.data_annuncio) === day.key).length,
+    preparazioni: (preparazioniRes.data || []).filter((p) => p.created_at && dayKey(p.created_at) === day.key).length,
+    box: (boxListRes.data || []).filter((b) => b.created_at && dayKey(b.created_at) === day.key).length,
+  }));
+
+  const pezzi_nei_box = (boxListRes.data || []).reduce((sum, box) => (
+    sum + (box.contenuto || []).reduce((inner, item) => inner + Number(item.quantita || 0), 0)
+  ), 0);
+
   return ok({
-    entrate_per_stato: conteggi,
+    entrate_per_stato: countBy(entrateRes.data || [], "stato"),
+    preparazioni_per_stato: countBy(preparazioniRes.data || [], "stato"),
+    box_per_stato: countBy(boxListRes.data || [], "stato"),
+    trend_operativo,
     totale_entrate: (entrateRes.data || []).length,
+    totale_preparazioni: (preparazioniRes.data || []).length,
     totale_referenze: referenzeRes.count || 0,
-    totale_box: boxRes.count || 0,
+    totale_box: (boxListRes.data || []).length,
+    pezzi_nei_box,
     totale_clienti: clientiRes.count || 0,
   });
 }
