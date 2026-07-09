@@ -26,11 +26,39 @@ function azioneErrore(e) {
 function parseGruppiAmazon(note = "") {
   const match = note.match(/\[GRUPPI AMAZON\]([\s\S]*?)\[\/GRUPPI AMAZON\]/);
   if (!match) return { hasGruppi: false, noteCliente: note };
-  const block = match[1] || "";
+  const block = (match[1] || "").trim();
+  let parsed = null;
+  try {
+    parsed = JSON.parse(block);
+  } catch (_) {
+    parsed = null;
+  }
+  if (parsed?.version === 2 && Array.isArray(parsed.gruppi)) {
+    const noteCliente = note
+      .replace(match[0], "")
+      .trim()
+      .replace(/^Note cliente:\s*/i, "")
+      .trim();
+    return {
+      hasGruppi: true,
+      totale: Number(parsed.totale) || parsed.gruppi.reduce((sum, g) => sum + (g.righe || []).reduce((s, r) => s + Number(r.quantita || 0), 0), 0),
+      gruppi: parsed.gruppi.map((g, index) => ({
+        nome: g.nome || `Gruppo ${index + 1}`,
+        righe: Array.isArray(g.righe) ? g.righe.map((r) => ({
+          ean: r.ean,
+          titolo: r.titolo,
+          fnsku: r.fnsku,
+          quantita: Number(r.quantita) || 0,
+        })).filter((r) => r.ean && r.quantita > 0) : [],
+      })),
+      noteCliente,
+    };
+  }
   const totalMatch = block.match(/Totale pezzi:\s*(\d+)/i);
   const gruppi = [...block.matchAll(/-\s*(.+?):\s*(\d+)\s*pz/gi)].map((m) => ({
     nome: m[1].trim(),
     quantita: Number(m[2]),
+    righe: [],
   }));
   const noteCliente = note
     .replace(match[0], "")
@@ -154,9 +182,31 @@ export default function AdminPreparazioneDetail() {
           <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {gruppiAmazon.gruppi.map((g, index) => (
               <div key={`${g.nome}-${index}`} className="rounded-md border border-teal-200 bg-white p-3" data-testid={`prep-gruppo-amazon-${index}`}>
-                <div className="text-sm font-semibold text-slate-900">{g.nome}</div>
-                <div className="text-2xl font-bold text-teal-700 mt-1">{g.quantita}</div>
-                <div className="text-xs text-muted-foreground">pezzi</div>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="text-sm font-semibold text-slate-900">{g.nome}</div>
+                  <div className="text-sm font-bold text-teal-700">
+                    {(g.righe || []).length ? g.righe.reduce((sum, r) => sum + Number(r.quantita || 0), 0) : g.quantita} pz
+                  </div>
+                </div>
+                {(g.righe || []).length > 0 ? (
+                  <div className="mt-3 space-y-2">
+                    {g.righe.map((r, rowIndex) => (
+                      <div key={`${r.ean}-${rowIndex}`} className="rounded border border-slate-200 bg-slate-50 p-2" data-testid={`prep-gruppo-riga-${index}-${rowIndex}`}>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            {r.titolo && <div className="truncate text-xs font-semibold text-slate-900">{r.titolo}</div>}
+                            <div className="font-mono text-[11px] text-slate-600">
+                              EAN {r.ean}{r.fnsku ? ` · FNSKU ${r.fnsku}` : ""}
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-sm font-bold text-teal-700">×{r.quantita}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-1 text-xs text-muted-foreground">Formato gruppi precedente, senza dettaglio referenze.</div>
+                )}
               </div>
             ))}
           </div>

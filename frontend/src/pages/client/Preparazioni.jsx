@@ -94,7 +94,7 @@ function NuovaPreparazioneDialog({ onDone }) {
   const [note, setNote] = useState("");
   const [righe, setRighe] = useState([{ ean: "", fnsku: "", quantita: "", servizi: [] }]);
   const [tipoPrep, setTipoPrep] = useState("standard");
-  const [gruppiAmazon, setGruppiAmazon] = useState([{ nome: "Gruppo 1", quantita: "" }]);
+  const [gruppiAmazon, setGruppiAmazon] = useState([{ nome: "Gruppo 1", righe: [{ ean: "", quantita: "" }] }]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => { if (open) api.get("/magazzino").then((r) => setMagazzino(r.data)); }, [open]);
@@ -119,25 +119,73 @@ function NuovaPreparazioneDialog({ onDone }) {
   const updateGruppo = (i, k, v) => {
     const next = [...gruppiAmazon]; next[i][k] = v; setGruppiAmazon(next);
   };
-  const addGruppo = () => setGruppiAmazon([...gruppiAmazon, { nome: `Gruppo ${gruppiAmazon.length + 1}`, quantita: "" }]);
+  const updateGruppoRiga = (groupIndex, rowIndex, key, value) => {
+    const next = [...gruppiAmazon];
+    const rows = [...(next[groupIndex].righe || [])];
+    rows[rowIndex] = { ...rows[rowIndex], [key]: value };
+    next[groupIndex] = { ...next[groupIndex], righe: rows };
+    setGruppiAmazon(next);
+  };
+  const addGruppo = () => setGruppiAmazon([...gruppiAmazon, { nome: `Gruppo ${gruppiAmazon.length + 1}`, righe: [{ ean: "", quantita: "" }] }]);
   const delGruppo = (i) => setGruppiAmazon(gruppiAmazon.filter((_, idx) => idx !== i));
+  const addGruppoRiga = (groupIndex) => {
+    const next = [...gruppiAmazon];
+    next[groupIndex] = { ...next[groupIndex], righe: [...(next[groupIndex].righe || []), { ean: "", quantita: "" }] };
+    setGruppiAmazon(next);
+  };
+  const delGruppoRiga = (groupIndex, rowIndex) => {
+    const next = [...gruppiAmazon];
+    const rows = (next[groupIndex].righe || []).filter((_, idx) => idx !== rowIndex);
+    next[groupIndex] = { ...next[groupIndex], righe: rows.length ? rows : [{ ean: "", quantita: "" }] };
+    setGruppiAmazon(next);
+  };
 
   const totalePezzi = righe.reduce((sum, r) => sum + (Number(r.quantita) || 0), 0);
-  const totaleGruppi = gruppiAmazon.reduce((sum, g) => sum + (Number(g.quantita) || 0), 0);
+  const righeRichieste = righe
+    .filter((r) => r.ean && Number(r.quantita) > 0)
+    .map((r) => ({ ...r, quantita: Number(r.quantita), titolo: magazzino.find((m) => m.ean === r.ean)?.titolo || "" }));
+  const richiestoPerEan = righeRichieste.reduce((acc, r) => {
+    acc[r.ean] = (acc[r.ean] || 0) + r.quantita;
+    return acc;
+  }, {});
+  const infoRichieste = Object.fromEntries(righeRichieste.map((r) => [r.ean, r]));
   const gruppiValidi = gruppiAmazon
-    .map((g, index) => ({ nome: (g.nome || `Gruppo ${index + 1}`).trim(), quantita: Number(g.quantita) || 0 }))
-    .filter((g) => g.quantita > 0);
+    .map((g, index) => ({
+      nome: (g.nome || `Gruppo ${index + 1}`).trim(),
+      righe: (g.righe || [])
+        .map((r) => {
+          const info = infoRichieste[r.ean] || {};
+          return {
+            ean: r.ean,
+            titolo: info.titolo || "",
+            fnsku: info.fnsku || "",
+            quantita: Number(r.quantita) || 0,
+          };
+        })
+        .filter((r) => r.ean && r.quantita > 0),
+    }))
+    .filter((g) => g.righe.length > 0);
+  const assegnatoPerEan = gruppiValidi.reduce((acc, g) => {
+    g.righe.forEach((r) => { acc[r.ean] = (acc[r.ean] || 0) + r.quantita; });
+    return acc;
+  }, {});
+  const totaleGruppi = Object.values(assegnatoPerEan).reduce((sum, value) => sum + value, 0);
+  const erroriGruppi = [
+    ...Object.entries(richiestoPerEan)
+      .filter(([ean, qty]) => (assegnatoPerEan[ean] || 0) !== qty)
+      .map(([ean, qty]) => `${ean}: richiesti ${qty}, nei gruppi ${assegnatoPerEan[ean] || 0}`),
+    ...Object.keys(assegnatoPerEan)
+      .filter((ean) => !richiestoPerEan[ean])
+      .map((ean) => `${ean}: non presente nella preparazione`),
+  ];
 
   const buildNote = () => {
     if (tipoPrep !== "gruppi_amazon") return note;
-    const bloccoGruppi = [
-      "[GRUPPI AMAZON]",
-      "Tipo preparazione: Gruppi Amazon",
-      `Totale pezzi: ${totalePezzi}`,
-      "Composizione gruppi:",
-      ...gruppiValidi.map((g, index) => `- ${g.nome || `Gruppo ${index + 1}`}: ${g.quantita} pz`),
-      "[/GRUPPI AMAZON]",
-    ].join("\n");
+    const bloccoGruppi = `[GRUPPI AMAZON]\n${JSON.stringify({
+      version: 2,
+      totale: totalePezzi,
+      gruppi: gruppiValidi,
+    })}\n[/GRUPPI AMAZON]`;
     return note?.trim() ? `${bloccoGruppi}\n\nNote cliente:\n${note.trim()}` : bloccoGruppi;
   };
 
@@ -147,9 +195,9 @@ function NuovaPreparazioneDialog({ onDone }) {
       .map((r) => ({ ean: r.ean, fnsku: r.fnsku || null, quantita: Number(r.quantita), servizi: r.servizi }));
     if (valide.length === 0) { toast.error("Aggiungi almeno una riga con EAN e quantità"); return; }
     if (tipoPrep === "gruppi_amazon") {
-      if (gruppiValidi.length === 0) { toast.error("Aggiungi almeno un gruppo Amazon con quantità"); return; }
-      if (totaleGruppi !== totalePezzi) {
-        toast.error(`La somma dei gruppi Amazon deve essere ${totalePezzi} pezzi. Ora è ${totaleGruppi}.`);
+      if (gruppiValidi.length === 0) { toast.error("Aggiungi almeno un gruppo Amazon con referenza e quantità"); return; }
+      if (erroriGruppi.length > 0) {
+        toast.error(`Controlla i gruppi Amazon: ${erroriGruppi[0]}`);
         return;
       }
     }
@@ -161,7 +209,7 @@ function NuovaPreparazioneDialog({ onDone }) {
       setNote("");
       setRighe([{ ean: "", fnsku: "", quantita: "", servizi: [] }]);
       setTipoPrep("standard");
-      setGruppiAmazon([{ nome: "Gruppo 1", quantita: "" }]);
+      setGruppiAmazon([{ nome: "Gruppo 1", righe: [{ ean: "", quantita: "" }] }]);
       onDone();
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail));
@@ -176,6 +224,9 @@ function NuovaPreparazioneDialog({ onDone }) {
         <div className="space-y-4 max-h-[70vh] overflow-auto pr-1">
           <datalist id="mag-ean-list">
             {magazzino.map((m) => <option key={m.ean} value={m.ean}>{`${m.titolo || m.ean} (disp. ${m.disponibile})`}</option>)}
+          </datalist>
+          <datalist id="prep-ean-richiesti-list">
+            {righeRichieste.map((r) => <option key={r.ean} value={r.ean}>{`${r.titolo || r.ean} · richiesti ${richiestoPerEan[r.ean]}`}</option>)}
           </datalist>
           <div>
             <Label className="text-xs">Righe (EAN · FNSKU · quantità · lavorazioni)</Label>
@@ -223,33 +274,68 @@ function NuovaPreparazioneDialog({ onDone }) {
               </label>
             </RadioGroup>
             {tipoPrep === "gruppi_amazon" && (
-              <div className="mt-3 space-y-2">
-                <div className="flex items-center justify-between gap-2 text-xs">
+              <div className="mt-3 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                   <span className="font-medium text-muted-foreground">Totale preparazione: {totalePezzi} pezzi</span>
-                  <span className={totaleGruppi === totalePezzi ? "font-semibold text-emerald-700" : "font-semibold text-amber-700"}>
-                    Totale gruppi: {totaleGruppi}
+                  <span className={erroriGruppi.length === 0 && totalePezzi > 0 ? "font-semibold text-emerald-700" : "font-semibold text-amber-700"}>
+                    Totale assegnato nei gruppi: {totaleGruppi}
                   </span>
                 </div>
+                {righeRichieste.length > 0 && (
+                  <div className="rounded-md bg-slate-50 p-2 text-xs">
+                    <div className="font-semibold text-slate-700 mb-1">Controllo referenze</div>
+                    <div className="grid gap-1 sm:grid-cols-2">
+                      {Object.entries(richiestoPerEan).map(([ean, qty]) => {
+                        const assegnato = assegnatoPerEan[ean] || 0;
+                        return (
+                          <div key={ean} className={assegnato === qty ? "text-emerald-700" : "text-amber-700"}>
+                            <span className="font-mono">{ean}</span>: {assegnato}/{qty} pz
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 {gruppiAmazon.map((g, i) => (
-                  <div key={i} className="grid grid-cols-12 gap-2 items-center" data-testid={`prep-gruppo-amazon-${i}`}>
-                    <Input
-                      className="col-span-7"
-                      value={g.nome}
-                      onChange={(e) => updateGruppo(i, "nome", e.target.value)}
-                      placeholder={`Gruppo ${i + 1}`}
-                      data-testid={`prep-gruppo-nome-${i}`}
-                    />
-                    <Input
-                      type="number"
-                      min={1}
-                      className="col-span-4"
-                      value={g.quantita}
-                      onChange={(e) => updateGruppo(i, "quantita", e.target.value)}
-                      placeholder="Pezzi"
-                      data-testid={`prep-gruppo-qta-${i}`}
-                    />
-                    <Button variant="ghost" size="icon" className="col-span-1" onClick={() => delGruppo(i)} disabled={gruppiAmazon.length === 1} data-testid={`prep-gruppo-del-${i}`}>
-                      <Trash2 className="h-4 w-4" />
+                  <div key={i} className="rounded-md border border-border bg-white p-3 space-y-2" data-testid={`prep-gruppo-amazon-${i}`}>
+                    <div className="grid grid-cols-12 gap-2 items-center">
+                      <Input
+                        className="col-span-11"
+                        value={g.nome}
+                        onChange={(e) => updateGruppo(i, "nome", e.target.value)}
+                        placeholder={`Gruppo ${i + 1}`}
+                        data-testid={`prep-gruppo-nome-${i}`}
+                      />
+                      <Button variant="ghost" size="icon" className="col-span-1" onClick={() => delGruppo(i)} disabled={gruppiAmazon.length === 1} data-testid={`prep-gruppo-del-${i}`}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    {(g.righe || []).map((gr, rowIndex) => (
+                      <div key={rowIndex} className="grid grid-cols-12 gap-2 items-center" data-testid={`prep-gruppo-riga-${i}-${rowIndex}`}>
+                        <Input
+                          list="prep-ean-richiesti-list"
+                          className="col-span-7 font-mono text-xs"
+                          value={gr.ean}
+                          onChange={(e) => updateGruppoRiga(i, rowIndex, "ean", e.target.value)}
+                          placeholder="EAN referenza"
+                          data-testid={`prep-gruppo-ean-${i}-${rowIndex}`}
+                        />
+                        <Input
+                          type="number"
+                          min={1}
+                          className="col-span-4"
+                          value={gr.quantita}
+                          onChange={(e) => updateGruppoRiga(i, rowIndex, "quantita", e.target.value)}
+                          placeholder="Pezzi"
+                          data-testid={`prep-gruppo-qta-${i}-${rowIndex}`}
+                        />
+                        <Button variant="ghost" size="icon" className="col-span-1" onClick={() => delGruppoRiga(i, rowIndex)} disabled={(g.righe || []).length === 1} data-testid={`prep-gruppo-riga-del-${i}-${rowIndex}`}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                    <Button variant="outline" size="sm" onClick={() => addGruppoRiga(i)} data-testid={`prep-gruppo-riga-add-${i}`}>
+                      <Plus className="h-4 w-4 mr-1" /> Aggiungi referenza al gruppo
                     </Button>
                   </div>
                 ))}
