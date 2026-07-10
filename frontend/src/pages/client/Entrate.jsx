@@ -19,6 +19,7 @@ import { Loader2, Plus, Trash2, PackagePlus, FileText, Truck, ChevronRight } fro
 
 export default function ClientEntrate() {
   const [entrate, setEntrate] = useState(null);
+  const [view, setView] = useState("attive");
   const navigate = useNavigate();
 
   const load = () => api.get("/entrate").then((r) => setEntrate(r.data));
@@ -34,13 +35,28 @@ export default function ClientEntrate() {
         <NuovaEntrataDialog onDone={load} />
       </div>
 
+      {entrate && (
+        <div className="flex flex-wrap gap-2">
+          {[
+            ["attive", "Attive", entrate.filter((e) => e.stato === "in_attesa").length],
+            ["archivio", "Archivio", entrate.filter((e) => e.stato !== "in_attesa").length],
+          ].map(([key, label, count]) => (
+            <Button key={key} size="sm" variant={view === key ? "default" : "outline"} onClick={() => setView(key)} data-testid={`entrate-view-${key}`}>
+              {label} <span className="ml-2 rounded-full bg-white/20 px-2 text-xs">{count}</span>
+            </Button>
+          ))}
+        </div>
+      )}
+
       {!entrate ? (
         <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
-      ) : entrate.length === 0 ? (
-        <Card className="p-10 text-center text-muted-foreground">Nessuna entrata. Crea il tuo primo annuncio di arrivo merce.</Card>
+      ) : entrate.filter((e) => view === "archivio" ? e.stato !== "in_attesa" : e.stato === "in_attesa").length === 0 ? (
+        <Card className="p-10 text-center text-muted-foreground">
+          {view === "archivio" ? "Nessuna entrata archiviata." : "Nessuna entrata attiva. Crea il tuo primo annuncio di arrivo merce."}
+        </Card>
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
-          {entrate.map((e) => (
+          {entrate.filter((e) => view === "archivio" ? e.stato !== "in_attesa" : e.stato === "in_attesa").map((e) => (
             <Card
               key={e.id}
               data-testid={`centrata-${e.id}`}
@@ -185,4 +201,3 @@ function NuovaEntrataDialog({ onDone }) {
     </Dialog>
   );
 }
-

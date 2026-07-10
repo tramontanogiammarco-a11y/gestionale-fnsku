@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { api, fileUrl, formatApiError } from "@/lib/api";
 import { StatusBadge } from "@/components/StatusBadge";
+import ProcessTimeline from "@/components/ProcessTimeline";
 import { FLUSSO_ENTRATA, STATI_ENTRATA } from "@/lib/statuses";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -57,6 +58,12 @@ export default function ClientEntrataDetail() {
     return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
 
   const modificabile = entrata.stato !== "spedito";
+  const timeline = [
+    { label: "Annunciata", date: entrata.data_annuncio, done: true, actor: "Cliente" },
+    { label: "Ricevuta", date: entrata.data_ricezione, done: entrata.stato !== "in_attesa", current: entrata.stato === "in_attesa", actor: "Prep center" },
+    { label: "A magazzino", date: entrata.data_ricezione, done: entrata.stato !== "in_attesa", empty: "Dopo ricezione" },
+    { label: "Archiviata", date: entrata.data_ricezione, done: entrata.stato !== "in_attesa", empty: "Quando ricevuta" },
+  ];
 
   return (
     <div className="space-y-6" data-testid="client-entrata-detail">
@@ -82,6 +89,12 @@ export default function ClientEntrataDetail() {
           })}
         </div>
       </div>
+
+      <ProcessTimeline
+        title="Timeline entrata"
+        description="Tracciamento della merce dal tuo annuncio al magazzino."
+        steps={timeline}
+      />
 
       {/* FNSKU / referenze */}
       <Card className="p-5">

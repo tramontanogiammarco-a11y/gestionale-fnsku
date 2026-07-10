@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { StatusBadge } from "@/components/StatusBadge";
+import ProcessTimeline from "@/components/ProcessTimeline";
 import { FLUSSO_PREP, STATI_PREP, SERVIZI } from "@/lib/statuses";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -39,6 +40,14 @@ export default function ClientPreparazioneDetail() {
       toast.error(err.response?.data?.detail || "Impossibile cancellare la preparazione");
     }
   };
+  const order = ["richiesta", "in_lavorazione", "pronto", "spedito"];
+  const currentIndex = order.indexOf(prep.stato);
+  const timeline = [
+    { label: "Richiesta", date: prep.created_at, done: currentIndex >= 0 },
+    { label: "In lavorazione", done: currentIndex >= 1, current: prep.stato === "richiesta", empty: "Da avviare" },
+    { label: "Pronta", date: prep.data_pronto, done: currentIndex >= 2, current: prep.stato === "in_lavorazione", empty: "Da completare" },
+    { label: "Spedita", date: prep.data_spedito, done: currentIndex >= 3, current: prep.stato === "pronto", empty: "Da spedire" },
+  ];
 
   return (
     <div className="space-y-6" data-testid="client-prep-detail">
@@ -66,6 +75,12 @@ export default function ClientPreparazioneDetail() {
           })}
         </div>
       </div>
+
+      <ProcessTimeline
+        title="Timeline preparazione"
+        description="Segui lo stato della tua richiesta senza chiedere aggiornamenti."
+        steps={timeline}
+      />
 
       <Card className="p-5">
         <h2 className="font-heading text-lg font-semibold flex items-center gap-2 mb-3"><ClipboardList className="h-5 w-5 text-blue-600" /> Prodotti e lavorazioni richieste</h2>

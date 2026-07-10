@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { StatusBadge } from "@/components/StatusBadge";
+import ProcessTimeline from "@/components/ProcessTimeline";
 import { STATI_PREP, SERVIZI } from "@/lib/statuses";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -150,6 +151,14 @@ export default function AdminPreparazioneDetail() {
     in_lavorazione: { label: "Segna pronto", stato: "pronto" },
     pronto: { label: "Segna spedito", stato: "spedito" },
   }[prep.stato];
+  const order = ["richiesta", "in_lavorazione", "pronto", "spedito"];
+  const currentIndex = order.indexOf(prep.stato);
+  const prepTimeline = [
+    { label: "Richiesta", date: prep.created_at, done: currentIndex >= 0, actor: "Cliente" },
+    { label: "In lavorazione", done: currentIndex >= 1, current: prep.stato === "richiesta", empty: "Da avviare", actor: "Staff" },
+    { label: "Pronta", date: prep.data_pronto, done: currentIndex >= 2, current: prep.stato === "in_lavorazione", empty: "Da completare" },
+    { label: "Spedita", date: prep.data_spedito, done: currentIndex >= 3, current: prep.stato === "pronto", empty: "Da spedire" },
+  ];
 
   return (
     <div className="space-y-6" data-testid="admin-prep-detail">
@@ -178,6 +187,12 @@ export default function AdminPreparazioneDetail() {
           </Select>
         </div>
       </div>
+
+      <ProcessTimeline
+        title="Timeline preparazione"
+        description="Stato della pratica e prossima azione operativa."
+        steps={prepTimeline}
+      />
 
       {gruppiAmazon.hasGruppi && (
         <Card className="p-5 border-teal-200 bg-teal-50/70" data-testid="prep-gruppi-amazon">

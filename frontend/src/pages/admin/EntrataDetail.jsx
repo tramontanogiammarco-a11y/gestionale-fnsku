@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api, fileUrl } from "@/lib/api";
 import { StatusBadge } from "@/components/StatusBadge";
+import ProcessTimeline from "@/components/ProcessTimeline";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -70,6 +71,12 @@ export default function AdminEntrataDetail() {
     return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
 
   const note = parseDocumentiNote(entrata.note || "");
+  const entrataTimeline = [
+    { label: "Annunciata", date: entrata.data_annuncio, done: true, actor: "Cliente" },
+    { label: "Ricevuta", date: entrata.data_ricezione, done: entrata.stato !== "in_attesa", current: entrata.stato === "in_attesa", actor: "Staff" },
+    { label: "A magazzino", date: entrata.data_ricezione, done: entrata.stato !== "in_attesa", empty: "Dopo ricezione" },
+    { label: "Archiviabile", date: entrata.data_ricezione, done: entrata.stato !== "in_attesa", empty: "Quando ricevuta" },
+  ];
 
   return (
     <div className="space-y-6" data-testid="entrata-detail">
@@ -105,6 +112,12 @@ export default function AdminEntrataDetail() {
           )}
         </div>
       </div>
+
+      <ProcessTimeline
+        title="Timeline entrata"
+        description="Tracciamento rapido della pratica dal cliente al magazzino."
+        steps={entrataTimeline}
+      />
 
       <Card className="p-5">
         <h2 className="font-heading text-lg font-semibold mb-4">Contenuto arrivo (EAN · quantità)</h2>

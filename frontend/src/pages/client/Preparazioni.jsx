@@ -18,6 +18,7 @@ import { Loader2, Plus, Trash2, ClipboardList, ChevronRight } from "lucide-react
 
 export default function ClientPreparazioni() {
   const [preps, setPreps] = useState(null);
+  const [view, setView] = useState("attive");
   const navigate = useNavigate();
 
   const load = () => api.get("/preparazioni").then((r) => setPreps(r.data));
@@ -33,13 +34,28 @@ export default function ClientPreparazioni() {
         <NuovaPreparazioneDialog onDone={load} />
       </div>
 
+      {preps && (
+        <div className="flex flex-wrap gap-2">
+          {[
+            ["attive", "Attive", preps.filter((p) => p.stato !== "spedito").length],
+            ["archivio", "Archivio", preps.filter((p) => p.stato === "spedito").length],
+          ].map(([key, label, count]) => (
+            <Button key={key} size="sm" variant={view === key ? "default" : "outline"} onClick={() => setView(key)} data-testid={`prep-view-${key}`}>
+              {label} <span className="ml-2 rounded-full bg-white/20 px-2 text-xs">{count}</span>
+            </Button>
+          ))}
+        </div>
+      )}
+
       {!preps ? (
         <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
-      ) : preps.length === 0 ? (
-        <Card className="p-10 text-center text-muted-foreground">Nessuna preparazione. Creane una scegliendo EAN, FNSKU, quantità e lavorazioni.</Card>
+      ) : preps.filter((p) => view === "archivio" ? p.stato === "spedito" : p.stato !== "spedito").length === 0 ? (
+        <Card className="p-10 text-center text-muted-foreground">
+          {view === "archivio" ? "Nessuna preparazione archiviata." : "Nessuna preparazione attiva. Creane una scegliendo EAN, FNSKU, quantità e lavorazioni."}
+        </Card>
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
-          {preps.map((p) => (
+          {preps.filter((p) => view === "archivio" ? p.stato === "spedito" : p.stato !== "spedito").map((p) => (
             <Card key={p.id} data-testid={`cprep-${p.id}`} className="p-4 cursor-pointer hover:shadow-sm transition-shadow" onClick={() => navigate(`/app/preparazioni/${p.id}`)}>
               <div className="flex items-center justify-between">
                 <div className="font-heading font-semibold">Preparazione</div>

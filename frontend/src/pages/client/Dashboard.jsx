@@ -20,8 +20,11 @@ import {
 } from "recharts";
 import {
   ArrowUpRight,
+  Bell,
   Boxes,
+  CheckCircle2,
   ClipboardList,
+  FileWarning,
   Loader2,
   Plus,
   Tags,
@@ -148,6 +151,52 @@ export default function ClientDashboard() {
     { label: "Entrate in attesa", value: stats.entrateMap.in_attesa || 0, to: "/app/entrate" },
     { label: "PDF box da caricare", value: stats.boxPronti, to: "/app/box" },
   ];
+  const notifications = [
+    ...data.entrate
+      .filter((e) => e.stato === "ricevuto")
+      .map((e) => ({
+        kind: "Merce ricevuta",
+        title: `${e.tipo} arrivata al prep center`,
+        meta: `${e.righe?.length || 0} referenze · ${new Date(e.data_ricezione || e.data_annuncio).toLocaleDateString("it-IT")}`,
+        to: `/app/entrate/${e.id}`,
+        date: e.data_ricezione || e.data_annuncio,
+        icon: CheckCircle2,
+        tone: "bg-emerald-50 text-emerald-700 border-emerald-200",
+      })),
+    ...data.preparazioni
+      .filter((p) => p.stato === "pronto")
+      .map((p) => ({
+        kind: "Preparazione pronta",
+        title: "La preparazione è pronta",
+        meta: `${p.righe?.reduce((a, r) => a + Number(r.quantita || 0), 0) || 0} pezzi pronti`,
+        to: `/app/preparazioni/${p.id}`,
+        date: p.data_pronto || p.created_at,
+        icon: CheckCircle2,
+        tone: "bg-teal-50 text-teal-700 border-teal-200",
+      })),
+    ...data.box
+      .filter((b) => b.stato === "pronto" && !b.etichetta_amazon_pdf_url && !b.etichetta_ups_pdf_url)
+      .map((b) => ({
+        kind: "Etichette mancanti",
+        title: `${b.numero_box} pronto: carica PDF etichette`,
+        meta: `${b.contenuto?.length || 0} referenze nel box`,
+        to: "/app/box",
+        date: b.created_at,
+        icon: FileWarning,
+        tone: "bg-amber-50 text-amber-700 border-amber-200",
+      })),
+    ...data.box
+      .filter((b) => b.stato === "spedito")
+      .map((b) => ({
+        kind: "Box spedito",
+        title: `${b.numero_box} spedito`,
+        meta: b.data_spedito ? new Date(b.data_spedito).toLocaleDateString("it-IT") : "Spedizione completata",
+        to: "/app/spedizioni",
+        date: b.data_spedito || b.created_at,
+        icon: Truck,
+        tone: "bg-slate-50 text-slate-700 border-slate-200",
+      })),
+  ].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)).slice(0, 6);
 
   return (
     <div className="space-y-6" data-testid="client-dashboard">
@@ -187,6 +236,41 @@ export default function ClientDashboard() {
           </div>
         </div>
       </div>
+
+      <Card className="p-5" data-testid="client-notifications">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h2 className="font-heading text-lg font-bold flex items-center gap-2">
+              <Bell className="h-5 w-5 text-teal-700" /> Notifiche automatiche
+            </h2>
+            <p className="text-xs text-muted-foreground">Aggiornamenti generati dagli stati delle tue pratiche.</p>
+          </div>
+          <span className="rounded-full bg-slate-950 px-3 py-1 text-xs font-bold text-white">{notifications.length}</span>
+        </div>
+        {notifications.length === 0 ? (
+          <div className="rounded-md border border-dashed border-slate-200 p-8 text-center text-sm text-muted-foreground">
+            Nessuna notifica operativa in questo momento.
+          </div>
+        ) : (
+          <div className="grid gap-2 md:grid-cols-2">
+            {notifications.map((item, index) => (
+              <button
+                key={`${item.kind}-${index}`}
+                onClick={() => navigate(item.to)}
+                className={`flex items-start gap-3 rounded-md border p-3 text-left transition-all hover:-translate-y-0.5 hover:shadow-sm ${item.tone}`}
+                data-testid={`client-notification-${index}`}
+              >
+                <item.icon className="mt-0.5 h-5 w-5 shrink-0" />
+                <span className="min-w-0">
+                  <span className="block text-[10px] font-bold uppercase tracking-[0.16em] opacity-80">{item.kind}</span>
+                  <span className="block truncate text-sm font-bold">{item.title}</span>
+                  <span className="block truncate text-xs opacity-80">{item.meta}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </Card>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {kpis.map((kpi, index) => (

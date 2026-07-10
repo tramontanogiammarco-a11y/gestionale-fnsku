@@ -9,6 +9,7 @@ import { Loader2, Upload, FileText, CheckCircle2 } from "lucide-react";
 export default function ClientBox() {
   const [boxes, setBoxes] = useState(null);
   const [titoli, setTitoli] = useState({});
+  const [view, setView] = useState("attivi");
 
   const load = () => api.get("/box").then((r) => setBoxes(r.data));
   useEffect(() => {
@@ -25,13 +26,28 @@ export default function ClientBox() {
         <p className="text-muted-foreground text-sm mt-1">Carica un unico PDF con entrambe le etichette del box.</p>
       </div>
 
+      {boxes && (
+        <div className="flex flex-wrap gap-2">
+          {[
+            ["attivi", "Attivi", boxes.filter((b) => b.stato !== "spedito").length],
+            ["archivio", "Archivio", boxes.filter((b) => b.stato === "spedito").length],
+          ].map(([key, label, count]) => (
+            <Button key={key} size="sm" variant={view === key ? "default" : "outline"} onClick={() => setView(key)} data-testid={`box-view-${key}`}>
+              {label} <span className="ml-2 rounded-full bg-white/20 px-2 text-xs">{count}</span>
+            </Button>
+          ))}
+        </div>
+      )}
+
       {!boxes ? (
         <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
-      ) : boxes.length === 0 ? (
-        <Card className="p-10 text-center text-muted-foreground">Nessun box ancora preparato.</Card>
+      ) : boxes.filter((b) => view === "archivio" ? b.stato === "spedito" : b.stato !== "spedito").length === 0 ? (
+        <Card className="p-10 text-center text-muted-foreground">
+          {view === "archivio" ? "Nessun box archiviato." : "Nessun box attivo."}
+        </Card>
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
-          {boxes.map((b) => <BoxItem key={b.id} box={b} titoli={titoli} onDone={load} />)}
+          {boxes.filter((b) => view === "archivio" ? b.stato === "spedito" : b.stato !== "spedito").map((b) => <BoxItem key={b.id} box={b} titoli={titoli} onDone={load} />)}
         </div>
       )}
     </div>

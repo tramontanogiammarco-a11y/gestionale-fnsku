@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api } from "@/lib/api";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -10,9 +11,11 @@ import { Loader2, ChevronRight } from "lucide-react";
 
 export default function AdminPreparazioni() {
   const [preps, setPreps] = useState(null);
+  const [view, setView] = useState("attive");
   const navigate = useNavigate();
 
   useEffect(() => { api.get("/preparazioni").then((r) => setPreps(r.data)); }, []);
+  const visiblePreps = (preps || []).filter((p) => view === "archivio" ? p.stato === "spedito" : p.stato !== "spedito");
 
   return (
     <div className="space-y-6" data-testid="admin-preparazioni">
@@ -20,6 +23,16 @@ export default function AdminPreparazioni() {
         <h1 className="font-heading text-3xl font-bold tracking-tight">Preparazioni</h1>
         <p className="text-muted-foreground text-sm mt-1">Richieste di preparazione dei clienti dal magazzino.</p>
       </div>
+      {preps && (
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant={view === "attive" ? "default" : "outline"} onClick={() => setView("attive")} data-testid="admin-prep-view-attive">
+            Attive <span className="ml-2 rounded-full bg-white/20 px-2 text-xs">{preps.filter((p) => p.stato !== "spedito").length}</span>
+          </Button>
+          <Button size="sm" variant={view === "archivio" ? "default" : "outline"} onClick={() => setView("archivio")} data-testid="admin-prep-view-archivio">
+            Archivio <span className="ml-2 rounded-full bg-white/20 px-2 text-xs">{preps.filter((p) => p.stato === "spedito").length}</span>
+          </Button>
+        </div>
+      )}
       <Card>
         {!preps ? (
           <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
@@ -36,10 +49,10 @@ export default function AdminPreparazioni() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {preps.length === 0 && (
-                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-10">Nessuna preparazione richiesta.</TableCell></TableRow>
+              {visiblePreps.length === 0 && (
+                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-10">{view === "archivio" ? "Nessuna preparazione archiviata." : "Nessuna preparazione attiva."}</TableCell></TableRow>
               )}
-              {preps.map((p) => (
+              {visiblePreps.map((p) => (
                 <TableRow key={p.id} data-testid={`prep-row-${p.id}`} className="cursor-pointer" onClick={() => navigate(`/admin/preparazioni/${p.id}`)}>
                   <TableCell className="font-medium">{p.cliente_ragione_sociale}</TableCell>
                   <TableCell>{p.righe?.length || 0}</TableCell>

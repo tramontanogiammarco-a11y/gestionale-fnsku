@@ -12,6 +12,7 @@ import { Loader2, ChevronRight } from "lucide-react";
 
 export default function AdminEntrate() {
   const [entrate, setEntrate] = useState(null);
+  const [view, setView] = useState("attive");
   const [params, setParams] = useSearchParams();
   const stato = params.get("stato") || "";
   const navigate = useNavigate();
@@ -21,6 +22,7 @@ export default function AdminEntrate() {
     api.get(`/entrate${q}`).then((r) => setEntrate(r.data));
   };
   useEffect(load, [stato]);
+  const visibleEntrate = (entrate || []).filter((e) => view === "archivio" ? e.stato !== "in_attesa" : e.stato === "in_attesa");
 
   return (
     <div className="space-y-6" data-testid="admin-entrate">
@@ -33,6 +35,12 @@ export default function AdminEntrate() {
 
       {/* Filtri per stato */}
       <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant={view === "attive" ? "default" : "outline"} onClick={() => setView("attive")} data-testid="entrate-admin-view-attive">
+          Attive <span className="ml-2 rounded-full bg-white/20 px-2 text-xs">{(entrate || []).filter((e) => e.stato === "in_attesa").length}</span>
+        </Button>
+        <Button size="sm" variant={view === "archivio" ? "default" : "outline"} onClick={() => setView("archivio")} data-testid="entrate-admin-view-archivio">
+          Archivio <span className="ml-2 rounded-full bg-white/20 px-2 text-xs">{(entrate || []).filter((e) => e.stato !== "in_attesa").length}</span>
+        </Button>
         <Button
           size="sm"
           variant={stato === "" ? "default" : "outline"}
@@ -73,14 +81,14 @@ export default function AdminEntrate() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {entrate.length === 0 && (
+              {visibleEntrate.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={7} className="text-center text-muted-foreground py-10">
-                    Nessuna entrata trovata.
+                    {view === "archivio" ? "Nessuna entrata archiviata." : "Nessuna entrata attiva."}
                   </TableCell>
                 </TableRow>
               )}
-              {entrate.map((e) => (
+              {visibleEntrate.map((e) => (
                 <TableRow
                   key={e.id}
                   data-testid={`entrata-row-${e.id}`}
