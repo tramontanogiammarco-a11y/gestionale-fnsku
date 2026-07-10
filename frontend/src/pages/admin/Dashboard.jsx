@@ -47,6 +47,11 @@ export default function AdminDashboard() {
   const entrateChart = statusRows(stats.entrate_per_stato, STATI_ENTRATA);
   const prepChart = statusRows(stats.preparazioni_per_stato, STATI_PREP);
   const boxChart = statusRows(stats.box_per_stato, STATI_BOX);
+  const serviziChart = Object.entries(stats.servizio_usage || {}).map(([name, value], index) => ({
+    name,
+    value,
+    fill: CHART_COLORS[index % CHART_COLORS.length],
+  }));
   const workload = [
     { name: "Entrate", value: stats.totale_entrate || 0, fill: "#0284c7" },
     { name: "Preparazioni", value: stats.totale_preparazioni || 0, fill: "#4f46e5" },
@@ -189,6 +194,51 @@ export default function AdminDashboard() {
             </div>
           </Card>
         ))}
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card className="p-5">
+          <h2 className="font-heading text-lg font-bold">Servizi più richiesti</h2>
+          <p className="text-xs text-muted-foreground">Pezzi per lavorazione nelle preparazioni.</p>
+          {serviziChart.length === 0 ? (
+            <div className="mt-4 rounded-md border border-dashed border-slate-200 p-8 text-center text-sm text-muted-foreground">Nessun servizio ancora richiesto.</div>
+          ) : (
+            <div className="mt-4 h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={serviziChart}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "#64748b" }} />
+                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "#64748b" }} />
+                  <Tooltip />
+                  <Bar dataKey="value" radius={[6, 6, 0, 0]}>
+                    {serviziChart.map((entry) => <Cell key={entry.name} fill={entry.fill} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </Card>
+
+        <Card className="p-5">
+          <h2 className="font-heading text-lg font-bold">Clienti più attivi</h2>
+          <p className="text-xs text-muted-foreground">Classifica per numero preparazioni.</p>
+          <div className="mt-4 grid gap-2">
+            {(stats.top_clienti || []).length === 0 && <div className="rounded-md border border-dashed border-slate-200 p-8 text-center text-sm text-muted-foreground">Nessun dato cliente.</div>}
+            {(stats.top_clienti || []).map((cliente, index) => (
+              <button
+                key={cliente.cliente_id}
+                onClick={() => navigate(`/admin/clienti/${cliente.cliente_id}`)}
+                className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-left transition-colors hover:bg-white"
+              >
+                <span className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-950 text-xs font-black text-white">{index + 1}</span>
+                  <span className="truncate text-sm font-semibold">{cliente.nome}</span>
+                </span>
+                <span className="text-sm font-bold text-teal-700">{cliente.preparazioni}</span>
+              </button>
+            ))}
+          </div>
+        </Card>
       </div>
 
       <div>

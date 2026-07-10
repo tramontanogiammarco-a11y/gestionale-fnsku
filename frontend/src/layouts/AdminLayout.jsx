@@ -4,6 +4,7 @@ import {
   LayoutDashboard, PackageOpen, Users, Boxes, Tags, Barcode, LogOut, ClipboardList, PackagePlus, Receipt,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import GlobalSearch from "@/components/GlobalSearch";
 import logo from "@/assets/logo.png";
 
 const NAV = [
@@ -93,6 +94,12 @@ export default function AdminLayout() {
 
       <main className="flex-1 md:ml-72 pt-16 md:pt-0">
         <div className="p-4 sm:p-6 lg:p-8 max-w-[1460px] animate-fade-up">
+          <div className="mb-5 grid gap-3 lg:grid-cols-[minmax(320px,560px)_1fr]">
+            <GlobalSearch />
+            <div className="hidden items-center justify-end text-xs font-semibold uppercase tracking-[0.18em] text-slate-400 lg:flex">
+              Workspace live
+            </div>
+          </div>
           <Outlet />
         </div>
       </main>

@@ -3,6 +3,7 @@ import { api, fileUrl } from "@/lib/api";
 import { STATI_BOX } from "@/lib/statuses";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -30,6 +31,11 @@ export default function AdminBox() {
       toast.error(msg);
     }
   };
+
+  const nextBoxAction = (stato) => ({
+    in_preparazione: { label: "Pronto", next: "pronto" },
+    pronto: { label: "Spedito", next: "spedito" },
+  }[stato]);
 
   return (
     <div className="space-y-6" data-testid="admin-box">
@@ -87,12 +93,19 @@ export default function AdminBox() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Select value={b.stato} onValueChange={(v) => cambiaStato(b.id, v)}>
-                      <SelectTrigger className="w-40 h-8" data-testid={`box-stato-${b.id}`}><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {Object.keys(STATI_BOX).map((s) => <SelectItem key={s} value={s}>{STATI_BOX[s].label}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {nextBoxAction(b.stato) && (
+                        <Button size="sm" onClick={() => cambiaStato(b.id, nextBoxAction(b.stato).next)} data-testid={`box-next-${b.id}`}>
+                          {nextBoxAction(b.stato).label}
+                        </Button>
+                      )}
+                      <Select value={b.stato} onValueChange={(v) => cambiaStato(b.id, v)}>
+                        <SelectTrigger className="h-8 w-40" data-testid={`box-stato-${b.id}`}><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {Object.keys(STATI_BOX).map((s) => <SelectItem key={s} value={s}>{STATI_BOX[s].label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

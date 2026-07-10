@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { api, formatApiError } from "@/lib/api";
 import { Card } from "@/components/ui/card";
@@ -12,7 +13,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2, UserPlus, Pencil } from "lucide-react";
+import { Loader2, UserPlus, Pencil, ChevronRight } from "lucide-react";
 
 const DEFAULT_LISTINO = {
   fnsku: 0.10, busta: 0, nastratura: 0, pluriball: 0,
@@ -54,6 +55,7 @@ function ListinoFields({ value, onChange }) {
 
 export default function AdminClienti() {
   const [clienti, setClienti] = useState(null);
+  const navigate = useNavigate();
 
   const load = () => api.get("/clienti").then((r) => setClienti(r.data));
   useEffect(() => { load(); }, []);
@@ -91,7 +93,7 @@ export default function AdminClienti() {
               {clienti.map((c) => {
                 const l = c.listino || {};
                 return (
-                  <TableRow key={c.id} data-testid={`cliente-row-${c.id}`}>
+                  <TableRow key={c.id} data-testid={`cliente-row-${c.id}`} className="cursor-pointer" onClick={() => navigate(`/admin/clienti/${c.id}`)}>
                     <TableCell className="font-medium">{c.ragione_sociale}</TableCell>
                     <TableCell className="font-mono text-xs">{c.email}</TableCell>
                     <TableCell className="text-xs">€ {Number(l.fnsku || 0).toFixed(2)}</TableCell>
@@ -100,6 +102,7 @@ export default function AdminClienti() {
                     <TableCell className="text-xs">{Number(l.iva ?? 22)}%</TableCell>
                     <TableCell className="text-right">
                       <ModificaClienteDialog cliente={c} onSaved={load} />
+                      <ChevronRight className="ml-2 inline h-4 w-4 text-muted-foreground" />
                     </TableCell>
                   </TableRow>
                 );
@@ -201,7 +204,7 @@ function ModificaClienteDialog({ cliente, onSaved }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="sm" data-testid={`edit-cliente-${cliente.id}`}><Pencil className="h-4 w-4" /></Button>
+        <Button variant="ghost" size="sm" data-testid={`edit-cliente-${cliente.id}`} onClick={(e) => e.stopPropagation()}><Pencil className="h-4 w-4" /></Button>
       </DialogTrigger>
       <DialogContent className="max-w-2xl">
         <DialogHeader><DialogTitle>Modifica cliente e listino</DialogTitle></DialogHeader>

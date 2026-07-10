@@ -328,6 +328,17 @@ async function updateEntrataRiga(id, payload) {
   return ok(data);
 }
 
+async function updateEntrata(id, payload) {
+  const { data, error } = await requireSupabase()
+    .from("entrate")
+    .update(payload)
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) fail(error.message);
+  return getEntrata(data.id);
+}
+
 async function riceviEntrata(id) {
   const { data, error } = await requireSupabase()
     .from("entrate")
@@ -337,6 +348,51 @@ async function riceviEntrata(id) {
     .single();
   if (error) fail(error.message);
   return getEntrata(data.id);
+}
+
+function parseDocumentiNote(note = "") {
+  const match = String(note || "").match(/\[DOCUMENTI\]([\s\S]*?)\[\/DOCUMENTI\]/);
+  if (!match) return { notePulita: note || "", documenti: [] };
+  let documenti = [];
+  try {
+    const parsed = JSON.parse((match[1] || "").trim());
+    if (Array.isArray(parsed)) documenti = parsed;
+  } catch (_) {
+    documenti = [];
+  }
+  return {
+    documenti,
+    notePulita: String(note || "").replace(match[0], "").trim(),
+  };
+}
+
+function buildDocumentiNote(note, documenti) {
+  const clean = parseDocumentiNote(note).notePulita;
+  const block = `[DOCUMENTI]\n${JSON.stringify(documenti)}\n[/DOCUMENTI]`;
+  return clean ? `${clean}\n\n${block}` : block;
+}
+
+async function uploadEntrataDocumento(id, formData) {
+  const file = formData.get("file");
+  const tipo = String(formData.get("tipo") || "documento");
+  if (!file) fail("File mancante");
+  const { data: entrata, error: readError } = await requireSupabase()
+    .from("entrate")
+    .select("id,cliente_id,note")
+    .eq("id", id)
+    .single();
+  if (readError || !entrata) fail(readError?.message || "Entrata non trovata");
+
+  const path = `${entrata.cliente_id}/entrate/${id}/documenti/${Date.now()}-${file.name}`;
+  const { error: uploadError } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: true });
+  if (uploadError) fail(uploadError.message);
+
+  const parsed = parseDocumentiNote(entrata.note);
+  const nextDocs = [
+    ...parsed.documenti,
+    { tipo, nome: file.name, url: fileUrl(path), path, created_at: nowIso() },
+  ];
+  return updateEntrata(id, { note: buildDocumentiNote(entrata.note, nextDocs) });
 }
 
 async function listBox(params) {
@@ -679,14 +735,15 @@ async function preparato(params) {
 }
 
 async function dashboardStats() {
-  const [entrateRes, preparazioniRes, boxListRes, referenzeRes, clientiRes] = await Promise.all([
-    supabase.from("entrate").select("stato,data_annuncio"),
-    supabase.from("preparazioni").select("id,stato,created_at"),
+  const [entrateRes, preparazioniRes, prepRigheRes, boxListRes, referenzeRes, clientiRes] = await Promise.all([
+    supabase.from("entrate").select("stato,data_annuncio,cliente_id"),
+    supabase.from("preparazioni").select("id,stato,created_at,cliente_id"),
+    supabase.from("preparazioni_righe").select("preparazione_id,quantita,servizi"),
     supabase.from("box").select("id,stato,created_at,contenuto"),
     supabase.from("referenze").select("id", { count: "exact", head: true }),
-    supabase.from("clienti").select("id", { count: "exact", head: true }),
+    supabase.from("clienti").select("id,ragione_sociale,listino"),
   ]);
-  const firstError = entrateRes.error || preparazioniRes.error || boxListRes.error || referenzeRes.error || clientiRes.error;
+  const firstError = entrateRes.error || preparazioniRes.error || prepRigheRes.error || boxListRes.error || referenzeRes.error || clientiRes.error;
   if (firstError) fail(firstError.message);
 
   const countBy = (rows, key) => (rows || []).reduce((acc, row) => {
@@ -711,6 +768,21 @@ async function dashboardStats() {
   const pezzi_nei_box = (boxListRes.data || []).reduce((sum, box) => (
     sum + (box.contenuto || []).reduce((inner, item) => inner + Number(item.quantita || 0), 0)
   ), 0);
+  const servizio_usage = {};
+  for (const riga of prepRigheRes.data || []) {
+    for (const servizio of riga.servizi || []) {
+      servizio_usage[servizio] = (servizio_usage[servizio] || 0) + Number(riga.quantita || 0);
+    }
+  }
+  const clientiById = Object.fromEntries((clientiRes.data || []).map((c) => [c.id, c]));
+  const top_clienti = Object.entries(countBy(preparazioniRes.data || [], "cliente_id"))
+    .map(([cliente_id, preparazioni]) => ({
+      cliente_id,
+      nome: clientiById[cliente_id]?.ragione_sociale || "Cliente",
+      preparazioni,
+    }))
+    .sort((a, b) => b.preparazioni - a.preparazioni)
+    .slice(0, 5);
 
   return ok({
     entrate_per_stato: countBy(entrateRes.data || [], "stato"),
@@ -722,24 +794,145 @@ async function dashboardStats() {
     totale_referenze: referenzeRes.count || 0,
     totale_box: (boxListRes.data || []).length,
     pezzi_nei_box,
-    totale_clienti: clientiRes.count || 0,
+    servizio_usage,
+    top_clienti,
+    totale_clienti: (clientiRes.data || []).length,
   });
 }
 
 async function fatturazione(params) {
+  const clienteId = params.get("cliente_id");
+  const anno = Number(params.get("anno"));
+  const mese = Number(params.get("mese"));
+  const palletStoccati = Number(params.get("pallet") || 0);
+  if (!clienteId || !anno || !mese) fail("Cliente, anno e mese sono obbligatori");
+
+  const start = new Date(Date.UTC(anno, mese - 1, 1)).toISOString();
+  const end = new Date(Date.UTC(anno, mese, 1)).toISOString();
+  const { data: cliente, error: clienteError } = await requireSupabase()
+    .from("clienti")
+    .select("*")
+    .eq("id", clienteId)
+    .single();
+  if (clienteError || !cliente) fail(clienteError?.message || "Cliente non trovato");
+
+  const listino = { ...(cliente.listino || {}) };
+  const price = (key) => Number(listino[key] || 0);
+  const righe = [];
+  const addRiga = (codice, descrizione, quantita, prezzo) => {
+    const q = Number(quantita || 0);
+    const p = Number(prezzo || 0);
+    if (q <= 0 || p <= 0) return;
+    righe.push({ codice, descrizione, quantita: q, prezzo: p, importo: q * p });
+  };
+
+  const [{ data: entrate, error: entrateError }, { data: preps, error: prepsError }, { data: boxes, error: boxesError }] = await Promise.all([
+    supabase.from("entrate").select("*").eq("cliente_id", clienteId).gte("data_annuncio", start).lt("data_annuncio", end),
+    supabase.from("preparazioni").select("*").eq("cliente_id", clienteId).gte("created_at", start).lt("created_at", end),
+    supabase.from("box").select("*").eq("cliente_id", clienteId).gte("created_at", start).lt("created_at", end),
+  ]);
+  const firstError = entrateError || prepsError || boxesError;
+  if (firstError) fail(firstError.message);
+
+  const prepIds = (preps || []).map((p) => p.id);
+  const { data: prepRighe, error: righeError } = prepIds.length
+    ? await supabase.from("preparazioni_righe").select("*").in("preparazione_id", prepIds)
+    : { data: [], error: null };
+  if (righeError) fail(righeError.message);
+
+  const entrataPallet = (entrate || []).filter((e) => e.tipo === "pallet").reduce((sum, e) => sum + Number(e.colli || 1), 0);
+  const entrataScatola = (entrate || []).filter((e) => e.tipo === "scatola").reduce((sum, e) => sum + Number(e.colli || 1), 0);
+  addRiga("entrata_pallet", "Entrata pallet", entrataPallet, price("entrata_pallet"));
+  addRiga("entrata_scatola", "Entrata scatola", entrataScatola, price("entrata_scatola"));
+
+  const servizioQty = {};
+  for (const riga of prepRighe || []) {
+    for (const servizio of riga.servizi || []) {
+      servizioQty[servizio] = (servizioQty[servizio] || 0) + Number(riga.quantita || 0);
+    }
+  }
+  addRiga("fnsku", "Applicazione etichette FNSKU", servizioQty.fnsku, price("fnsku"));
+  addRiga("busta", "Busta trasparente", servizioQty.busta, price("busta"));
+  addRiga("nastratura", "Nastratura", servizioQty.nastratura, price("nastratura"));
+  addRiga("pluriball", "Pluriball", servizioQty.pluriball, price("pluriball"));
+
+  addRiga("inscatolamento", "Inscatolamento box", (boxes || []).length, price("inscatolamento"));
+  const scatola60 = (boxes || []).filter((b) => Number(b.lunghezza_cm || 0) >= 55 || Number(b.larghezza_cm || 0) >= 55).length;
+  const scatola40 = (boxes || []).filter((b) => Number(b.lunghezza_cm || 0) > 0 && Number(b.lunghezza_cm || 0) < 55 && Number(b.larghezza_cm || 0) < 55).length;
+  addRiga("scatola_60", "Scatola 60x40x40", scatola60, price("scatola_60"));
+  addRiga("scatola_40", "Scatola 40x30x30", scatola40, price("scatola_40"));
+  addRiga("stoccaggio_pallet", "Stoccaggio pallet mese", palletStoccati, price("stoccaggio_pallet"));
+
+  const subtotale = righe.reduce((sum, r) => sum + r.importo, 0);
+  const ivaPerc = Number(listino.iva ?? 22);
+  const ivaImporto = subtotale * ivaPerc / 100;
   return ok({
-    righe: [],
-    subtotale: 0,
-    iva_perc: 22,
-    iva_importo: 0,
-    totale: 0,
-    cliente_id: params.get("cliente_id"),
+    righe,
+    subtotale,
+    iva_perc: ivaPerc,
+    iva_importo: ivaImporto,
+    totale: subtotale + ivaImporto,
+    cliente_id: clienteId,
+    ragione_sociale: cliente.ragione_sociale,
     periodo: `${params.get("anno")}-${String(params.get("mese")).padStart(2, "0")}`,
+    metriche: {
+      entrata_pallet: entrataPallet,
+      entrata_scatola: entrataScatola,
+      preparazioni: (preps || []).length,
+      box: (boxes || []).length,
+      servizi: servizioQty,
+    },
   });
 }
 
-function placeholderPdf(message) {
-  return new Blob([message], { type: "application/pdf" });
+function simplePdfTextBlob(lines = []) {
+  const safeLines = lines.map((line) => pdfEscape(line).slice(0, 110));
+  const stream = [
+    "BT",
+    "/F1 18 Tf",
+    "50 790 Td",
+    `(${safeLines[0] || "Documento"}) Tj`,
+    "/F1 10 Tf",
+    ...safeLines.slice(1).flatMap((line) => ["0 -18 Td", `(${line}) Tj`]),
+    "ET",
+  ].join("\n");
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((obj, index) => {
+    offsets.push(pdf.length);
+    pdf += `${index + 1} 0 obj\n${obj}\nendobj\n`;
+  });
+  const xrefOffset = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => {
+    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  });
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return new Blob([pdf], { type: "application/pdf" });
+}
+
+function invoicePdfBlob(fattura) {
+  const lines = [
+    `Riepilogo fatturazione - ${fattura.ragione_sociale || ""}`,
+    `Periodo: ${fattura.periodo}`,
+    "",
+    "Descrizione | Q.ta | Prezzo | Importo",
+    ...((fattura.righe || []).length ? fattura.righe.map((r) => (
+      `${r.descrizione} | ${r.quantita} | EUR ${Number(r.prezzo).toFixed(2)} | EUR ${Number(r.importo).toFixed(2)}`
+    )) : ["Nessun costo nel periodo selezionato."]),
+    "",
+    `Imponibile: EUR ${Number(fattura.subtotale || 0).toFixed(2)}`,
+    `IVA ${Number(fattura.iva_perc || 0).toFixed(2)}%: EUR ${Number(fattura.iva_importo || 0).toFixed(2)}`,
+    `Totale: EUR ${Number(fattura.totale || 0).toFixed(2)}`,
+  ];
+  return simplePdfTextBlob(lines);
 }
 
 const MM_TO_PT = 72 / 25.4;
@@ -894,7 +1087,10 @@ export const api = {
     if (path === "/dashboard/stats") return dashboardStats();
     if (path === "/etichette/formati") return ok({ formati: ["40x20", "50x30", "60x30", "100x50"] });
     if (path === "/fatturazione") return fatturazione(params);
-    if (path === "/fatturazione/pdf" && config.responseType === "blob") return ok(placeholderPdf("PDF fatturazione in migrazione Supabase."));
+    if (path === "/fatturazione/pdf" && config.responseType === "blob") {
+      const fattura = await fatturazione(params);
+      return ok(invoicePdfBlob(fattura.data));
+    }
     fail(`Endpoint non migrato: ${path}`, 404);
   },
 
@@ -904,6 +1100,7 @@ export const api = {
     if (path === "/referenze") return createReferenza(payload);
     if (path === "/referenze/import") return importReferenze(payload);
     if (path.match(/^\/referenze\/[^/]+\/foto$/)) return uploadReferenzaFoto(path.split("/")[2], payload);
+    if (path.match(/^\/entrate\/[^/]+\/documento$/)) return uploadEntrataDocumento(path.split("/")[2], payload);
     if (path === "/entrate") return createEntrata(payload);
     if (path.match(/^\/entrate\/[^/]+\/ricevi$/)) return riceviEntrata(path.split("/")[2]);
     if (path === "/box") return createBox(payload);
@@ -921,6 +1118,7 @@ export const api = {
     const { path } = pathAndQuery(url);
     if (path.match(/^\/clienti\/[^/]+$/)) return updateCliente(path.split("/")[2], payload);
     if (path.match(/^\/referenze\/[^/]+$/)) return updateReferenza(path.split("/")[2], payload);
+    if (path.match(/^\/entrate\/[^/]+$/)) return updateEntrata(path.split("/")[2], payload);
     if (path.match(/^\/entrate-righe\/[^/]+$/)) return updateEntrataRiga(path.split("/")[2], payload);
     if (path.match(/^\/box\/[^/]+\/stato$/)) return updateBoxStato(path.split("/")[2], payload.stato);
     if (path.match(/^\/box\/[^/]+$/)) return updateBox(path.split("/")[2], payload);

@@ -145,6 +145,11 @@ export default function AdminPreparazioneDetail() {
     return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
 
   const gruppiAmazon = parseGruppiAmazon(prep.note || "");
+  const nextAction = {
+    richiesta: { label: "Avvia lavorazione", stato: "in_lavorazione" },
+    in_lavorazione: { label: "Segna pronto", stato: "pronto" },
+    pronto: { label: "Segna spedito", stato: "spedito" },
+  }[prep.stato];
 
   return (
     <div className="space-y-6" data-testid="admin-prep-detail">
@@ -157,10 +162,16 @@ export default function AdminPreparazioneDetail() {
           </div>
           {gruppiAmazon.noteCliente && <p className="text-sm text-muted-foreground mt-2">{gruppiAmazon.noteCliente}</p>}
         </div>
-        <div>
-          <Label className="text-xs">Stato lavorazione</Label>
+        <div className="flex flex-wrap items-center gap-2">
+          {nextAction ? (
+            <Button onClick={() => cambiaStato(nextAction.stato)} data-testid="prep-next-status">
+              {nextAction.label}
+            </Button>
+          ) : (
+            <span className="rounded-md bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-600">Flusso completato</span>
+          )}
           <Select value={prep.stato} onValueChange={cambiaStato}>
-            <SelectTrigger className="w-48 mt-1" data-testid="prep-stato-select"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-44" data-testid="prep-stato-select"><SelectValue /></SelectTrigger>
             <SelectContent>
               {Object.keys(STATI_PREP).map((s) => <SelectItem key={s} value={s}>{STATI_PREP[s].label}</SelectItem>)}
             </SelectContent>
