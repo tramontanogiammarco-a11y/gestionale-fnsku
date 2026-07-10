@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api, formatApiError } from "@/lib/api";
 import { Card } from "@/components/ui/card";
@@ -12,23 +13,53 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { CheckCircle2, DownloadCloud, ExternalLink, Loader2, PlugZap, ShieldCheck } from "lucide-react";
+import { CheckCircle2, DownloadCloud, ExternalLink, Link2, Loader2, PlugZap, ShieldCheck, Store } from "lucide-react";
+
+const SHOPIFY_CALLBACK_URL = "https://ryprjuqfervusppnedsz.supabase.co/functions/v1/shopify-oauth-callback";
 
 export default function AdminIntegrazioni() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [clienti, setClienti] = useState([]);
   const [clienteId, setClienteId] = useState("");
-  const [shopDomain, setShopDomain] = useState("");
+  const [shopDomain, setShopDomain] = useState("zcgygr-91.myshopify.com");
   const [accessToken, setAccessToken] = useState("");
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [connecting, setConnecting] = useState(false);
 
   useEffect(() => {
     api.get("/clienti").then((r) => setClienti(r.data || []));
   }, []);
 
+  useEffect(() => {
+    if (searchParams.get("shopify") === "connected") {
+      toast.success(`Shopify collegato: ${searchParams.get("shop") || "negozio"}`);
+      setSearchParams({});
+    }
+  }, [searchParams, setSearchParams]);
+
+  const connectShopify = async () => {
+    if (!clienteId || !shopDomain) {
+      toast.error("Seleziona cliente e dominio myshopify.com");
+      return;
+    }
+    setConnecting(true);
+    try {
+      const { data } = await api.post("/shopify/oauth/start", {
+        cliente_id: clienteId,
+        shop_domain: shopDomain,
+      });
+      window.location.href = data.authorize_url;
+    } catch (e) {
+      toast.error(formatApiError(e.response?.data?.detail));
+    } finally {
+      setConnecting(false);
+    }
+  };
+
   const run = async (dryRun) => {
-    if (!clienteId || !shopDomain || !accessToken) {
-      toast.error("Seleziona cliente, shop domain e token Shopify");
+    if (!clienteId || !shopDomain) {
+      toast.error("Seleziona cliente e dominio Shopify");
       return;
     }
     setLoading(true);
@@ -37,7 +68,7 @@ export default function AdminIntegrazioni() {
       const { data } = await api.post("/shopify/import", {
         cliente_id: clienteId,
         shop_domain: shopDomain,
-        access_token: accessToken,
+        access_token: accessToken || undefined,
         dry_run: dryRun,
       });
       setResult(data);
@@ -67,13 +98,30 @@ export default function AdminIntegrazioni() {
             <div className="text-[10px] uppercase tracking-[0.2em] text-teal-200">Sicurezza</div>
             <div className="mt-4 flex gap-3 rounded-md bg-white/8 p-3 text-sm text-slate-200">
               <ShieldCheck className="h-5 w-5 shrink-0 text-teal-200" />
-              <span>Il token viene inviato alla Edge Function solo per l'import. Non viene salvato nel browser.</span>
+              <span>Il token Shopify viene salvato solo lato Supabase tramite OAuth. Nel browser resta solo il pulsante di collegamento.</span>
             </div>
           </div>
         </div>
       </div>
 
       <Card className="p-5">
+        <div className="mb-5 grid gap-3 rounded-md border border-teal-200 bg-teal-50 p-4 text-sm text-teal-950 lg:grid-cols-[1fr_auto]">
+          <div>
+            <div className="flex items-center gap-2 font-heading text-lg font-bold">
+              <Store className="h-5 w-5 text-teal-700" /> Collegamento Shopify moderno
+            </div>
+            <p className="mt-1 text-teal-800">
+              In Shopify Dev Dashboard imposta questo URL nei redirect dell'app, poi torna qui e premi Collega Shopify.
+            </p>
+            <div className="mt-3 rounded-md bg-white/80 px-3 py-2 font-mono text-xs text-slate-800">
+              {SHOPIFY_CALLBACK_URL}
+            </div>
+          </div>
+          <Button variant="outline" onClick={() => navigator.clipboard?.writeText(SHOPIFY_CALLBACK_URL).then(() => toast.success("URL copiato"))}>
+            Copia redirect
+          </Button>
+        </div>
+
         <div className="grid gap-4 lg:grid-cols-2">
           <div>
             <Label className="text-xs">Cliente</Label>
@@ -95,7 +143,7 @@ export default function AdminIntegrazioni() {
             />
           </div>
           <div className="lg:col-span-2">
-            <Label className="text-xs">Admin API access token</Label>
+            <Label className="text-xs">Admin API access token manuale (opzionale)</Label>
             <Textarea
               value={accessToken}
               onChange={(e) => setAccessToken(e.target.value)}
@@ -104,11 +152,15 @@ export default function AdminIntegrazioni() {
               data-testid="shopify-token"
             />
             <p className="mt-2 text-xs text-muted-foreground">
-              Scope consigliati nella Custom App Shopify: <b>read_products</b>, <b>read_inventory</b>, <b>read_locations</b>.
+              Lascialo vuoto se hai usato il pulsante Collega Shopify. Serve solo come fallback se Shopify ti mostra ancora un token Admin API.
             </p>
           </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
+          <Button onClick={connectShopify} disabled={connecting || !clienteId || !shopDomain} data-testid="shopify-connect-btn">
+            {connecting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link2 className="mr-2 h-4 w-4" />}
+            Collega Shopify
+          </Button>
           <Button variant="outline" onClick={() => run(true)} disabled={loading} data-testid="shopify-test-btn">
             {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
             Test + anteprima
@@ -118,12 +170,12 @@ export default function AdminIntegrazioni() {
             Importa referenze
           </Button>
           <a
-            href="https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/generate-app-access-tokens-admin"
+            href="https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/authorization-code-grant"
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 shadow-sm transition-colors hover:text-slate-950"
           >
-            Guida token <ExternalLink className="h-4 w-4" />
+            Guida OAuth <ExternalLink className="h-4 w-4" />
           </a>
         </div>
       </Card>

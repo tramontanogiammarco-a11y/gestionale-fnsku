@@ -9,7 +9,7 @@ const corsHeaders = {
 type Payload = {
   cliente_id: string;
   shop_domain: string;
-  access_token: string;
+  access_token?: string;
   dry_run?: boolean;
 };
 
@@ -67,9 +67,9 @@ Deno.serve(async (req) => {
 
   const clienteId = String(payload.cliente_id || "").trim();
   const shopDomain = normalizeShopDomain(payload.shop_domain);
-  const token = String(payload.access_token || "").trim();
-  if (!clienteId || !shopDomain || !token) {
-    return json({ detail: "Cliente, shop domain e token Shopify sono obbligatori" }, 400);
+  let token = String(payload.access_token || "").trim();
+  if (!clienteId || !shopDomain) {
+    return json({ detail: "Cliente e shop domain sono obbligatori" }, 400);
   }
 
   const adminClient = createClient(supabaseUrl, serviceRoleKey);
@@ -79,6 +79,21 @@ Deno.serve(async (req) => {
     .eq("id", clienteId)
     .single();
   if (clienteError || !cliente) return json({ detail: "Cliente non trovato" }, 404);
+
+  if (!token) {
+    const { data: connection, error: connectionError } = await adminClient
+      .from("shopify_connections")
+      .select("access_token")
+      .eq("cliente_id", clienteId)
+      .eq("shop_domain", shopDomain)
+      .maybeSingle();
+    if (connectionError) return json({ detail: connectionError.message }, 400);
+    token = String(connection?.access_token || "");
+  }
+
+  if (!token) {
+    return json({ detail: "Collega Shopify prima di importare le referenze" }, 400);
+  }
 
   let imported: Awaited<ReturnType<typeof fetchShopifyVariants>>;
   try {
