@@ -92,6 +92,21 @@ async function createCliente(payload) {
   return ok(data);
 }
 
+async function importShopify(payload) {
+  const sb = requireSupabase();
+  const { data: sessionData } = await sb.auth.getSession();
+  const token = sessionData.session?.access_token;
+  if (!token) fail("Non autenticato", 401);
+
+  const { data, error } = await sb.functions.invoke("shopify-import", {
+    body: payload,
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (error) fail(error.message || "Impossibile chiamare Shopify Import");
+  if (data?.detail) fail(data.detail);
+  return ok(data);
+}
+
 async function createClienteFallback(payload, functionError) {
   const sb = requireSupabase();
   const profile = await currentProfile();
@@ -1097,6 +1112,7 @@ export const api = {
   async post(url, payload, config = {}) {
     const { path } = pathAndQuery(url);
     if (path === "/clienti") return createCliente(payload);
+    if (path === "/shopify/import") return importShopify(payload);
     if (path === "/referenze") return createReferenza(payload);
     if (path === "/referenze/import") return importReferenze(payload);
     if (path.match(/^\/referenze\/[^/]+\/foto$/)) return uploadReferenzaFoto(path.split("/")[2], payload);
