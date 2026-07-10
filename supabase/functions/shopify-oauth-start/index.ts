@@ -6,7 +6,7 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const SCOPES = ["read_products", "read_inventory", "read_locations"];
+const SCOPES = ["read_products", "read_inventory", "read_locations", "read_orders"];
 
 Deno.serve(async (req) => {
   try {

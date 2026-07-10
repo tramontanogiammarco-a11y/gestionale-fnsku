@@ -13,7 +13,7 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { CheckCircle2, DownloadCloud, ExternalLink, Link2, Loader2, PlugZap, ShieldCheck, Store } from "lucide-react";
+import { CheckCircle2, DownloadCloud, ExternalLink, Link2, Loader2, PlugZap, ShieldCheck, ShoppingCart, Store } from "lucide-react";
 
 const SHOPIFY_CALLBACK_URL = "https://ryprjuqfervusppnedsz.supabase.co/functions/v1/shopify-oauth-callback";
 
@@ -24,7 +24,9 @@ export default function AdminIntegrazioni() {
   const [shopDomain, setShopDomain] = useState("zcgygr-91.myshopify.com");
   const [accessToken, setAccessToken] = useState("");
   const [result, setResult] = useState(null);
+  const [ordersResult, setOrdersResult] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [ordersLoading, setOrdersLoading] = useState(false);
   const [connecting, setConnecting] = useState(false);
 
   useEffect(() => {
@@ -78,6 +80,28 @@ export default function AdminIntegrazioni() {
       toast.error(formatApiError(e.response?.data?.detail));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const importOrders = async (dryRun) => {
+    if (!clienteId || !shopDomain) {
+      toast.error("Seleziona cliente e dominio Shopify");
+      return;
+    }
+    setOrdersLoading(true);
+    setOrdersResult(null);
+    try {
+      const { data } = await api.post("/shopify/orders/import", {
+        cliente_id: clienteId,
+        shop_domain: shopDomain,
+        dry_run: dryRun,
+      });
+      setOrdersResult(data);
+      toast.success(dryRun ? "Anteprima ordini pronta" : "Import ordini Shopify completato");
+    } catch (e) {
+      toast.error(formatApiError(e.response?.data?.detail));
+    } finally {
+      setOrdersLoading(false);
     }
   };
 
@@ -169,6 +193,14 @@ export default function AdminIntegrazioni() {
             {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <DownloadCloud className="mr-2 h-4 w-4" />}
             Importa referenze
           </Button>
+          <Button variant="outline" onClick={() => importOrders(true)} disabled={ordersLoading} data-testid="shopify-orders-test-btn">
+            {ordersLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShoppingCart className="mr-2 h-4 w-4" />}
+            Anteprima ordini
+          </Button>
+          <Button onClick={() => importOrders(false)} disabled={ordersLoading} data-testid="shopify-orders-import-btn">
+            {ordersLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShoppingCart className="mr-2 h-4 w-4" />}
+            Importa ordini
+          </Button>
           <a
             href="https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/authorization-code-grant"
             target="_blank"
@@ -219,6 +251,49 @@ export default function AdminIntegrazioni() {
           {result.errori?.length > 0 && (
             <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               {result.errori.join(" · ")}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {ordersResult && (
+        <Card className="p-5" data-testid="shopify-orders-result">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-heading text-xl font-bold">{ordersResult.dry_run ? "Anteprima ordini" : "Ordini importati"}</h2>
+              <p className="text-sm text-muted-foreground">{ordersResult.shop_domain} · {ordersResult.cliente}</p>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <Metric label="Ordini" value={ordersResult.ordini ?? ((ordersResult.create || 0) + (ordersResult.update || 0))} />
+              <Metric label="Righe" value={ordersResult.righe ?? "-"} />
+              <Metric label="Collegate" value={ordersResult.righe_collegate ?? "-"} />
+            </div>
+          </div>
+          {ordersResult.anteprima?.length > 0 && (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Ordine</TableHead>
+                  <TableHead>Stato</TableHead>
+                  <TableHead>Righe</TableHead>
+                  <TableHead>Totale</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {ordersResult.anteprima.map((row) => (
+                  <TableRow key={row.shopify_order_id}>
+                    <TableCell className="font-semibold">{row.order_name}</TableCell>
+                    <TableCell>{row.fulfillment_status || row.financial_status || "-"}</TableCell>
+                    <TableCell>{row.righe}</TableCell>
+                    <TableCell>{row.total_price ? `${row.total_price} ${row.currency || ""}` : "-"}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+          {ordersResult.errori?.length > 0 && (
+            <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {ordersResult.errori.join(" · ")}
             </div>
           )}
         </Card>

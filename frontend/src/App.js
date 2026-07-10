@@ -22,6 +22,7 @@ import AdminPreparazioneDetail from "@/pages/admin/PreparazioneDetail";
 import AdminComposizioneBox from "@/pages/admin/ComposizioneBox";
 import AdminFatturazione from "@/pages/admin/Fatturazione";
 import AdminIntegrazioni from "@/pages/admin/Integrazioni";
+import AdminOrdiniWms from "@/pages/admin/OrdiniWms";
 
 import ClientDashboard from "@/pages/client/Dashboard";
 import ClientReferenze from "@/pages/client/Referenze";
@@ -77,6 +78,7 @@ function App() {
               <Route path="clienti/:id" element={<AdminClienteDetail />} />
               <Route path="fatturazione" element={<AdminFatturazione />} />
               <Route path="integrazioni" element={<AdminIntegrazioni />} />
+              <Route path="ordini-wms" element={<AdminOrdiniWms />} />
             </Route>
 
             {/* Area cliente */}

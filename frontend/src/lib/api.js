@@ -107,6 +107,21 @@ async function importShopify(payload) {
   return ok(data);
 }
 
+async function importShopifyOrders(payload) {
+  const sb = requireSupabase();
+  const { data: sessionData } = await sb.auth.getSession();
+  const token = sessionData.session?.access_token;
+  if (!token) fail("Non autenticato", 401);
+
+  const { data, error } = await sb.functions.invoke("shopify-import-orders", {
+    body: payload,
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (error) fail(error.message || "Impossibile importare gli ordini Shopify");
+  if (data?.detail) fail(data.detail);
+  return ok(data);
+}
+
 async function startShopifyOAuth(payload) {
   const sb = requireSupabase();
   const { data: sessionData } = await sb.auth.getSession();
@@ -518,6 +533,34 @@ async function refsFor(clienteIds) {
   const { data, error } = await supabase.from("referenze").select("*").in("cliente_id", ids);
   if (error) fail(error.message);
   return data || [];
+}
+
+async function listShopifyOrders(params) {
+  let query = requireSupabase().from("shopify_orders").select("*").order("processed_at", { ascending: false });
+  if (params.get("cliente_id")) query = query.eq("cliente_id", params.get("cliente_id"));
+  if (params.get("wms_status")) query = query.eq("wms_status", params.get("wms_status"));
+  const { data, error } = await query;
+  if (error) fail(error.message);
+  return ok(await enrichShopifyOrders(data || []));
+}
+
+async function enrichShopifyOrders(orders) {
+  const ids = orders.map((order) => order.id);
+  const { data: items, error: itemsError } = ids.length
+    ? await supabase.from("shopify_order_items").select("*").in("order_id", ids)
+    : { data: [], error: null };
+  if (itemsError) fail(itemsError.message);
+  const cmap = await clientiMap(orders.map((order) => order.cliente_id));
+  const byOrder = {};
+  for (const item of items || []) {
+    byOrder[item.order_id] = byOrder[item.order_id] || [];
+    byOrder[item.order_id].push(item);
+  }
+  return orders.map((order) => ({
+    ...order,
+    items: byOrder[order.id] || [],
+    cliente_ragione_sociale: cmap[order.cliente_id]?.ragione_sociale || null,
+  }));
 }
 
 async function getPreparazione(id) {
@@ -1111,6 +1154,7 @@ export const api = {
     if (path.startsWith("/entrate/")) return getEntrata(path.split("/")[2]);
     if (path === "/box") return listBox(params);
     if (path === "/preparazioni") return listPreparazioni(params);
+    if (path === "/shopify/orders") return listShopifyOrders(params);
     if (path.startsWith("/preparazioni/")) return getPreparazione(path.split("/")[2]);
     if (path === "/magazzino") return magazzino(params);
     if (path === "/preparato") return preparato(params);
@@ -1128,6 +1172,7 @@ export const api = {
     const { path } = pathAndQuery(url);
     if (path === "/clienti") return createCliente(payload);
     if (path === "/shopify/import") return importShopify(payload);
+    if (path === "/shopify/orders/import") return importShopifyOrders(payload);
     if (path === "/shopify/oauth/start") return startShopifyOAuth(payload);
     if (path === "/referenze") return createReferenza(payload);
     if (path === "/referenze/import") return importReferenze(payload);
