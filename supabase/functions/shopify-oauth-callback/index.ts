@@ -2,12 +2,12 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, x-supabase-api-version, apikey, content-type",
   "Access-Control-Allow-Methods": "GET, OPTIONS",
 };
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeadersFor(req) });
   if (req.method !== "GET") return html("Metodo non consentito", false, 405);
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -136,6 +136,14 @@ function html(message: string, ok = true, status = 200) {
     `<!doctype html><html><head><meta charset="utf-8"><title>Shopify</title></head><body style="font-family:system-ui;margin:48px"><h1 style="color:${color}">${escapeHtml(message)}</h1><p>Puoi tornare al gestionale.</p></body></html>`,
     { status, headers: { ...corsHeaders, "Content-Type": "text/html; charset=utf-8" } },
   );
+}
+
+function corsHeadersFor(req: Request) {
+  return {
+    ...corsHeaders,
+    "Access-Control-Allow-Headers":
+      req.headers.get("access-control-request-headers") || corsHeaders["Access-Control-Allow-Headers"],
+  };
 }
 
 function escapeHtml(value: string) {
