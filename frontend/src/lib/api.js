@@ -13,6 +13,26 @@ function fail(detail, status = 400) {
   throw error;
 }
 
+async function edgeErrorMessage(error, fallback) {
+  const response = error?.context;
+  if (response && typeof response.clone === "function") {
+    try {
+      const body = await response.clone().json();
+      if (body?.detail) return body.detail;
+      if (body?.error) return body.error;
+    } catch (_) {
+      // Fallback to text below.
+    }
+    try {
+      const text = await response.clone().text();
+      if (text) return text;
+    } catch (_) {
+      // Keep generic fallback.
+    }
+  }
+  return error?.message || fallback;
+}
+
 function pathAndQuery(url) {
   const parsed = new URL(url, "https://local.supabase");
   return { path: parsed.pathname, params: parsed.searchParams };
@@ -102,7 +122,7 @@ async function importShopify(payload) {
     body: payload,
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (error) fail(error.message || "Impossibile chiamare Shopify Import");
+  if (error) fail(await edgeErrorMessage(error, "Impossibile chiamare Shopify Import"));
   if (data?.detail) fail(data.detail);
   return ok(data);
 }
@@ -117,7 +137,7 @@ async function importShopifyOrders(payload) {
     body: payload,
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (error) fail(error.message || "Impossibile importare gli ordini Shopify");
+  if (error) fail(await edgeErrorMessage(error, "Impossibile importare gli ordini Shopify"));
   if (data?.detail) fail(data.detail);
   return ok(data);
 }
@@ -132,7 +152,7 @@ async function startShopifyOAuth(payload) {
     body: payload,
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (error) fail(error.message || "Impossibile avviare il collegamento Shopify");
+  if (error) fail(await edgeErrorMessage(error, "Impossibile avviare il collegamento Shopify"));
   if (data?.detail) fail(data.detail);
   return ok(data);
 }
@@ -561,6 +581,90 @@ async function enrichShopifyOrders(orders) {
     items: byOrder[order.id] || [],
     cliente_ragione_sociale: cmap[order.cliente_id]?.ragione_sociale || null,
   }));
+}
+
+async function listWmsShipments(params) {
+  let query = requireSupabase().from("wms_shipments").select("*").order("created_at", { ascending: false });
+  if (params.get("cliente_id")) query = query.eq("cliente_id", params.get("cliente_id"));
+  if (params.get("order_id")) query = query.eq("order_id", params.get("order_id"));
+  if (params.get("stato")) query = query.eq("stato", params.get("stato"));
+  const { data, error } = await query;
+  if (error) fail(error.message);
+
+  const orderIds = [...new Set((data || []).map((shipment) => shipment.order_id).filter(Boolean))];
+  const { data: orders, error: ordersError } = orderIds.length
+    ? await supabase.from("shopify_orders").select("id,order_name,shop_domain,wms_status").in("id", orderIds)
+    : { data: [], error: null };
+  if (ordersError) fail(ordersError.message);
+  const orderMap = Object.fromEntries((orders || []).map((order) => [order.id, order]));
+
+  return ok((data || []).map((shipment) => ({
+    ...shipment,
+    order: shipment.order_id ? orderMap[shipment.order_id] || null : null,
+  })));
+}
+
+async function createWmsShipment(payload) {
+  const profile = await currentProfile();
+  if (!isStaff(profile)) fail("Accesso riservato allo staff", 403);
+
+  const orderId = String(payload.order_id || "").trim();
+  if (!orderId) fail("Ordine WMS obbligatorio");
+
+  const { data: order, error: orderError } = await requireSupabase()
+    .from("shopify_orders")
+    .select("*")
+    .eq("id", orderId)
+    .single();
+  if (orderError || !order) fail(orderError?.message || "Ordine non trovato", 404);
+
+  const destinatario = {
+    nome: order.ship_name,
+    azienda: order.ship_company,
+    indirizzo1: order.ship_address1,
+    indirizzo2: order.ship_address2,
+    cap: order.ship_zip,
+    citta: order.ship_city,
+    provincia: order.ship_province,
+    paese: order.ship_country,
+    paese_codice: order.ship_country_code,
+    telefono: order.customer_phone,
+    email: order.customer_email,
+  };
+
+  const missing = [];
+  if (!destinatario.nome) missing.push("nome destinatario");
+  if (!destinatario.indirizzo1) missing.push("indirizzo");
+  if (!destinatario.cap) missing.push("CAP");
+  if (!destinatario.citta) missing.push("citta");
+  if (missing.length) {
+    fail(`Mancano dati per creare la spedizione: ${missing.join(", ")}. Reimporta gli ordini Shopify o completa l'indirizzo.`);
+  }
+
+  const row = {
+    cliente_id: order.cliente_id,
+    order_id: order.id,
+    corriere: payload.corriere || "manuale",
+    servizio: payload.servizio || null,
+    stato: "bozza",
+    colli: Math.max(1, Number(payload.colli || 1)),
+    peso_kg: payload.peso_kg ? Number(payload.peso_kg) : null,
+    destinatario,
+    payload: {
+      origine: "ordine_wms",
+      order_name: order.order_name,
+      shop_domain: order.shop_domain,
+    },
+  };
+
+  const { data, error } = await requireSupabase()
+    .from("wms_shipments")
+    .insert(row)
+    .select()
+    .single();
+  if (error) fail(error.message);
+
+  return ok(data);
 }
 
 async function getPreparazione(id) {
@@ -1155,6 +1259,7 @@ export const api = {
     if (path === "/box") return listBox(params);
     if (path === "/preparazioni") return listPreparazioni(params);
     if (path === "/shopify/orders") return listShopifyOrders(params);
+    if (path === "/wms/spedizioni") return listWmsShipments(params);
     if (path.startsWith("/preparazioni/")) return getPreparazione(path.split("/")[2]);
     if (path === "/magazzino") return magazzino(params);
     if (path === "/preparato") return preparato(params);
@@ -1174,6 +1279,7 @@ export const api = {
     if (path === "/shopify/import") return importShopify(payload);
     if (path === "/shopify/orders/import") return importShopifyOrders(payload);
     if (path === "/shopify/oauth/start") return startShopifyOAuth(payload);
+    if (path === "/wms/spedizioni") return createWmsShipment(payload);
     if (path === "/referenze") return createReferenza(payload);
     if (path === "/referenze/import") return importReferenze(payload);
     if (path.match(/^\/referenze\/[^/]+\/foto$/)) return uploadReferenzaFoto(path.split("/")[2], payload);

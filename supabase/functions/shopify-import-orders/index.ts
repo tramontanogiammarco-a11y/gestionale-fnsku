@@ -28,6 +28,8 @@ type ShopifyLineItem = {
 type ShopifyOrder = {
   id: string;
   name?: string | null;
+  email?: string | null;
+  phone?: string | null;
   displayFinancialStatus?: string | null;
   displayFulfillmentStatus?: string | null;
   processedAt?: string | null;
@@ -41,6 +43,18 @@ type ShopifyOrder = {
     } | null;
   } | null;
   lineItems?: { nodes?: ShopifyLineItem[] };
+  shippingAddress?: {
+    name?: string | null;
+    company?: string | null;
+    address1?: string | null;
+    address2?: string | null;
+    zip?: string | null;
+    city?: string | null;
+    province?: string | null;
+    country?: string | null;
+    countryCodeV2?: string | null;
+    phone?: string | null;
+  } | null;
 };
 
 Deno.serve(async (req) => {
@@ -178,6 +192,8 @@ async function fetchShopifyOrders(shopDomain: string, token: string) {
         nodes {
           id
           name
+          email
+          phone
           displayFinancialStatus
           displayFulfillmentStatus
           processedAt
@@ -185,6 +201,18 @@ async function fetchShopifyOrders(shopDomain: string, token: string) {
           note
           tags
           totalPriceSet { shopMoney { amount currencyCode } }
+          shippingAddress {
+            name
+            company
+            address1
+            address2
+            zip
+            city
+            province
+            country
+            countryCodeV2
+            phone
+          }
           lineItems(first: 100) {
             nodes {
               id
@@ -249,6 +277,7 @@ function mapOrder(
   shopDomain: string,
   referenceMap: { byEan: Map<string, string>; bySku: Map<string, string> },
 ) {
+  const shipping = order.shippingAddress || {};
   const items = (order.lineItems?.nodes || []).map((item) => {
     const sku = String(item.variant?.sku || item.sku || "").trim();
     const ean = String(item.variant?.barcode || "").trim();
@@ -273,6 +302,17 @@ function mapOrder(
     order_name: order.name || order.id,
     financial_status: order.displayFinancialStatus || null,
     fulfillment_status: order.displayFulfillmentStatus || null,
+    customer_email: order.email || null,
+    customer_phone: order.phone || shipping.phone || null,
+    ship_name: shipping.name || null,
+    ship_company: shipping.company || null,
+    ship_address1: shipping.address1 || null,
+    ship_address2: shipping.address2 || null,
+    ship_zip: shipping.zip || null,
+    ship_city: shipping.city || null,
+    ship_province: shipping.province || null,
+    ship_country: shipping.country || null,
+    ship_country_code: shipping.countryCodeV2 || null,
     total_price: order.totalPriceSet?.shopMoney?.amount ? Number(order.totalPriceSet.shopMoney.amount) : null,
     currency: order.totalPriceSet?.shopMoney?.currencyCode || null,
     processed_at: order.processedAt || order.createdAt || null,

@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Loader2, PackageCheck, RefreshCw, ShoppingCart, TriangleAlert } from "lucide-react";
+import { toast } from "sonner";
+import { Loader2, MapPin, PackageCheck, RefreshCw, ShoppingCart, Truck, TriangleAlert } from "lucide-react";
 
 const WMS_STATI = [
   { key: "tutti", label: "Tutti" },
@@ -25,9 +26,18 @@ const statusLabel = {
 
 export default function AdminOrdiniWms() {
   const [orders, setOrders] = useState(null);
+  const [shipments, setShipments] = useState([]);
   const [view, setView] = useState("da_preparare");
+  const [creatingShipment, setCreatingShipment] = useState(null);
 
-  const load = () => api.get("/shopify/orders").then((r) => setOrders(r.data || []));
+  const load = async () => {
+    const [ordersResponse, shipmentsResponse] = await Promise.all([
+      api.get("/shopify/orders"),
+      api.get("/wms/spedizioni"),
+    ]);
+    setOrders(ordersResponse.data || []);
+    setShipments(shipmentsResponse.data || []);
+  };
   useEffect(() => { load(); }, []);
 
   const visible = useMemo(() => {
@@ -46,6 +56,32 @@ export default function AdminOrdiniWms() {
       righeNonCollegate,
     };
   }, [orders]);
+
+  const shipmentByOrder = useMemo(() => {
+    const map = {};
+    for (const shipment of shipments || []) {
+      if (!shipment.order_id) continue;
+      map[shipment.order_id] = shipment;
+    }
+    return map;
+  }, [shipments]);
+
+  const handleCreateShipment = async (order, corriere = "manuale") => {
+    setCreatingShipment(order.id);
+    try {
+      await api.post("/wms/spedizioni", {
+        order_id: order.id,
+        corriere,
+        colli: 1,
+      });
+      toast.success("Bozza spedizione creata");
+      await load();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || error.message || "Impossibile creare la spedizione");
+    } finally {
+      setCreatingShipment(null);
+    }
+  };
 
   return (
     <div className="space-y-6" data-testid="admin-ordini-wms">
@@ -94,20 +130,22 @@ export default function AdminOrdiniWms() {
         ) : (
           <Table>
             <TableHeader>
-              <TableRow>
-                <TableHead>Ordine</TableHead>
-                <TableHead>Cliente</TableHead>
-                <TableHead>Righe</TableHead>
-                <TableHead>Pezzi</TableHead>
-                <TableHead>Shopify</TableHead>
-                <TableHead>WMS</TableHead>
-                <TableHead>Data</TableHead>
-              </TableRow>
+                <TableRow>
+                  <TableHead>Ordine</TableHead>
+                  <TableHead>Cliente</TableHead>
+                  <TableHead>Destinazione</TableHead>
+                  <TableHead>Righe</TableHead>
+                  <TableHead>Pezzi</TableHead>
+                  <TableHead>Shopify</TableHead>
+                  <TableHead>WMS</TableHead>
+                  <TableHead>Spedizione</TableHead>
+                  <TableHead>Data</TableHead>
+                </TableRow>
             </TableHeader>
             <TableBody>
               {visible.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
+                  <TableCell colSpan={9} className="py-10 text-center text-muted-foreground">
                     Nessun ordine in questa vista.
                   </TableCell>
                 </TableRow>
@@ -115,6 +153,7 @@ export default function AdminOrdiniWms() {
               {visible.map((order) => {
                 const pezzi = (order.items || []).reduce((sum, item) => sum + Number(item.quantita || 0), 0);
                 const missing = (order.items || []).filter((item) => !item.referenza_id).length;
+                const shipment = shipmentByOrder[order.id];
                 return (
                   <TableRow key={order.id} data-testid={`wms-order-${order.id}`}>
                     <TableCell>
@@ -127,6 +166,23 @@ export default function AdminOrdiniWms() {
                       )}
                     </TableCell>
                     <TableCell className="font-medium">{order.cliente_ragione_sociale}</TableCell>
+                    <TableCell>
+                      {order.ship_city || order.ship_zip || order.ship_name ? (
+                        <div className="max-w-[260px] text-sm">
+                          <div className="flex items-center gap-1 font-semibold text-slate-900">
+                            <MapPin className="h-3.5 w-3.5 text-teal-700" />
+                            {order.ship_name || "Destinatario"}
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {[order.ship_address1, order.ship_zip, order.ship_city, order.ship_province]
+                              .filter(Boolean)
+                              .join(", ")}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Da reimportare</span>
+                      )}
+                    </TableCell>
                     <TableCell>{order.items?.length || 0}</TableCell>
                     <TableCell>{pezzi}</TableCell>
                     <TableCell>
@@ -137,6 +193,36 @@ export default function AdminOrdiniWms() {
                       <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">
                         <PackageCheck className="h-3 w-3" /> {statusLabel[order.wms_status] || order.wms_status}
                       </span>
+                    </TableCell>
+                    <TableCell>
+                      {shipment ? (
+                        <div className="space-y-1">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 px-2 py-1 text-xs font-bold uppercase text-teal-700">
+                            <Truck className="h-3 w-3" /> {shipment.corriere}
+                          </span>
+                          <div className="text-xs text-muted-foreground">{shipment.tracking || shipment.stato}</div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={creatingShipment === order.id}
+                            onClick={() => handleCreateShipment(order, "brt")}
+                          >
+                            {creatingShipment === order.id ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Truck className="mr-1 h-3 w-3" />}
+                            BRT
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={creatingShipment === order.id}
+                            onClick={() => handleCreateShipment(order, "gls")}
+                          >
+                            GLS
+                          </Button>
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>{order.processed_at ? new Date(order.processed_at).toLocaleDateString("it-IT") : "-"}</TableCell>
                   </TableRow>
