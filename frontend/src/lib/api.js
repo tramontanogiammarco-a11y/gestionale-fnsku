@@ -172,6 +172,21 @@ async function createShippyProLabel(payload) {
   return ok(data);
 }
 
+async function listShippyProCarriers(payload = {}) {
+  const sb = requireSupabase();
+  const { data: sessionData } = await sb.auth.getSession();
+  const token = sessionData.session?.access_token;
+  if (!token) fail("Non autenticato", 401);
+
+  const { data, error } = await sb.functions.invoke("shippypro-carriers", {
+    body: payload,
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (error) fail(await edgeErrorMessage(error, "Impossibile leggere i corrieri ShippyPro"));
+  if (data?.detail && !data?.ok) fail(data.detail);
+  return ok(data);
+}
+
 async function createClienteFallback(payload, functionError) {
   const sb = requireSupabase();
   const profile = await currentProfile();
@@ -1295,6 +1310,7 @@ export const api = {
     if (path === "/shopify/orders/import") return importShopifyOrders(payload);
     if (path === "/shopify/oauth/start") return startShopifyOAuth(payload);
     if (path === "/shippypro/label") return createShippyProLabel(payload);
+    if (path === "/shippypro/carriers") return listShippyProCarriers(payload);
     if (path === "/wms/spedizioni") return createWmsShipment(payload);
     if (path === "/referenze") return createReferenza(payload);
     if (path === "/referenze/import") return importReferenze(payload);

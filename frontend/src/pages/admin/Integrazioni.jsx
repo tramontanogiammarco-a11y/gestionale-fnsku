@@ -13,7 +13,7 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { CheckCircle2, DownloadCloud, ExternalLink, Link2, Loader2, PlugZap, ShieldCheck, ShoppingCart, Store } from "lucide-react";
+import { CheckCircle2, DownloadCloud, ExternalLink, Link2, Loader2, PlugZap, ShieldCheck, ShoppingCart, Store, Truck } from "lucide-react";
 
 const SHOPIFY_CALLBACK_URL = "https://ryprjuqfervusppnedsz.supabase.co/functions/v1/shopify-oauth-callback";
 
@@ -28,6 +28,8 @@ export default function AdminIntegrazioni() {
   const [loading, setLoading] = useState(false);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [shippyLoading, setShippyLoading] = useState(false);
+  const [shippyCarriers, setShippyCarriers] = useState(null);
 
   useEffect(() => {
     api.get("/clienti").then((r) => setClienti(r.data || []));
@@ -102,6 +104,20 @@ export default function AdminIntegrazioni() {
       toast.error(formatApiError(e.response?.data?.detail));
     } finally {
       setOrdersLoading(false);
+    }
+  };
+
+  const loadShippyCarriers = async () => {
+    setShippyLoading(true);
+    setShippyCarriers(null);
+    try {
+      const { data } = await api.post("/shippypro/carriers", {});
+      setShippyCarriers(data.carriers || []);
+      toast.success("Corrieri ShippyPro letti");
+    } catch (e) {
+      toast.error(formatApiError(e.response?.data?.detail));
+    } finally {
+      setShippyLoading(false);
     }
   };
 
@@ -210,6 +226,53 @@ export default function AdminIntegrazioni() {
             Guida OAuth <ExternalLink className="h-4 w-4" />
           </a>
         </div>
+      </Card>
+
+      <Card className="p-5" data-testid="shippypro-card">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-fuchsia-50 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-fuchsia-700">
+              <Truck className="h-3.5 w-3.5" /> ShippyPro
+            </div>
+            <h2 className="font-heading text-2xl font-black tracking-tight">Corrieri collegati</h2>
+            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+              Legge CarrierName, CarrierID e servizi dal tuo account ShippyPro. Usiamo questi dati per generare lettere di vettura dagli ordini WMS.
+            </p>
+          </div>
+          <Button onClick={loadShippyCarriers} disabled={shippyLoading} data-testid="shippypro-carriers-btn">
+            {shippyLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Truck className="mr-2 h-4 w-4" />}
+            Leggi corrieri
+          </Button>
+        </div>
+
+        {shippyCarriers?.length > 0 && (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>CarrierName</TableHead>
+                <TableHead>CarrierID</TableHead>
+                <TableHead>Servizio default</TableHead>
+                <TableHead>Label</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {shippyCarriers.map((carrier, index) => (
+                <TableRow key={`${carrier.carrier_name}-${carrier.carrier_id}-${index}`}>
+                  <TableCell className="font-mono text-xs">{carrier.carrier_name}</TableCell>
+                  <TableCell className="font-mono text-xs">{carrier.carrier_id}</TableCell>
+                  <TableCell className="font-mono text-xs">{carrier.carrier_service || "—"}</TableCell>
+                  <TableCell>{carrier.label || "—"}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+
+        {shippyCarriers?.length === 0 && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            Nessun corriere letto. Controlla che la API Key sia corretta e che almeno un corriere sia collegato in ShippyPro.
+          </div>
+        )}
       </Card>
 
       {result && (
