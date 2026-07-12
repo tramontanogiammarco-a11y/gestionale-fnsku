@@ -50,12 +50,6 @@ Deno.serve(async (req) => {
       return json({ detail: "Configura SENDCLOUD_API_KEY e SENDCLOUD_API_SECRET su Supabase" }, 400);
     }
 
-    const defaultShippingOption = Deno.env.get("SENDCLOUD_SHIPPING_OPTION_CODE");
-    const shippingOptionCode = String(payload.shipping_option_code || defaultShippingOption || "").trim();
-    if (!shippingOptionCode) {
-      return json({ detail: "Manca il metodo Sendcloud: imposta SENDCLOUD_SHIPPING_OPTION_CODE o inserisci il codice metodo" }, 400);
-    }
-
     const fromAddress = senderAddressFromEnv();
     const missingSender = requiredSenderFields(fromAddress);
     if (missingSender.length) {
@@ -71,6 +65,13 @@ Deno.serve(async (req) => {
     if (shipmentError || !shipment) return json({ detail: shipmentError?.message || "Spedizione non trovata" }, 404);
     if (shipment.stato === "creata" && shipment.tracking) {
       return json({ ok: true, shipment, detail: "Etichetta gia generata" });
+    }
+
+    const shippingOptionCode = resolveShippingOptionCode(payload.shipping_option_code, shipment.corriere);
+    if (!shippingOptionCode) {
+      return json({
+        detail: `Manca il metodo Sendcloud per ${String(shipment.corriere || "corriere").toUpperCase()}: imposta SENDCLOUD_SHIPPING_OPTION_CODE_${String(shipment.corriere || "").toUpperCase()} o SENDCLOUD_SHIPPING_OPTION_CODE`,
+      }, 400);
     }
 
     const order = shipment.shopify_orders;
@@ -198,6 +199,15 @@ function buildParcels(colli: number, weight: number | string | null | undefined)
   return Array.from({ length: safeColli }, () => ({
     weight: { value: weightPerParcel, unit: "kg" },
   }));
+}
+
+function resolveShippingOptionCode(rawCode: unknown, corriere: string | null | undefined) {
+  const explicit = String(rawCode || "").trim();
+  if (explicit) return explicit;
+
+  const carrierKey = String(corriere || "").trim().toUpperCase();
+  const carrierCode = carrierKey ? Deno.env.get(`SENDCLOUD_SHIPPING_OPTION_CODE_${carrierKey}`) : "";
+  return String(carrierCode || Deno.env.get("SENDCLOUD_SHIPPING_OPTION_CODE") || "").trim();
 }
 
 async function sendcloudJson(path: string, key: string, secret: string, init: RequestInit = {}) {
