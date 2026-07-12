@@ -87,10 +87,10 @@ export default function AdminOrdiniWms() {
   const handleGenerateLabel = async (shipment) => {
     setGeneratingLabel(shipment.id);
     try {
-      const { data } = await api.post("/sendcloud/label", {
+      const { data } = await api.post("/shippypro/label", {
         shipment_id: shipment.id,
       });
-      toast.success(data?.tracking ? `Etichetta creata: ${data.tracking}` : "Etichetta creata");
+      toast.success(data?.tracking ? `Etichetta ShippyPro creata: ${data.tracking}` : "Etichetta ShippyPro creata");
       await load();
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Impossibile generare l'etichetta");

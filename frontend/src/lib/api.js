@@ -157,17 +157,17 @@ async function startShopifyOAuth(payload) {
   return ok(data);
 }
 
-async function createSendcloudLabel(payload) {
+async function createShippyProLabel(payload) {
   const sb = requireSupabase();
   const { data: sessionData } = await sb.auth.getSession();
   const token = sessionData.session?.access_token;
   if (!token) fail("Non autenticato", 401);
 
-  const { data, error } = await sb.functions.invoke("sendcloud-create-label", {
+  const { data, error } = await sb.functions.invoke("shippypro-create-label", {
     body: payload,
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (error) fail(await edgeErrorMessage(error, "Impossibile generare l'etichetta Sendcloud"));
+  if (error) fail(await edgeErrorMessage(error, "Impossibile generare l'etichetta ShippyPro"));
   if (data?.detail && !data?.ok) fail(data.detail);
   return ok(data);
 }
@@ -1294,7 +1294,7 @@ export const api = {
     if (path === "/shopify/import") return importShopify(payload);
     if (path === "/shopify/orders/import") return importShopifyOrders(payload);
     if (path === "/shopify/oauth/start") return startShopifyOAuth(payload);
-    if (path === "/sendcloud/label") return createSendcloudLabel(payload);
+    if (path === "/shippypro/label") return createShippyProLabel(payload);
     if (path === "/wms/spedizioni") return createWmsShipment(payload);
     if (path === "/referenze") return createReferenza(payload);
     if (path === "/referenze/import") return importReferenze(payload);
