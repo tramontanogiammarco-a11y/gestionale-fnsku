@@ -17,6 +17,7 @@ frontend/build/
 coverage/
 .vercel/
 **/.vercel/
+supabase/.temp/
 
 # OS / editor
 .DS_Store

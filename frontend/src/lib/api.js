@@ -157,6 +157,21 @@ async function startShopifyOAuth(payload) {
   return ok(data);
 }
 
+async function createSendcloudLabel(payload) {
+  const sb = requireSupabase();
+  const { data: sessionData } = await sb.auth.getSession();
+  const token = sessionData.session?.access_token;
+  if (!token) fail("Non autenticato", 401);
+
+  const { data, error } = await sb.functions.invoke("sendcloud-create-label", {
+    body: payload,
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (error) fail(await edgeErrorMessage(error, "Impossibile generare l'etichetta Sendcloud"));
+  if (data?.detail && !data?.ok) fail(data.detail);
+  return ok(data);
+}
+
 async function createClienteFallback(payload, functionError) {
   const sb = requireSupabase();
   const profile = await currentProfile();
@@ -1279,6 +1294,7 @@ export const api = {
     if (path === "/shopify/import") return importShopify(payload);
     if (path === "/shopify/orders/import") return importShopifyOrders(payload);
     if (path === "/shopify/oauth/start") return startShopifyOAuth(payload);
+    if (path === "/sendcloud/label") return createSendcloudLabel(payload);
     if (path === "/wms/spedizioni") return createWmsShipment(payload);
     if (path === "/referenze") return createReferenza(payload);
     if (path === "/referenze/import") return importReferenze(payload);

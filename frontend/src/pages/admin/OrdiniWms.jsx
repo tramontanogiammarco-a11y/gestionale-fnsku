@@ -6,7 +6,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
-import { Loader2, MapPin, PackageCheck, RefreshCw, ShoppingCart, Truck, TriangleAlert } from "lucide-react";
+import { Download, Loader2, MapPin, PackageCheck, RefreshCw, ShoppingCart, Truck, TriangleAlert } from "lucide-react";
 
 const WMS_STATI = [
   { key: "tutti", label: "Tutti" },
@@ -29,6 +29,7 @@ export default function AdminOrdiniWms() {
   const [shipments, setShipments] = useState([]);
   const [view, setView] = useState("da_preparare");
   const [creatingShipment, setCreatingShipment] = useState(null);
+  const [generatingLabel, setGeneratingLabel] = useState(null);
 
   const load = async () => {
     const [ordersResponse, shipmentsResponse] = await Promise.all([
@@ -80,6 +81,21 @@ export default function AdminOrdiniWms() {
       toast.error(error.response?.data?.detail || error.message || "Impossibile creare la spedizione");
     } finally {
       setCreatingShipment(null);
+    }
+  };
+
+  const handleGenerateLabel = async (shipment) => {
+    setGeneratingLabel(shipment.id);
+    try {
+      const { data } = await api.post("/sendcloud/label", {
+        shipment_id: shipment.id,
+      });
+      toast.success(data?.tracking ? `Etichetta creata: ${data.tracking}` : "Etichetta creata");
+      await load();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || error.message || "Impossibile generare l'etichetta");
+    } finally {
+      setGeneratingLabel(null);
     }
   };
 
@@ -201,6 +217,22 @@ export default function AdminOrdiniWms() {
                             <Truck className="h-3 w-3" /> {shipment.corriere}
                           </span>
                           <div className="text-xs text-muted-foreground">{shipment.tracking || shipment.stato}</div>
+                          {shipment.label_url ? (
+                            <Button size="sm" variant="outline" asChild>
+                              <a href={shipment.label_url} target="_blank" rel="noreferrer">
+                                <Download className="mr-1 h-3 w-3" /> PDF
+                              </a>
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              disabled={generatingLabel === shipment.id}
+                              onClick={() => handleGenerateLabel(shipment)}
+                            >
+                              {generatingLabel === shipment.id ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Truck className="mr-1 h-3 w-3" />}
+                              Genera etichetta
+                            </Button>
+                          )}
                         </div>
                       ) : (
                         <div className="flex flex-wrap gap-1">
