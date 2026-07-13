@@ -158,8 +158,10 @@ Deno.serve(async (req) => {
         .eq("id", shipment.id);
       throw error;
     }
-    const labelUrl = normalizeLabelUrl(shipped?.LabelURL);
-    const pdfBase64 = firstPdf(shipped);
+    const nestedLabelUrl = findNestedString(shipped, LABEL_URL_KEYS);
+    const pdfValue = firstPdf(shipped);
+    const labelUrl = normalizeLabelUrl(shipped?.LabelURL) || urlLike(pdfValue) || nestedLabelUrl;
+    const pdfBase64 = pdfValue && !urlLike(pdfValue) ? pdfValue : null;
     const labelPath = pdfBase64
       ? await storeBase64Pdf(adminClient, shipment.cliente_id, shipment.id, pdfBase64)
       : null;
@@ -168,9 +170,20 @@ Deno.serve(async (req) => {
       ? storagePublicUrl(supabaseUrl, "gestionale-files", labelPath)
       : labelUrl;
 
-    const tracking = shipped?.TrackingNumber || firstParcelTracking(shipped) || null;
+    const tracking = shipped?.TrackingNumber || firstParcelTracking(shipped) || findNestedString(shipped, TRACKING_KEYS) || null;
     if (!finalLabelUrl && !tracking) {
-      throw new Error(shippyproError(shipped) || "ShippyPro non ha restituito etichetta o tracking");
+      const message = shippyproError(shipped) || `ShippyPro non ha restituito etichetta o tracking. Risposta ricevuta: ${summarizeShippyResponse(shipped)}`;
+      await adminClient
+        .from("wms_shipments")
+        .update({
+          stato: "errore",
+          payload: shippyPayload,
+          response: shipped,
+          errore: message,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", shipment.id);
+      throw new Error(message);
     }
 
     const { data: updated, error: updateError } = await adminClient
@@ -590,6 +603,43 @@ function normalizeLabelUrl(value: unknown) {
   return null;
 }
 
+function urlLike(value: unknown) {
+  return typeof value === "string" && /^https?:\/\//i.test(value.trim()) ? value.trim() : null;
+}
+
+const LABEL_URL_KEYS = new Set(["labelurl", "label_url", "label", "url", "pdfurl", "pdf_url"]);
+const PDF_KEYS = new Set(["pdf", "labelpdf", "label_pdf"]);
+const TRACKING_KEYS = new Set(["trackingnumber", "tracking_number", "trackingcode", "tracking_code", "tracking"]);
+
+function findNestedString(value: unknown, keys: Set<string>): string | null {
+  if (!value) return null;
+  if (typeof value === "string") return null;
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const found = findNestedString(entry, keys);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof value !== "object") return null;
+
+  const record = value as Record<string, unknown>;
+  for (const [key, entry] of Object.entries(record)) {
+    if (keys.has(normalizeKey(key)) && typeof entry === "string" && entry.trim()) {
+      return entry.trim();
+    }
+  }
+  for (const entry of Object.values(record)) {
+    const found = findNestedString(entry, keys);
+    if (found) return found;
+  }
+  return null;
+}
+
+function normalizeKey(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
 function firstPdf(response: Record<string, unknown>) {
   const pdf = response?.PDF;
   if (Array.isArray(pdf)) {
@@ -603,7 +653,7 @@ function firstPdf(response: Record<string, unknown>) {
       if (typeof parcel.PDF === "string" && parcel.PDF.trim()) return parcel.PDF;
     }
   }
-  return null;
+  return findNestedString(response, PDF_KEYS);
 }
 
 function firstParcelTracking(response: Record<string, unknown>) {
@@ -656,6 +706,26 @@ function shippyproError(body: Record<string, unknown>) {
     ].join(" ");
   }
   return message;
+}
+
+function summarizeShippyResponse(body: Record<string, unknown>) {
+  const interesting = [
+    "OrderID",
+    "NewOrderID",
+    "TransactionID",
+    "Status",
+    "Result",
+    "Message",
+    "ErrorMessage",
+    "ReturnErrorMessage",
+    "TrackingNumber",
+    "LabelURL",
+  ];
+  const parts = interesting
+    .filter((key) => body?.[key] !== undefined && body?.[key] !== null && body?.[key] !== "")
+    .map((key) => `${key}=${String(body[key]).slice(0, 160)}`);
+  if (parts.length) return parts.join(", ");
+  return `campi: ${Object.keys(body || {}).slice(0, 20).join(", ") || "nessuno"}`;
 }
 
 function extractNestedErrors(value: unknown) {
