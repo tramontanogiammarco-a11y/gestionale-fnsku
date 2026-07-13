@@ -145,11 +145,13 @@ Deno.serve(async (req) => {
       shipped = await shipWithCarrierFallback(apiKey, shippyPayload);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Errore creazione etichetta ShippyPro";
+      const response = error instanceof ShippyProApiError ? error.body : null;
       await adminClient
         .from("wms_shipments")
         .update({
           stato: "errore",
           payload: shippyPayload,
+          response,
           errore: message,
           updated_at: new Date().toISOString(),
         })
@@ -496,9 +498,11 @@ async function shippyproJson(apiKey: string, body: Record<string, unknown>) {
     body: JSON.stringify(body),
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(shippyproError(data) || `ShippyPro HTTP ${response.status}`);
+  if (!response.ok) throw new ShippyProApiError(shippyproError(data) || `ShippyPro HTTP ${response.status}`, data, response.status);
   const error = shippyproError(data);
-  if (error && !normalizeLabelUrl(data?.LabelURL) && !firstPdf(data)) throw new Error(error);
+  if (error && !normalizeLabelUrl(data?.LabelURL) && !firstPdf(data)) {
+    throw new ShippyProApiError(error, data, response.status);
+  }
   return data;
 }
 
@@ -507,7 +511,16 @@ async function shipWithCarrierFallback(apiKey: string, body: Record<string, unkn
     return await shippyproJson(apiKey, body);
   } catch (error) {
     const params = (body.Params || {}) as Record<string, unknown>;
-    if (!params.CarrierService) throw error;
+    const firstError = error;
+
+    try {
+      return await shippyproJson(apiKey, minimalShipPayload(body));
+    } catch (_) {
+      // Some ShippyPro/GLS accounts reject optional pricing/platform fields.
+      // If the compact payload also fails, try once without the service name.
+    }
+
+    if (!params.CarrierService) throw firstError;
 
     const retryBody = {
       ...body,
@@ -520,10 +533,55 @@ async function shipWithCarrierFallback(apiKey: string, body: Record<string, unkn
 
     try {
       return await shippyproJson(apiKey, retryBody);
-    } catch (_) {
-      throw error;
+    } catch (serviceLessError) {
+      try {
+        return await shippyproJson(apiKey, minimalShipPayload(retryBody));
+      } catch (_) {
+        throw serviceLessError;
+      }
     }
   }
+}
+
+class ShippyProApiError extends Error {
+  body: Record<string, unknown>;
+  status: number;
+
+  constructor(message: string, body: Record<string, unknown>, status: number) {
+    super(message);
+    this.name = "ShippyProApiError";
+    this.body = body;
+    this.status = status;
+  }
+}
+
+function minimalShipPayload(body: Record<string, unknown>) {
+  const params = (body.Params || {}) as Record<string, unknown>;
+  const minimalParams: Record<string, unknown> = {
+    to_address: params.to_address,
+    from_address: params.from_address,
+    parcels: params.parcels,
+    TransactionID: params.TransactionID,
+    ContentDescription: params.ContentDescription,
+    CarrierName: params.CarrierName,
+    CarrierID: params.CarrierID,
+    CarrierService: params.CarrierService,
+    LabelType: "PDF",
+  };
+
+  if (params.RateID) minimalParams.RateID = params.RateID;
+  if (params.OrderID) minimalParams.OrderID = params.OrderID;
+
+  for (const key of Object.keys(minimalParams)) {
+    if (minimalParams[key] === undefined || minimalParams[key] === null || minimalParams[key] === "") {
+      delete minimalParams[key];
+    }
+  }
+
+  return {
+    Method: "Ship",
+    Params: minimalParams,
+  };
 }
 
 function normalizeLabelUrl(value: unknown) {
@@ -582,8 +640,13 @@ function shippyproError(body: Record<string, unknown>) {
   const pieces = [
     body?.ErrorMessage,
     body?.ReturnErrorMessage,
+    body?.Message,
+    body?.message,
+    body?.error,
+    extractNestedErrors(body?.Errors),
+    extractNestedErrors(body?.errors),
     typeof body?.ErrorType === "string" ? body.ErrorType : "",
-  ].filter(Boolean);
+  ].filter((value) => typeof value === "string" && value.trim());
   const message = pieces.length ? pieces.join(" ") : "";
   if (/system exception/i.test(message)) {
     return [
@@ -593,6 +656,25 @@ function shippyproError(body: Record<string, unknown>) {
     ].join(" ");
   }
   return message;
+}
+
+function extractNestedErrors(value: unknown) {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    return value.map((entry) => extractNestedErrors(entry)).filter(Boolean).join(" ");
+  }
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return [
+      record.message,
+      record.Message,
+      record.error,
+      record.ErrorMessage,
+      record.ReturnErrorMessage,
+    ].filter((entry) => typeof entry === "string" && entry.trim()).join(" ");
+  }
+  return "";
 }
 
 function json(body: unknown, status = 200) {
