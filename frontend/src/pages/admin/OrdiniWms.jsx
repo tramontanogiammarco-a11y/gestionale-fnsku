@@ -29,6 +29,7 @@ export default function AdminOrdiniWms() {
   const [shipments, setShipments] = useState([]);
   const [view, setView] = useState("da_preparare");
   const [creatingShipment, setCreatingShipment] = useState(null);
+  const [updatingShipment, setUpdatingShipment] = useState(null);
   const [generatingLabel, setGeneratingLabel] = useState(null);
 
   const load = async () => {
@@ -96,6 +97,19 @@ export default function AdminOrdiniWms() {
       toast.error(error.response?.data?.detail || error.message || "Impossibile generare l'etichetta");
     } finally {
       setGeneratingLabel(null);
+    }
+  };
+
+  const handleUpdateCarrier = async (shipment, corriere) => {
+    setUpdatingShipment(shipment.id);
+    try {
+      await api.put(`/wms/spedizioni/${shipment.id}`, { corriere });
+      toast.success(`Corriere aggiornato: ${corriere.toUpperCase()}`);
+      await load();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || error.message || "Impossibile cambiare corriere");
+    } finally {
+      setUpdatingShipment(null);
     }
   };
 
@@ -217,6 +231,32 @@ export default function AdminOrdiniWms() {
                             <Truck className="h-3 w-3" /> {shipment.corriere}
                           </span>
                           <div className="text-xs text-muted-foreground">{shipment.tracking || shipment.stato}</div>
+                          {!shipment.label_url && shipment.stato !== "creata" && (
+                            <div className="flex flex-wrap gap-1">
+                              {shipment.corriere !== "gls" && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={updatingShipment === shipment.id}
+                                  onClick={() => handleUpdateCarrier(shipment, "gls")}
+                                >
+                                  {updatingShipment === shipment.id ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+                                  Usa GLS
+                                </Button>
+                              )}
+                              {shipment.corriere !== "brt" && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={updatingShipment === shipment.id}
+                                  onClick={() => handleUpdateCarrier(shipment, "brt")}
+                                >
+                                  {updatingShipment === shipment.id ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+                                  Usa BRT
+                                </Button>
+                              )}
+                            </div>
+                          )}
                           {shipment.label_url ? (
                             <Button size="sm" variant="outline" asChild>
                               <a href={shipment.label_url} target="_blank" rel="noreferrer">

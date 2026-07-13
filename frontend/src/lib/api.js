@@ -697,6 +697,38 @@ async function createWmsShipment(payload) {
   return ok(data);
 }
 
+async function updateWmsShipment(id, payload) {
+  const profile = await currentProfile();
+  if (!isStaff(profile)) fail("Accesso riservato allo staff", 403);
+
+  const updates = {};
+  if (payload.corriere) updates.corriere = String(payload.corriere).toLowerCase();
+  if (payload.servizio !== undefined) updates.servizio = payload.servizio || null;
+  if (payload.colli !== undefined) updates.colli = Math.max(1, Number(payload.colli || 1));
+  if (payload.peso_kg !== undefined) updates.peso_kg = payload.peso_kg ? Number(payload.peso_kg) : null;
+
+  if (!Object.keys(updates).length) fail("Nessuna modifica da salvare");
+
+  const { data: existing, error: existingError } = await requireSupabase()
+    .from("wms_shipments")
+    .select("id,stato,label_url")
+    .eq("id", id)
+    .single();
+  if (existingError || !existing) fail(existingError?.message || "Spedizione non trovata", 404);
+  if (existing.label_url || existing.stato === "creata") {
+    fail("Etichetta gia generata: non puoi cambiare corriere su questa spedizione");
+  }
+
+  const { data, error } = await requireSupabase()
+    .from("wms_shipments")
+    .update(updates)
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) fail(error.message);
+  return ok(data);
+}
+
 async function getPreparazione(id) {
   const { data, error } = await requireSupabase().from("preparazioni").select("*").eq("id", id).single();
   if (error) fail(error.message, 404);
@@ -1338,6 +1370,7 @@ export const api = {
     if (path.match(/^\/box\/[^/]+\/stato$/)) return updateBoxStato(path.split("/")[2], payload.stato);
     if (path.match(/^\/box\/[^/]+$/)) return updateBox(path.split("/")[2], payload);
     if (path.match(/^\/preparazioni\/[^/]+\/stato$/)) return updatePreparazioneStato(path.split("/")[2], payload.stato);
+    if (path.match(/^\/wms\/spedizioni\/[^/]+$/)) return updateWmsShipment(path.split("/")[3], payload);
     fail(`Endpoint non migrato: ${path}`, 404);
   },
 
