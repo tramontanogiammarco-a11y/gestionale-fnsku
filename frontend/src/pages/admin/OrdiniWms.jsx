@@ -316,6 +316,11 @@ export default function AdminOrdiniWms() {
                             <Truck className="h-3 w-3" /> {shipment.corriere}
                           </span>
                           <div className="text-xs text-muted-foreground">{shipment.tracking || shipment.stato}</div>
+                          {shipment.errore && (
+                            <div className="max-w-[240px] rounded-md bg-red-50 px-2 py-1 text-[11px] font-semibold text-red-700">
+                              {shipment.errore}
+                            </div>
+                          )}
                           {!shipment.label_url && shipment.stato !== "creata" && (
                             <div className="flex flex-wrap gap-1">
                               <Button
@@ -467,8 +472,13 @@ function validateShipmentForLabel(shipment) {
     ["indirizzo", destinatario.indirizzo1],
     ["CAP", destinatario.cap],
     ["citta", destinatario.citta],
+    ["telefono", destinatario.telefono],
+    ["email", destinatario.email],
   ].filter(([, value]) => !String(value || "").trim()).map(([label]) => label);
   if (missing.length) return `Completa i dati spedizione: ${missing.join(", ")}`;
+
+  const weight = Number(shipment?.peso_kg || 0);
+  if (!Number.isFinite(weight) || weight <= 0) return "Inserisci il peso in kg prima di generare l'etichetta.";
 
   const country = String(destinatario.paese_codice || destinatario.paese || "IT").trim().toUpperCase();
   const carrier = String(shipment?.corriere || "").trim().toLowerCase();

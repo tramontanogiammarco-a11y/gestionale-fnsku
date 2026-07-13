@@ -83,6 +83,11 @@ Deno.serve(async (req) => {
         detail: "Aggiungi il numero civico nell'indirizzo destinatario prima di generare l'etichetta GLS/BRT.",
       }, 400);
     }
+    if (!requiredShipmentWeight(payload.weight_kg || shipment.peso_kg)) {
+      return json({
+        detail: "Inserisci il peso in kg nei dati spedizione prima di generare l'etichetta GLS/BRT.",
+      }, 400);
+    }
 
     const currency = order?.currency || "EUR";
     const totalValue = `${Number(order?.total_price || 0).toFixed(2)} ${currency}`;
@@ -134,7 +139,22 @@ Deno.serve(async (req) => {
       },
     };
 
-    const shipped = await shipWithCarrierFallback(apiKey, shippyPayload);
+    let shipped: Record<string, unknown>;
+    try {
+      shipped = await shipWithCarrierFallback(apiKey, shippyPayload);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Errore creazione etichetta ShippyPro";
+      await adminClient
+        .from("wms_shipments")
+        .update({
+          stato: "errore",
+          payload: shippyPayload,
+          errore: message,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", shipment.id);
+      throw error;
+    }
     const labelUrl = normalizeLabelUrl(shipped?.LabelURL);
     const pdfBase64 = firstPdf(shipped);
     const labelPath = pdfBase64
@@ -211,7 +231,14 @@ function requiredRecipientFields(destinatario: Record<string, unknown>) {
     ["indirizzo", destinatario.indirizzo1],
     ["CAP", destinatario.cap],
     ["citta", destinatario.citta],
+    ["telefono", destinatario.telefono],
+    ["email", destinatario.email],
   ].filter(([, value]) => !value).map(([key]) => key as string);
+}
+
+function requiredShipmentWeight(weight: unknown) {
+  const value = Number(weight || 0);
+  return Number.isFinite(value) && value > 0;
 }
 
 function needsItalianStreetNumber(corriere: unknown, destinatario: Record<string, unknown>) {
