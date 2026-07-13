@@ -84,35 +84,45 @@ Deno.serve(async (req) => {
       }, 400);
     }
 
+    const currency = order?.currency || "EUR";
+    const totalValue = `${Number(order?.total_price || 0).toFixed(2)} ${currency}`;
+    const commonParams = {
+      to_address: {
+        name: destinatario.nome,
+        company: destinatario.azienda || "",
+        street1: destinatario.indirizzo1,
+        street2: destinatario.indirizzo2 || "",
+        city: destinatario.citta,
+        state: normalizeProvince(destinatario.paese_codice || "IT", destinatario.provincia),
+        zip: destinatario.cap,
+        country: normalizeCountry(destinatario.paese_codice || "IT"),
+        phone: destinatario.telefono || fromAddress.phone,
+        email: destinatario.email || fromAddress.email,
+      },
+      from_address: fromAddress,
+      parcels: buildParcels(Number(shipment.colli || 1), payload.weight_kg || shipment.peso_kg),
+      TotalValue: totalValue,
+      Insurance: 0,
+      InsuranceCurrency: currency,
+      CashOnDelivery: 0,
+      CashOnDeliveryCurrency: currency,
+      ContentDescription: "Ordine ecommerce",
+    };
+    const rate = await getBestRate(apiKey, commonParams, carrier, cleanTransactionId(order?.order_name || shipment.id));
+
     const shippyPayload = {
       Method: "Ship",
       Params: {
-        to_address: {
-          name: destinatario.nome,
-          company: destinatario.azienda || "",
-          street1: destinatario.indirizzo1,
-          street2: destinatario.indirizzo2 || "",
-          city: destinatario.citta,
-          state: normalizeProvince(destinatario.paese_codice || "IT", destinatario.provincia),
-          zip: destinatario.cap,
-          country: normalizeCountry(destinatario.paese_codice || "IT"),
-          phone: destinatario.telefono || fromAddress.phone,
-          email: destinatario.email || fromAddress.email,
-        },
-        from_address: fromAddress,
-        parcels: buildParcels(Number(shipment.colli || 1), payload.weight_kg || shipment.peso_kg),
-        TotalValue: `${Number(order?.total_price || 0).toFixed(2)} ${order?.currency || "EUR"}`,
+        ...commonParams,
         TransactionID: cleanTransactionId(order?.order_name || shipment.id),
         MarketplacePlatform: order?.shop_domain ? "Shopify" : "WMS",
-        ContentDescription: "Ordine ecommerce",
-        Insurance: 0,
-        InsuranceCurrency: order?.currency || "EUR",
-        CashOnDelivery: 0,
-        CashOnDeliveryCurrency: order?.currency || "EUR",
         CashOnDeliveryType: 0,
-        CarrierName: carrier.name,
-        CarrierID: Number(carrier.id),
-        ...(carrier.service ? { CarrierService: carrier.service } : {}),
+        CarrierName: stringFromRate(rate?.carrier) || carrier.name,
+        CarrierID: Number(stringFromRate(rate?.carrier_id) || carrier.id),
+        CarrierService: stringFromRate(rate?.service) || carrier.service || "Standard",
+        ...(rate?.rate_id ? { RateID: String(rate.rate_id) } : {}),
+        ...(rate?.order_id ? { OrderID: String(rate.order_id) } : {}),
+        ...(rate?.rate ? { ShipmentCost: Number(rate.rate), ShipmentCostCurrency: currency } : {}),
         BillAccountNumber: "",
         PaymentMethod: order?.financial_status || "",
         LabelType: "PDF",
@@ -208,6 +218,56 @@ function needsItalianStreetNumber(corriere: unknown, destinatario: Record<string
 
 function hasStreetNumber(value: unknown) {
   return /\d/.test(String(value || ""));
+}
+
+async function getBestRate(
+  apiKey: string,
+  commonParams: Record<string, unknown>,
+  carrier: { name: string; id: string; service: string },
+  transactionId: string,
+) {
+  const ratesResponse = await shippyproJson(apiKey, {
+    Method: "GetRates",
+    Params: {
+      ...commonParams,
+      ShippingService: carrier.service || "Standard",
+      RateCarriers: [`${carrier.name}|${carrier.id}`],
+      TransactionID: transactionId,
+    },
+  });
+
+  const rates = Array.isArray(ratesResponse?.Rates) ? ratesResponse.Rates as Array<Record<string, unknown>> : [];
+  const carrierId = String(carrier.id);
+  const carrierName = carrier.name.toLowerCase();
+  const carrierService = carrier.service.toLowerCase();
+  const matched = rates.find((rate) => {
+    const sameId = String(rate.carrier_id || "") === carrierId;
+    const sameName = String(rate.carrier || "").toLowerCase() === carrierName;
+    const sameService = !carrierService || String(rate.service || "").toLowerCase() === carrierService;
+    return (sameId || sameName) && sameService;
+  }) || rates.find((rate) => String(rate.carrier_id || "") === carrierId)
+    || rates.find((rate) => String(rate.carrier || "").toLowerCase() === carrierName)
+    || rates[0];
+
+  if (!matched) {
+    const ratesErrors = Array.isArray(ratesResponse?.RatesErrors) ? ratesResponse.RatesErrors : [];
+    const detail = ratesErrors.map((entry) => rateErrorMessage(entry)).filter(Boolean).join(" | ");
+    throw new Error(detail || "ShippyPro non ha trovato una tariffa valida per questo corriere e indirizzo.");
+  }
+
+  return matched;
+}
+
+function rateErrorMessage(entry: unknown) {
+  const row = entry as Record<string, unknown>;
+  return [
+    row?.carrier_label || row?.carrier,
+    row?.error_message || row?.message || row?.error,
+  ].filter(Boolean).join(": ");
+}
+
+function stringFromRate(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : "";
 }
 
 function resolveCarrier(payload: Payload, corriere: string | null | undefined) {
