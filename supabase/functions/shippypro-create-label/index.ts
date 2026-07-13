@@ -108,13 +108,14 @@ Deno.serve(async (req) => {
       CashOnDeliveryCurrency: currency,
       ContentDescription: "Ordine ecommerce",
     };
-    const rate = await getBestRate(apiKey, commonParams, carrier, cleanTransactionId(order?.order_name || shipment.id));
+    const transactionId = cleanTransactionId(`${order?.order_name || "ordine"}-${shipment.id}`);
+    const rate = await getBestRate(apiKey, commonParams, carrier, transactionId);
 
     const shippyPayload = {
       Method: "Ship",
       Params: {
         ...commonParams,
-        TransactionID: cleanTransactionId(order?.order_name || shipment.id),
+        TransactionID: transactionId,
         MarketplacePlatform: order?.shop_domain ? "Shopify" : "WMS",
         CashOnDeliveryType: 0,
         CarrierName: stringFromRate(rate?.carrier) || carrier.name,
@@ -123,6 +124,9 @@ Deno.serve(async (req) => {
         ...(rate?.rate_id ? { RateID: String(rate.rate_id) } : {}),
         ...(rate?.order_id ? { OrderID: String(rate.order_id) } : {}),
         ...(rate?.rate ? { ShipmentCost: Number(rate.rate), ShipmentCostCurrency: currency } : {}),
+        ...(rate?.zone_name ? { zone_name: String(rate.zone_name) } : {}),
+        ...(rate?.weight_range ? { weight_range: String(rate.weight_range) } : {}),
+        ...(rate?.detailed_pricing ? { detailed_pricing: normalizeDetailedPricing(rate.detailed_pricing) } : {}),
         BillAccountNumber: "",
         PaymentMethod: order?.financial_status || "",
         LabelType: "PDF",
@@ -268,6 +272,12 @@ function rateErrorMessage(entry: unknown) {
 
 function stringFromRate(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function normalizeDetailedPricing(value: unknown) {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === "object") return Object.values(value as Record<string, unknown>);
+  return value;
 }
 
 function resolveCarrier(payload: Payload, corriere: string | null | undefined) {
