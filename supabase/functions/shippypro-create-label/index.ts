@@ -141,11 +141,22 @@ Deno.serve(async (req) => {
     };
 
     let shipped: Record<string, unknown>;
+    let alreadyCreatedOrderId = shippyOrderIdFromShipment(shipment);
     try {
-      shipped = await shipWithCarrierFallback(apiKey, shippyPayload);
+      if (alreadyCreatedOrderId) {
+        shipped = await getLabelUrlWithRetry(apiKey, alreadyCreatedOrderId);
+      } else {
+        shipped = await shipWithCarrierFallback(apiKey, shippyPayload);
+        const createdOrderId = shippyOrderId(shipped);
+        if (createdOrderId && !hasLabelOrTracking(shipped)) {
+          const labelResponse = await getLabelUrlWithRetry(apiKey, createdOrderId);
+          shipped = mergeShippyResponses(shipped, labelResponse);
+        }
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Errore creazione etichetta ShippyPro";
       const response = error instanceof ShippyProApiError ? error.body : null;
+      const savedOrderId = response ? shippyOrderId(response) : alreadyCreatedOrderId;
       await adminClient
         .from("wms_shipments")
         .update({
@@ -153,6 +164,7 @@ Deno.serve(async (req) => {
           payload: shippyPayload,
           response,
           errore: message,
+          ...(savedOrderId ? { carrier_reference: savedOrderId } : {}),
           updated_at: new Date().toISOString(),
         })
         .eq("id", shipment.id);
@@ -171,8 +183,13 @@ Deno.serve(async (req) => {
       : labelUrl;
 
     const tracking = shipped?.TrackingNumber || firstParcelTracking(shipped) || findNestedString(shipped, TRACKING_KEYS) || null;
+    const createdOrderId = shippyOrderId(shipped);
     if (!finalLabelUrl && !tracking) {
-      const message = shippyproError(shipped) || `ShippyPro non ha restituito etichetta o tracking. Risposta ricevuta: ${summarizeShippyResponse(shipped)}`;
+      const message = shippyproError(shipped) || (
+        createdOrderId
+          ? `ShippyPro ha creato l'ordine ${createdOrderId}, ma l'etichetta non e ancora disponibile. Riprova tra qualche secondo: ora la recupero senza creare doppioni. Risposta ricevuta: ${summarizeShippyResponse(shipped)}`
+          : `ShippyPro non ha restituito etichetta o tracking. Risposta ricevuta: ${summarizeShippyResponse(shipped)}`
+      );
       await adminClient
         .from("wms_shipments")
         .update({
@@ -180,6 +197,7 @@ Deno.serve(async (req) => {
           payload: shippyPayload,
           response: shipped,
           errore: message,
+          ...(createdOrderId ? { carrier_reference: createdOrderId } : {}),
           updated_at: new Date().toISOString(),
         })
         .eq("id", shipment.id);
@@ -192,7 +210,7 @@ Deno.serve(async (req) => {
         stato: "creata",
         tracking,
         label_url: finalLabelUrl,
-        carrier_reference: String(shipped?.NewOrderID || shipped?.OrderID || shipment.id),
+        carrier_reference: String(createdOrderId || shipment.id),
         payload: shippyPayload,
         response: shipped,
         errore: null,
@@ -597,6 +615,69 @@ function minimalShipPayload(body: Record<string, unknown>) {
   };
 }
 
+async function getLabelUrlWithRetry(apiKey: string, orderId: string, attempts = 3) {
+  let lastResponse: Record<string, unknown> | null = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (attempt > 0) await sleep(1200);
+    try {
+      const response = await shippyproJson(apiKey, {
+        Method: "GetLabelUrl",
+        Params: {
+          OrderID: /^\d+$/.test(orderId) ? Number(orderId) : orderId,
+          LabelType: "PDF",
+        },
+      });
+      lastResponse = response;
+      if (hasLabelOrTracking(response)) return response;
+    } catch (error) {
+      if (!(error instanceof ShippyProApiError)) throw error;
+      lastResponse = error.body;
+    }
+  }
+  return lastResponse || {};
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function hasLabelOrTracking(response: Record<string, unknown>) {
+  const pdfValue = firstPdf(response);
+  return Boolean(
+    normalizeLabelUrl(response?.LabelURL) ||
+      urlLike(pdfValue) ||
+      pdfValue ||
+      response?.TrackingNumber ||
+      firstParcelTracking(response) ||
+      findNestedString(response, LABEL_URL_KEYS) ||
+      findNestedString(response, TRACKING_KEYS)
+  );
+}
+
+function shippyOrderId(response: Record<string, unknown> | null | undefined) {
+  if (!response) return "";
+  const direct = response.NewOrderID || response.OrderID || response.order_id || response.id;
+  const nested = findNestedPrimitive(response, ORDER_ID_KEYS);
+  return String(direct || nested || "").trim();
+}
+
+function shippyOrderIdFromShipment(shipment: Record<string, unknown>) {
+  const response = shipment.response && typeof shipment.response === "object"
+    ? shipment.response as Record<string, unknown>
+    : null;
+  return String(shipment.carrier_reference || shippyOrderId(response) || "").trim();
+}
+
+function mergeShippyResponses(shipResponse: Record<string, unknown>, labelResponse: Record<string, unknown>) {
+  return {
+    ...shipResponse,
+    ...labelResponse,
+    ShipResponse: shipResponse,
+    LabelResponse: labelResponse,
+    NewOrderID: shipResponse.NewOrderID || shipResponse.OrderID || labelResponse.OrderID || labelResponse.NewOrderID,
+  };
+}
+
 function normalizeLabelUrl(value: unknown) {
   if (typeof value === "string" && value.trim()) return value.trim();
   if (Array.isArray(value)) return String(value.find((entry) => typeof entry === "string" && entry.trim()) || "").trim() || null;
@@ -610,6 +691,7 @@ function urlLike(value: unknown) {
 const LABEL_URL_KEYS = new Set(["labelurl", "label_url", "label", "url", "pdfurl", "pdf_url"]);
 const PDF_KEYS = new Set(["pdf", "labelpdf", "label_pdf"]);
 const TRACKING_KEYS = new Set(["trackingnumber", "tracking_number", "trackingcode", "tracking_code", "tracking"]);
+const ORDER_ID_KEYS = new Set(["neworderid", "orderid", "order_id", "id"]);
 
 function findNestedString(value: unknown, keys: Set<string>): string | null {
   if (!value) return null;
@@ -632,6 +714,30 @@ function findNestedString(value: unknown, keys: Set<string>): string | null {
   for (const entry of Object.values(record)) {
     const found = findNestedString(entry, keys);
     if (found) return found;
+  }
+  return null;
+}
+
+function findNestedPrimitive(value: unknown, keys: Set<string>): string | number | null {
+  if (!value || typeof value === "string") return null;
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const found = findNestedPrimitive(entry, keys);
+      if (found !== null) return found;
+    }
+    return null;
+  }
+  if (typeof value !== "object") return null;
+
+  const record = value as Record<string, unknown>;
+  for (const [key, entry] of Object.entries(record)) {
+    if (keys.has(normalizeKey(key)) && (typeof entry === "string" || typeof entry === "number") && String(entry).trim()) {
+      return entry;
+    }
+  }
+  for (const entry of Object.values(record)) {
+    const found = findNestedPrimitive(entry, keys);
+    if (found !== null) return found;
   }
   return null;
 }
