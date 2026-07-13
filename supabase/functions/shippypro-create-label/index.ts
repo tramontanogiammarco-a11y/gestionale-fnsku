@@ -144,7 +144,8 @@ Deno.serve(async (req) => {
     let alreadyCreatedOrderId = shippyOrderIdFromShipment(shipment);
     try {
       if (alreadyCreatedOrderId) {
-        shipped = await getLabelUrlWithRetry(apiKey, alreadyCreatedOrderId);
+        const labelResponse = await getLabelUrlWithRetry(apiKey, alreadyCreatedOrderId);
+        shipped = mergeShippyResponses({ NewOrderID: alreadyCreatedOrderId, OrderID: alreadyCreatedOrderId }, labelResponse);
       } else {
         shipped = await shipWithCarrierFallback(apiKey, shippyPayload);
         const createdOrderId = shippyOrderId(shipped);
@@ -617,24 +618,27 @@ function minimalShipPayload(body: Record<string, unknown>) {
 
 async function getLabelUrlWithRetry(apiKey: string, orderId: string, attempts = 3) {
   let lastResponse: Record<string, unknown> | null = null;
+  const numericOrderId = /^\d+$/.test(orderId) ? Number(orderId) : orderId;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (attempt > 0) await sleep(1200);
-    try {
-      const response = await shippyproJson(apiKey, {
-        Method: "GetLabelUrl",
-        Params: {
-          OrderID: /^\d+$/.test(orderId) ? Number(orderId) : orderId,
-          LabelType: "PDF",
-        },
-      });
-      lastResponse = response;
-      if (hasLabelOrTracking(response)) return response;
-    } catch (error) {
-      if (!(error instanceof ShippyProApiError)) throw error;
-      lastResponse = error.body;
+    for (const requestBody of [
+      { Method: "GetLabelUrl", Params: { OrderID: numericOrderId, LabelType: "PDF" } },
+      { Method: "GetOrder", Params: { OrderID: numericOrderId } },
+    ]) {
+      try {
+        const response = await shippyproJson(apiKey, requestBody);
+        lastResponse = mergeShippyResponses({ NewOrderID: orderId, OrderID: orderId }, response);
+        if (hasLabelOrTracking(lastResponse)) return lastResponse;
+      } catch (error) {
+        if (!(error instanceof ShippyProApiError)) throw error;
+        lastResponse = mergeShippyResponses(
+          { NewOrderID: orderId, OrderID: orderId },
+          error.body || {},
+        );
+      }
     }
   }
-  return lastResponse || {};
+  return lastResponse || { NewOrderID: orderId, OrderID: orderId };
 }
 
 function sleep(ms: number) {
