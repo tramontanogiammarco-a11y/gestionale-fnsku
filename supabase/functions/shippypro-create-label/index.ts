@@ -91,8 +91,8 @@ Deno.serve(async (req) => {
           state: destinatario.provincia || "",
           zip: destinatario.cap,
           country: destinatario.paese_codice || "IT",
-          phone: destinatario.telefono || "",
-          email: destinatario.email || "",
+          phone: destinatario.telefono || fromAddress.phone,
+          email: destinatario.email || fromAddress.email,
         },
         from_address: fromAddress,
         parcels: buildParcels(Number(shipment.colli || 1), payload.weight_kg || shipment.peso_kg),
@@ -104,9 +104,13 @@ Deno.serve(async (req) => {
         InsuranceCurrency: order?.currency || "EUR",
         CashOnDelivery: 0,
         CashOnDeliveryCurrency: order?.currency || "EUR",
+        CashOnDeliveryType: 0,
         CarrierName: carrier.name,
         CarrierID: Number(carrier.id),
         ...(carrier.service ? { CarrierService: carrier.service } : {}),
+        BillAccountNumber: "",
+        PaymentMethod: order?.financial_status || "",
+        LabelType: "PDF",
         Async: false,
       },
     };
@@ -172,9 +176,12 @@ function senderAddressFromEnv() {
 
 function requiredSenderFields(address: Record<string, unknown>) {
   return [
+    ["SHIPPYPRO_SENDER_NAME", address.name],
     ["SHIPPYPRO_SENDER_ADDRESS1", address.street1],
     ["SHIPPYPRO_SENDER_ZIP", address.zip],
     ["SHIPPYPRO_SENDER_CITY", address.city],
+    ["SHIPPYPRO_SENDER_PHONE", address.phone],
+    ["SHIPPYPRO_SENDER_EMAIL", address.email],
   ].filter(([, value]) => !value).map(([key]) => key as string);
 }
 
@@ -193,12 +200,8 @@ function resolveCarrier(payload: Payload, corriere: string | null | undefined) {
   return {
     name: String(payload.carrier_name || Deno.env.get(`SHIPPYPRO_CARRIER_NAME_${key}`) || Deno.env.get("SHIPPYPRO_CARRIER_NAME") || "").trim(),
     id: String(payload.carrier_id || Deno.env.get(`SHIPPYPRO_CARRIER_ID_${key}`) || Deno.env.get("SHIPPYPRO_CARRIER_ID") || "").trim(),
-    service: isDefaultServiceLabel(service) ? "" : service,
+    service,
   };
-}
-
-function isDefaultServiceLabel(value: string) {
-  return ["", "-", "—", "standard", "default"].includes(value.trim().toLowerCase());
 }
 
 function buildParcels(colli: number, weight: number | string | null | undefined) {
