@@ -53,6 +53,8 @@ Deno.serve(async (req) => {
     if (missingSender.length) {
       return json({ detail: `Configura mittente ShippyPro su Supabase: ${missingSender.join(", ")}` }, 400);
     }
+    const senderValidationError = validateShippingAddress(fromAddress, "mittente");
+    if (senderValidationError) return json({ detail: senderValidationError }, 400);
 
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
     const { data: shipment, error: shipmentError } = await adminClient
@@ -78,6 +80,9 @@ Deno.serve(async (req) => {
     if (missingRecipient.length) {
       return json({ detail: `Mancano dati destinatario: ${missingRecipient.join(", ")}` }, 400);
     }
+    const toAddress = normalizeShippingAddress(destinatario, fromAddress);
+    const recipientValidationError = validateShippingAddress(toAddress, "destinatario");
+    if (recipientValidationError) return json({ detail: recipientValidationError }, 400);
     if (needsItalianStreetNumber(shipment.corriere, destinatario) && !hasStreetNumber(destinatario.indirizzo1)) {
       return json({
         detail: "Aggiungi il numero civico nell'indirizzo destinatario prima di generare l'etichetta GLS/BRT.",
@@ -92,18 +97,7 @@ Deno.serve(async (req) => {
     const currency = order?.currency || "EUR";
     const totalValue = `${Number(order?.total_price || 0).toFixed(2)} ${currency}`;
     const commonParams = {
-      to_address: {
-        name: destinatario.nome,
-        company: destinatario.azienda || "",
-        street1: destinatario.indirizzo1,
-        street2: destinatario.indirizzo2 || "",
-        city: destinatario.citta,
-        state: normalizeProvince(destinatario.paese_codice || "IT", destinatario.provincia),
-        zip: destinatario.cap,
-        country: normalizeCountry(destinatario.paese_codice || "IT"),
-        phone: destinatario.telefono || fromAddress.phone,
-        email: destinatario.email || fromAddress.email,
-      },
+      to_address: toAddress,
       from_address: fromAddress,
       parcels: buildParcels(Number(shipment.colli || 1), payload.weight_kg || shipment.peso_kg),
       TotalValue: totalValue,
@@ -117,6 +111,9 @@ Deno.serve(async (req) => {
     const directCarrier = isDirectLabelCarrier(shipment.corriere);
     const rate = directCarrier ? null : await getBestRate(apiKey, commonParams, carrier, transactionId);
     const detailedPricing = normalizeDetailedPricing(rate?.detailed_pricing);
+    const carrierService = directCarrier
+      ? carrier.service
+      : stringFromRate(rate?.service) || carrier.service || "Standard";
 
     const shippyPayload = {
       Method: "Ship",
@@ -127,7 +124,7 @@ Deno.serve(async (req) => {
         CashOnDeliveryType: 0,
         CarrierName: directCarrier ? carrier.name : stringFromRate(rate?.carrier) || carrier.name,
         CarrierID: Number(directCarrier ? carrier.id : stringFromRate(rate?.carrier_id) || carrier.id),
-        CarrierService: directCarrier ? carrier.service || "Standard" : stringFromRate(rate?.service) || carrier.service || "Standard",
+        ...(carrierService ? { CarrierService: carrierService } : {}),
         ...(!directCarrier && rate?.rate_id ? { RateID: String(rate.rate_id) } : {}),
         ...(!directCarrier && rate?.order_id ? { OrderID: String(rate.order_id) } : {}),
         ...(rate?.rate ? { ShipmentCost: Number(rate.rate), ShipmentCostCurrency: currency } : {}),
@@ -142,7 +139,7 @@ Deno.serve(async (req) => {
     const requestPayload = directCarrier ? minimalShipPayload(shippyPayload, { includeRateFields: false }) : shippyPayload;
 
     let shipped: Record<string, unknown>;
-    let alreadyCreatedOrderId = shippyOrderIdFromShipment(shipment);
+    let alreadyCreatedOrderId = reusableShippyOrderId(shipment, requestPayload);
     let generatedOrderId = alreadyCreatedOrderId;
     try {
       if (alreadyCreatedOrderId) {
@@ -252,18 +249,34 @@ Deno.serve(async (req) => {
 
 function senderAddressFromEnv() {
   const country = normalizeCountry(Deno.env.get("SHIPPYPRO_SENDER_COUNTRY") || "IT");
-  return {
+  return compactObject({
     name: Deno.env.get("SHIPPYPRO_SENDER_NAME") || "Aimago",
     company: Deno.env.get("SHIPPYPRO_SENDER_COMPANY") || "AIMAGO SRLS",
     street1: Deno.env.get("SHIPPYPRO_SENDER_ADDRESS1") || "",
     street2: Deno.env.get("SHIPPYPRO_SENDER_ADDRESS2") || "",
     city: Deno.env.get("SHIPPYPRO_SENDER_CITY") || "",
     state: normalizeProvince(country, Deno.env.get("SHIPPYPRO_SENDER_STATE") || ""),
-    zip: Deno.env.get("SHIPPYPRO_SENDER_ZIP") || "",
+    zip: normalizeZip(country, Deno.env.get("SHIPPYPRO_SENDER_ZIP") || ""),
     country,
-    phone: Deno.env.get("SHIPPYPRO_SENDER_PHONE") || "",
-    email: Deno.env.get("SHIPPYPRO_SENDER_EMAIL") || "",
-  };
+    phone: normalizePhone(Deno.env.get("SHIPPYPRO_SENDER_PHONE") || "", country),
+    email: normalizeEmail(Deno.env.get("SHIPPYPRO_SENDER_EMAIL") || ""),
+  });
+}
+
+function normalizeShippingAddress(destinatario: Record<string, unknown>, fallback: Record<string, unknown>) {
+  const country = normalizeCountry(destinatario.paese_codice || destinatario.paese || "IT");
+  return compactObject({
+    name: cleanText(destinatario.nome),
+    company: cleanText(destinatario.azienda),
+    street1: cleanText(destinatario.indirizzo1),
+    street2: cleanText(destinatario.indirizzo2),
+    city: cleanText(destinatario.citta),
+    state: normalizeProvince(country, destinatario.provincia),
+    zip: normalizeZip(country, destinatario.cap),
+    country,
+    phone: normalizePhone(destinatario.telefono || fallback.phone, country),
+    email: normalizeEmail(destinatario.email || fallback.email),
+  });
 }
 
 function requiredSenderFields(address: Record<string, unknown>) {
@@ -295,6 +308,23 @@ function requiredRecipientFields(destinatario: Record<string, unknown>) {
 function requiredShipmentWeight(weight: unknown) {
   const value = Number(weight || 0);
   return Number.isFinite(value) && value > 0;
+}
+
+function validateShippingAddress(address: Record<string, unknown>, label: string) {
+  const country = normalizeCountry(address.country);
+  if (country === "IT" && !/^\d{5}$/.test(String(address.zip || ""))) {
+    return `CAP ${label} non valido: inserisci 5 cifre.`;
+  }
+  if (country === "IT" && !/^[A-Z]{2}$/.test(String(address.state || ""))) {
+    return `Provincia ${label} non valida: usa la sigla a 2 lettere, es. RM.`;
+  }
+  if (!isValidEmail(address.email)) {
+    return `Email ${label} non valida.`;
+  }
+  if (!isValidPhone(address.phone)) {
+    return `Telefono ${label} non valido: inserisci almeno 8 cifre, meglio con prefisso +39.`;
+  }
+  return "";
 }
 
 function needsItalianStreetNumber(corriere: unknown, destinatario: Record<string, unknown>) {
@@ -399,6 +429,53 @@ function normalizeCountry(value: unknown) {
   const country = String(value || "IT").trim().toUpperCase();
   if (country === "ITALIA" || country === "ITALY") return "IT";
   return country || "IT";
+}
+
+function cleanText(value: unknown) {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+function normalizeEmail(value: unknown) {
+  return cleanText(value).toLowerCase();
+}
+
+function normalizePhone(value: unknown, country: unknown) {
+  const raw = cleanText(value);
+  if (!raw) return "";
+  const hasPlus = raw.startsWith("+");
+  const normalizedPrefix = raw.startsWith("00") ? `+${raw.slice(2)}` : raw;
+  const digits = normalizedPrefix.replace(/\D/g, "");
+  if (!digits) return "";
+  if (hasPlus || normalizedPrefix.startsWith("+")) return `+${digits}`;
+  if (normalizeCountry(country) === "IT" && !digits.startsWith("39") && digits.length >= 8 && digits.length <= 10) {
+    return `+39${digits}`;
+  }
+  return digits;
+}
+
+function normalizeZip(country: unknown, value: unknown) {
+  const raw = cleanText(value);
+  if (normalizeCountry(country) !== "IT") return raw;
+  return raw.replace(/\D/g, "").slice(0, 5);
+}
+
+function isValidEmail(value: unknown) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+}
+
+function isValidPhone(value: unknown) {
+  const digits = String(value || "").replace(/\D/g, "");
+  return digits.length >= 8 && digits.length <= 15;
+}
+
+function compactObject<T extends Record<string, unknown>>(record: T) {
+  const cleaned: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (value === undefined || value === null) continue;
+    if (typeof value === "string" && !value.trim()) continue;
+    cleaned[key] = typeof value === "string" ? value.trim() : value;
+  }
+  return cleaned as T;
 }
 
 function normalizeProvince(country: unknown, value: unknown) {
@@ -698,6 +775,31 @@ function shippyOrderIdFromShipment(shipment: Record<string, unknown>) {
 
 function shippyOrderIdFromText(value: string) {
   return value.match(/(?:NewOrderID|OrderID)\s*=\s*([0-9]+)/i)?.[1] || "";
+}
+
+function reusableShippyOrderId(shipment: Record<string, unknown>, nextPayload: Record<string, unknown>) {
+  const orderId = shippyOrderIdFromShipment(shipment);
+  if (!orderId) return "";
+  if (shipment.stato !== "errore") return orderId;
+
+  const errorText = String(shipment.errore || "");
+  if (/label non e ancora disponibile|label non è ancora disponibile/i.test(errorText)) return orderId;
+
+  const previousPayload = shipment.payload && typeof shipment.payload === "object"
+    ? shipment.payload as Record<string, unknown>
+    : null;
+  if (previousPayload && stableJson(previousPayload) === stableJson(nextPayload)) return orderId;
+  return "";
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map((entry) => stableJson(entry)).join(",")}]`;
+  if (!value || typeof value !== "object") {
+    const primitive = JSON.stringify(value);
+    return primitive === undefined ? "undefined" : primitive;
+  }
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`).join(",")}}`;
 }
 
 function mergeShippyResponses(shipResponse: Record<string, unknown>, labelResponse: Record<string, unknown>) {
