@@ -115,6 +115,7 @@ Deno.serve(async (req) => {
     };
     const transactionId = cleanTransactionId(`${order?.order_name || "ordine"}-${shipment.id}`);
     const rate = await getBestRate(apiKey, commonParams, carrier, transactionId);
+    const detailedPricing = normalizeDetailedPricing(rate?.detailed_pricing);
 
     const shippyPayload = {
       Method: "Ship",
@@ -129,9 +130,9 @@ Deno.serve(async (req) => {
         ...(rate?.rate_id ? { RateID: String(rate.rate_id) } : {}),
         ...(rate?.order_id ? { OrderID: String(rate.order_id) } : {}),
         ...(rate?.rate ? { ShipmentCost: Number(rate.rate), ShipmentCostCurrency: currency } : {}),
-        ...(rate?.zone_name ? { zone_name: String(rate.zone_name) } : {}),
-        ...(rate?.weight_range ? { weight_range: String(rate.weight_range) } : {}),
-        ...(rate?.detailed_pricing ? { detailed_pricing: normalizeDetailedPricing(rate.detailed_pricing) } : {}),
+        ...(detailedPricing.length && rate?.zone_name ? { zone_name: String(rate.zone_name) } : {}),
+        ...(detailedPricing.length && rate?.weight_range ? { weight_range: String(rate.weight_range) } : {}),
+        ...(detailedPricing.length ? { detailed_pricing: detailedPricing } : {}),
         BillAccountNumber: "",
         PaymentMethod: order?.financial_status || "",
         LabelType: "PDF",
@@ -215,25 +216,29 @@ function senderAddressFromEnv() {
 }
 
 function requiredSenderFields(address: Record<string, unknown>) {
-  return [
+  const fields = [
     ["SHIPPYPRO_SENDER_NAME", address.name],
     ["SHIPPYPRO_SENDER_ADDRESS1", address.street1],
     ["SHIPPYPRO_SENDER_ZIP", address.zip],
     ["SHIPPYPRO_SENDER_CITY", address.city],
     ["SHIPPYPRO_SENDER_PHONE", address.phone],
     ["SHIPPYPRO_SENDER_EMAIL", address.email],
-  ].filter(([, value]) => !value).map(([key]) => key as string);
+  ];
+  if (normalizeCountry(address.country) === "IT") fields.push(["SHIPPYPRO_SENDER_STATE", address.state]);
+  return fields.filter(([, value]) => !value).map(([key]) => key as string);
 }
 
 function requiredRecipientFields(destinatario: Record<string, unknown>) {
-  return [
+  const fields = [
     ["nome", destinatario.nome],
     ["indirizzo", destinatario.indirizzo1],
     ["CAP", destinatario.cap],
     ["citta", destinatario.citta],
     ["telefono", destinatario.telefono],
     ["email", destinatario.email],
-  ].filter(([, value]) => !value).map(([key]) => key as string);
+  ];
+  if (normalizeCountry(destinatario.paese_codice || destinatario.paese || "IT") === "IT") fields.push(["provincia", destinatario.provincia]);
+  return fields.filter(([, value]) => !value).map(([key]) => key as string);
 }
 
 function requiredShipmentWeight(weight: unknown) {
@@ -302,9 +307,18 @@ function stringFromRate(value: unknown) {
 }
 
 function normalizeDetailedPricing(value: unknown) {
-  if (Array.isArray(value)) return value;
-  if (value && typeof value === "object") return Object.values(value as Record<string, unknown>);
-  return value;
+  if (Array.isArray(value)) return value.filter(isPricingItem);
+  if (isPricingItem(value)) return [value];
+  if (value && typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).filter(isPricingItem);
+  }
+  return [];
+}
+
+function isPricingItem(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const item = value as Record<string, unknown>;
+  return Boolean(item.type && item.price !== undefined && item.desc);
 }
 
 function resolveCarrier(payload: Payload, corriere: string | null | undefined) {
