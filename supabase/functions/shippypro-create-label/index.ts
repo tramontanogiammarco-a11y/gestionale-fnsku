@@ -88,16 +88,16 @@ Deno.serve(async (req) => {
           street1: destinatario.indirizzo1,
           street2: destinatario.indirizzo2 || "",
           city: destinatario.citta,
-          state: destinatario.provincia || "",
+          state: normalizeProvince(destinatario.paese_codice || "IT", destinatario.provincia),
           zip: destinatario.cap,
-          country: destinatario.paese_codice || "IT",
+          country: normalizeCountry(destinatario.paese_codice || "IT"),
           phone: destinatario.telefono || fromAddress.phone,
           email: destinatario.email || fromAddress.email,
         },
         from_address: fromAddress,
         parcels: buildParcels(Number(shipment.colli || 1), payload.weight_kg || shipment.peso_kg),
         TotalValue: `${Number(order?.total_price || 0).toFixed(2)} ${order?.currency || "EUR"}`,
-        TransactionID: order?.order_name || shipment.id,
+        TransactionID: cleanTransactionId(order?.order_name || shipment.id),
         MarketplacePlatform: order?.shop_domain ? "Shopify" : "WMS",
         ContentDescription: "Ordine ecommerce",
         Insurance: 0,
@@ -160,15 +160,16 @@ Deno.serve(async (req) => {
 });
 
 function senderAddressFromEnv() {
+  const country = normalizeCountry(Deno.env.get("SHIPPYPRO_SENDER_COUNTRY") || "IT");
   return {
     name: Deno.env.get("SHIPPYPRO_SENDER_NAME") || "Aimago",
     company: Deno.env.get("SHIPPYPRO_SENDER_COMPANY") || "AIMAGO SRLS",
     street1: Deno.env.get("SHIPPYPRO_SENDER_ADDRESS1") || "",
     street2: Deno.env.get("SHIPPYPRO_SENDER_ADDRESS2") || "",
     city: Deno.env.get("SHIPPYPRO_SENDER_CITY") || "",
-    state: Deno.env.get("SHIPPYPRO_SENDER_STATE") || "",
+    state: normalizeProvince(country, Deno.env.get("SHIPPYPRO_SENDER_STATE") || ""),
     zip: Deno.env.get("SHIPPYPRO_SENDER_ZIP") || "",
-    country: Deno.env.get("SHIPPYPRO_SENDER_COUNTRY") || "IT",
+    country,
     phone: Deno.env.get("SHIPPYPRO_SENDER_PHONE") || "",
     email: Deno.env.get("SHIPPYPRO_SENDER_EMAIL") || "",
   };
@@ -203,6 +204,140 @@ function resolveCarrier(payload: Payload, corriere: string | null | undefined) {
     service,
   };
 }
+
+function cleanTransactionId(value: unknown) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, "_")
+    .replace(/\//g, "-")
+    .replace(/[#"]/g, "")
+    .slice(0, 255);
+}
+
+function normalizeCountry(value: unknown) {
+  const country = String(value || "IT").trim().toUpperCase();
+  if (country === "ITALIA" || country === "ITALY") return "IT";
+  return country || "IT";
+}
+
+function normalizeProvince(country: unknown, value: unknown) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (normalizeCountry(country) !== "IT") return raw;
+  const compact = raw.toUpperCase().replace(/[^A-Z]/g, "");
+  if (compact.length === 2) return compact;
+  return ITALIAN_PROVINCES[compact] || raw;
+}
+
+const ITALIAN_PROVINCES: Record<string, string> = {
+  AGRIGENTO: "AG",
+  ALESSANDRIA: "AL",
+  ANCONA: "AN",
+  AOSTA: "AO",
+  AREZZO: "AR",
+  ASCOLIPICENO: "AP",
+  ASTI: "AT",
+  AVELLINO: "AV",
+  BARI: "BA",
+  BARLETTAANDRIATRANI: "BT",
+  BELLUNO: "BL",
+  BENEVENTO: "BN",
+  BERGAMO: "BG",
+  BIELLA: "BI",
+  BOLOGNA: "BO",
+  BOLZANO: "BZ",
+  BRESCIA: "BS",
+  BRINDISI: "BR",
+  CAGLIARI: "CA",
+  CALTANISSETTA: "CL",
+  CAMPOBASSO: "CB",
+  CASERTA: "CE",
+  CATANIA: "CT",
+  CATANZARO: "CZ",
+  CHIETI: "CH",
+  COMO: "CO",
+  COSENZA: "CS",
+  CREMONA: "CR",
+  CROTONE: "KR",
+  CUNEO: "CN",
+  ENNA: "EN",
+  FERMO: "FM",
+  FERRARA: "FE",
+  FIRENZE: "FI",
+  FOGGIA: "FG",
+  FORLICESENA: "FC",
+  FROSINONE: "FR",
+  GENOVA: "GE",
+  GORIZIA: "GO",
+  GROSSETO: "GR",
+  IMPERIA: "IM",
+  ISERNIA: "IS",
+  LASPEZIA: "SP",
+  LAQUILA: "AQ",
+  LATINA: "LT",
+  LECCE: "LE",
+  LECCO: "LC",
+  LIVORNO: "LI",
+  LODI: "LO",
+  LUCCA: "LU",
+  MACERATA: "MC",
+  MANTOVA: "MN",
+  MASSACARRARA: "MS",
+  MATERA: "MT",
+  MESSINA: "ME",
+  MILANO: "MI",
+  MODENA: "MO",
+  MONZABRIANZA: "MB",
+  NAPOLI: "NA",
+  NOVARA: "NO",
+  NUORO: "NU",
+  ORISTANO: "OR",
+  PADOVA: "PD",
+  PALERMO: "PA",
+  PARMA: "PR",
+  PAVIA: "PV",
+  PERUGIA: "PG",
+  PESAROEURBINO: "PU",
+  PESCARA: "PE",
+  PIACENZA: "PC",
+  PISA: "PI",
+  PISTOIA: "PT",
+  PORDENONE: "PN",
+  POTENZA: "PZ",
+  PRATO: "PO",
+  RAGUSA: "RG",
+  RAVENNA: "RA",
+  REGGIOCALABRIA: "RC",
+  REGGIOEMILIA: "RE",
+  RIETI: "RI",
+  RIMINI: "RN",
+  ROMA: "RM",
+  ROVIGO: "RO",
+  SALERNO: "SA",
+  SASSARI: "SS",
+  SAVONA: "SV",
+  SIENA: "SI",
+  SIRACUSA: "SR",
+  SONDRIO: "SO",
+  SUDSARDEGNA: "SU",
+  TARANTO: "TA",
+  TERAMO: "TE",
+  TERNI: "TR",
+  TORINO: "TO",
+  TRAPANI: "TP",
+  TRENTO: "TN",
+  TREVISO: "TV",
+  TRIESTE: "TS",
+  UDINE: "UD",
+  VARESE: "VA",
+  VENEZIA: "VE",
+  VERBANOCUSIOOSSOLA: "VB",
+  VERCELLI: "VC",
+  VERONA: "VR",
+  VIBOVALENTIA: "VV",
+  VICENZA: "VI",
+  VITERBO: "VT",
+};
 
 function buildParcels(colli: number, weight: number | string | null | undefined) {
   const safeColli = Math.max(1, Math.min(50, Number(colli || 1)));
