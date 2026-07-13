@@ -3,10 +3,15 @@ import { api } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
-import { Download, Loader2, MapPin, PackageCheck, RefreshCw, ShoppingCart, Truck, TriangleAlert } from "lucide-react";
+import { Download, Loader2, MapPin, PackageCheck, Pencil, RefreshCw, ShoppingCart, Truck, TriangleAlert } from "lucide-react";
 
 const WMS_STATI = [
   { key: "tutti", label: "Tutti" },
@@ -31,6 +36,9 @@ export default function AdminOrdiniWms() {
   const [creatingShipment, setCreatingShipment] = useState(null);
   const [updatingShipment, setUpdatingShipment] = useState(null);
   const [generatingLabel, setGeneratingLabel] = useState(null);
+  const [editingShipment, setEditingShipment] = useState(null);
+  const [shipmentForm, setShipmentForm] = useState(defaultShipmentForm());
+  const [savingShipment, setSavingShipment] = useState(false);
 
   const load = async () => {
     const [ordersResponse, shipmentsResponse] = await Promise.all([
@@ -110,6 +118,65 @@ export default function AdminOrdiniWms() {
       toast.error(error.response?.data?.detail || error.message || "Impossibile cambiare corriere");
     } finally {
       setUpdatingShipment(null);
+    }
+  };
+
+  const openEditShipment = (shipment) => {
+    const destinatario = shipment.destinatario || {};
+    setEditingShipment(shipment);
+    setShipmentForm({
+      nome: destinatario.nome || "",
+      azienda: destinatario.azienda || "",
+      indirizzo1: destinatario.indirizzo1 || "",
+      indirizzo2: destinatario.indirizzo2 || "",
+      cap: destinatario.cap || "",
+      citta: destinatario.citta || "",
+      provincia: destinatario.provincia || "",
+      paese_codice: destinatario.paese_codice || "IT",
+      telefono: destinatario.telefono || "",
+      email: destinatario.email || "",
+      colli: String(shipment.colli || 1),
+      peso_kg: shipment.peso_kg ? String(shipment.peso_kg) : "",
+    });
+  };
+
+  const handleSaveShipment = async () => {
+    if (!editingShipment) return;
+    const required = [
+      ["nome", "nome destinatario"],
+      ["indirizzo1", "indirizzo"],
+      ["cap", "CAP"],
+      ["citta", "citta"],
+    ].filter(([key]) => !shipmentForm[key]?.trim());
+    if (required.length) {
+      toast.error(`Completa: ${required.map(([, label]) => label).join(", ")}`);
+      return;
+    }
+    setSavingShipment(true);
+    try {
+      await api.put(`/wms/spedizioni/${editingShipment.id}`, {
+        colli: shipmentForm.colli,
+        peso_kg: shipmentForm.peso_kg,
+        destinatario: {
+          nome: shipmentForm.nome,
+          azienda: shipmentForm.azienda,
+          indirizzo1: shipmentForm.indirizzo1,
+          indirizzo2: shipmentForm.indirizzo2,
+          cap: shipmentForm.cap,
+          citta: shipmentForm.citta,
+          provincia: shipmentForm.provincia,
+          paese_codice: shipmentForm.paese_codice || "IT",
+          telefono: shipmentForm.telefono,
+          email: shipmentForm.email,
+        },
+      });
+      toast.success("Dati spedizione aggiornati");
+      setEditingShipment(null);
+      await load();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || error.message || "Impossibile salvare la spedizione");
+    } finally {
+      setSavingShipment(false);
     }
   };
 
@@ -233,6 +300,15 @@ export default function AdminOrdiniWms() {
                           <div className="text-xs text-muted-foreground">{shipment.tracking || shipment.stato}</div>
                           {!shipment.label_url && shipment.stato !== "creata" && (
                             <div className="flex flex-wrap gap-1">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={updatingShipment === shipment.id}
+                                onClick={() => openEditShipment(shipment)}
+                              >
+                                <Pencil className="mr-1 h-3 w-3" />
+                                Modifica dati
+                              </Button>
                               {shipment.corriere !== "gls" && (
                                 <Button
                                   size="sm"
@@ -304,6 +380,64 @@ export default function AdminOrdiniWms() {
           </Table>
         )}
       </Card>
+
+      <Dialog open={Boolean(editingShipment)} onOpenChange={(open) => !open && setEditingShipment(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Modifica dati spedizione</DialogTitle>
+            <DialogDescription>
+              Controlla destinatario, numero civico, colli e peso prima di generare la lettera di vettura.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid max-h-[70vh] gap-4 overflow-y-auto pr-2 md:grid-cols-2">
+            <ShipmentField label="Nome" value={shipmentForm.nome} onChange={(value) => setShipmentForm((form) => ({ ...form, nome: value }))} />
+            <ShipmentField label="Azienda" value={shipmentForm.azienda} onChange={(value) => setShipmentForm((form) => ({ ...form, azienda: value }))} />
+            <ShipmentField label="Indirizzo e numero civico" value={shipmentForm.indirizzo1} onChange={(value) => setShipmentForm((form) => ({ ...form, indirizzo1: value }))} className="md:col-span-2" />
+            <ShipmentField label="Indirizzo 2" value={shipmentForm.indirizzo2} onChange={(value) => setShipmentForm((form) => ({ ...form, indirizzo2: value }))} className="md:col-span-2" />
+            <ShipmentField label="CAP" value={shipmentForm.cap} onChange={(value) => setShipmentForm((form) => ({ ...form, cap: value }))} />
+            <ShipmentField label="Citta" value={shipmentForm.citta} onChange={(value) => setShipmentForm((form) => ({ ...form, citta: value }))} />
+            <ShipmentField label="Provincia" value={shipmentForm.provincia} onChange={(value) => setShipmentForm((form) => ({ ...form, provincia: value }))} />
+            <ShipmentField label="Paese" value={shipmentForm.paese_codice} onChange={(value) => setShipmentForm((form) => ({ ...form, paese_codice: value.toUpperCase() }))} />
+            <ShipmentField label="Telefono" value={shipmentForm.telefono} onChange={(value) => setShipmentForm((form) => ({ ...form, telefono: value }))} />
+            <ShipmentField label="Email" value={shipmentForm.email} onChange={(value) => setShipmentForm((form) => ({ ...form, email: value }))} />
+            <ShipmentField label="Colli" type="number" min="1" value={shipmentForm.colli} onChange={(value) => setShipmentForm((form) => ({ ...form, colli: value }))} />
+            <ShipmentField label="Peso kg" type="number" min="0" step="0.1" value={shipmentForm.peso_kg} onChange={(value) => setShipmentForm((form) => ({ ...form, peso_kg: value }))} />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingShipment(null)}>Annulla</Button>
+            <Button onClick={handleSaveShipment} disabled={savingShipment}>
+              {savingShipment ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Salva dati
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function defaultShipmentForm() {
+  return {
+    nome: "",
+    azienda: "",
+    indirizzo1: "",
+    indirizzo2: "",
+    cap: "",
+    citta: "",
+    provincia: "",
+    paese_codice: "IT",
+    telefono: "",
+    email: "",
+    colli: "1",
+    peso_kg: "",
+  };
+}
+
+function ShipmentField({ label, value, onChange, className = "", ...props }) {
+  return (
+    <div className={className}>
+      <Label className="text-xs font-bold text-slate-700">{label}</Label>
+      <Input className="mt-1" value={value} onChange={(event) => onChange(event.target.value)} {...props} />
     </div>
   );
 }

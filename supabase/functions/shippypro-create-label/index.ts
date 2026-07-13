@@ -78,6 +78,11 @@ Deno.serve(async (req) => {
     if (missingRecipient.length) {
       return json({ detail: `Mancano dati destinatario: ${missingRecipient.join(", ")}` }, 400);
     }
+    if (needsItalianStreetNumber(shipment.corriere, destinatario) && !hasStreetNumber(destinatario.indirizzo1)) {
+      return json({
+        detail: "Aggiungi il numero civico nell'indirizzo destinatario prima di generare l'etichetta GLS/BRT.",
+      }, 400);
+    }
 
     const shippyPayload = {
       Method: "Ship",
@@ -193,6 +198,16 @@ function requiredRecipientFields(destinatario: Record<string, unknown>) {
     ["CAP", destinatario.cap],
     ["citta", destinatario.citta],
   ].filter(([, value]) => !value).map(([key]) => key as string);
+}
+
+function needsItalianStreetNumber(corriere: unknown, destinatario: Record<string, unknown>) {
+  const carrier = String(corriere || "").trim().toLowerCase();
+  const country = normalizeCountry(destinatario.paese_codice || destinatario.paese || "IT");
+  return country === "IT" && ["gls", "brt"].includes(carrier);
+}
+
+function hasStreetNumber(value: unknown) {
+  return /\d/.test(String(value || ""));
 }
 
 function resolveCarrier(payload: Payload, corriere: string | null | undefined) {

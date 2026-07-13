@@ -701,23 +701,34 @@ async function updateWmsShipment(id, payload) {
   const profile = await currentProfile();
   if (!isStaff(profile)) fail("Accesso riservato allo staff", 403);
 
+  const { data: existing, error: existingError } = await requireSupabase()
+    .from("wms_shipments")
+    .select("id,stato,label_url,destinatario")
+    .eq("id", id)
+    .single();
+  if (existingError || !existing) fail(existingError?.message || "Spedizione non trovata", 404);
+  if (existing.label_url || existing.stato === "creata") {
+    fail("Etichetta gia generata: non puoi modificare questa spedizione");
+  }
+
   const updates = {};
   if (payload.corriere) updates.corriere = String(payload.corriere).toLowerCase();
   if (payload.servizio !== undefined) updates.servizio = payload.servizio || null;
   if (payload.colli !== undefined) updates.colli = Math.max(1, Number(payload.colli || 1));
   if (payload.peso_kg !== undefined) updates.peso_kg = payload.peso_kg ? Number(payload.peso_kg) : null;
+  if (payload.destinatario && typeof payload.destinatario === "object") {
+    updates.destinatario = {
+      ...(existing.destinatario || {}),
+      ...Object.fromEntries(
+        Object.entries(payload.destinatario).map(([key, value]) => [
+          key,
+          typeof value === "string" ? value.trim() : value,
+        ])
+      ),
+    };
+  }
 
   if (!Object.keys(updates).length) fail("Nessuna modifica da salvare");
-
-  const { data: existing, error: existingError } = await requireSupabase()
-    .from("wms_shipments")
-    .select("id,stato,label_url")
-    .eq("id", id)
-    .single();
-  if (existingError || !existing) fail(existingError?.message || "Spedizione non trovata", 404);
-  if (existing.label_url || existing.stato === "creata") {
-    fail("Etichetta gia generata: non puoi cambiare corriere su questa spedizione");
-  }
 
   const { data, error } = await requireSupabase()
     .from("wms_shipments")
