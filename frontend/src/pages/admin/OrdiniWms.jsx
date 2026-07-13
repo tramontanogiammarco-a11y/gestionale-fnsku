@@ -94,6 +94,11 @@ export default function AdminOrdiniWms() {
   };
 
   const handleGenerateLabel = async (shipment) => {
+    const validationError = validateShipmentForLabel(shipment);
+    if (validationError) {
+      toast.error(validationError);
+      return;
+    }
     setGeneratingLabel(shipment.id);
     try {
       const { data } = await api.post("/shippypro/label", {
@@ -251,6 +256,14 @@ export default function AdminOrdiniWms() {
                 const pezzi = (order.items || []).reduce((sum, item) => sum + Number(item.quantita || 0), 0);
                 const missing = (order.items || []).filter((item) => !item.referenza_id).length;
                 const shipment = shipmentByOrder[order.id];
+                const destination = shipment?.destinatario || {
+                  nome: order.ship_name,
+                  indirizzo1: order.ship_address1,
+                  cap: order.ship_zip,
+                  citta: order.ship_city,
+                  provincia: order.ship_province,
+                };
+                const shipmentWarning = shipment ? validateShipmentForLabel(shipment) : "";
                 return (
                   <TableRow key={order.id} data-testid={`wms-order-${order.id}`}>
                     <TableCell>
@@ -264,17 +277,22 @@ export default function AdminOrdiniWms() {
                     </TableCell>
                     <TableCell className="font-medium">{order.cliente_ragione_sociale}</TableCell>
                     <TableCell>
-                      {order.ship_city || order.ship_zip || order.ship_name ? (
+                      {destination.citta || destination.cap || destination.nome ? (
                         <div className="max-w-[260px] text-sm">
                           <div className="flex items-center gap-1 font-semibold text-slate-900">
                             <MapPin className="h-3.5 w-3.5 text-teal-700" />
-                            {order.ship_name || "Destinatario"}
+                            {destination.nome || "Destinatario"}
                           </div>
                           <div className="mt-1 text-xs text-muted-foreground">
-                            {[order.ship_address1, order.ship_zip, order.ship_city, order.ship_province]
+                            {[destination.indirizzo1, destination.cap, destination.citta, destination.provincia]
                               .filter(Boolean)
                               .join(", ")}
                           </div>
+                          {shipmentWarning && (
+                            <div className="mt-2 inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-[11px] font-bold text-amber-700">
+                              <TriangleAlert className="h-3 w-3" /> Controlla dati spedizione
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <span className="text-xs text-muted-foreground">Da reimportare</span>
@@ -440,6 +458,25 @@ function ShipmentField({ label, value, onChange, className = "", ...props }) {
       <Input className="mt-1" value={value} onChange={(event) => onChange(event.target.value)} {...props} />
     </div>
   );
+}
+
+function validateShipmentForLabel(shipment) {
+  const destinatario = shipment?.destinatario || {};
+  const missing = [
+    ["nome", destinatario.nome],
+    ["indirizzo", destinatario.indirizzo1],
+    ["CAP", destinatario.cap],
+    ["citta", destinatario.citta],
+  ].filter(([, value]) => !String(value || "").trim()).map(([label]) => label);
+  if (missing.length) return `Completa i dati spedizione: ${missing.join(", ")}`;
+
+  const country = String(destinatario.paese_codice || destinatario.paese || "IT").trim().toUpperCase();
+  const carrier = String(shipment?.corriere || "").trim().toLowerCase();
+  if (["gls", "brt"].includes(carrier) && ["IT", "ITALIA", "ITALY"].includes(country) && !/\d/.test(String(destinatario.indirizzo1 || ""))) {
+    return "Aggiungi il numero civico nell'indirizzo spedizione prima di generare l'etichetta.";
+  }
+
+  return "";
 }
 
 function Metric({ label, value, tone }) {

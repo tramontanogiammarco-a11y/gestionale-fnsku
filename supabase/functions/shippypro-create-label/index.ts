@@ -473,7 +473,15 @@ function shippyproError(body: Record<string, unknown>) {
     body?.ReturnErrorMessage,
     typeof body?.ErrorType === "string" ? body.ErrorType : "",
   ].filter(Boolean);
-  return pieces.length ? pieces.join(" ") : "";
+  const message = pieces.length ? pieces.join(" ") : "";
+  if (/system exception/i.test(message)) {
+    return [
+      "ShippyPro/GLS ha rifiutato la spedizione con un errore generico.",
+      "Controlla numero civico, telefono, email, CAP/provincia e peso/colli nei dati spedizione.",
+      message,
+    ].join(" ");
+  }
+  return message;
 }
 
 function json(body: unknown, status = 200) {
