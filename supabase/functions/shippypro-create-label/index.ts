@@ -114,7 +114,8 @@ Deno.serve(async (req) => {
       ContentDescription: "Ordine ecommerce",
     };
     const transactionId = cleanTransactionId(`${order?.order_name || "ordine"}-${shipment.id}`);
-    const rate = await getBestRate(apiKey, commonParams, carrier, transactionId);
+    const directCarrier = isDirectLabelCarrier(shipment.corriere);
+    const rate = directCarrier ? null : await getBestRate(apiKey, commonParams, carrier, transactionId);
     const detailedPricing = normalizeDetailedPricing(rate?.detailed_pricing);
 
     const shippyPayload = {
@@ -122,23 +123,23 @@ Deno.serve(async (req) => {
       Params: {
         ...commonParams,
         TransactionID: transactionId,
-        MarketplacePlatform: order?.shop_domain ? "Shopify" : "WMS",
+        ...(directCarrier ? {} : { MarketplacePlatform: order?.shop_domain ? "Shopify" : "WMS" }),
         CashOnDeliveryType: 0,
-        CarrierName: stringFromRate(rate?.carrier) || carrier.name,
-        CarrierID: Number(stringFromRate(rate?.carrier_id) || carrier.id),
-        CarrierService: stringFromRate(rate?.service) || carrier.service || "Standard",
-        ...(rate?.rate_id ? { RateID: String(rate.rate_id) } : {}),
-        ...(rate?.order_id ? { OrderID: String(rate.order_id) } : {}),
+        CarrierName: directCarrier ? carrier.name : stringFromRate(rate?.carrier) || carrier.name,
+        CarrierID: Number(directCarrier ? carrier.id : stringFromRate(rate?.carrier_id) || carrier.id),
+        CarrierService: directCarrier ? carrier.service || "Standard" : stringFromRate(rate?.service) || carrier.service || "Standard",
+        ...(!directCarrier && rate?.rate_id ? { RateID: String(rate.rate_id) } : {}),
+        ...(!directCarrier && rate?.order_id ? { OrderID: String(rate.order_id) } : {}),
         ...(rate?.rate ? { ShipmentCost: Number(rate.rate), ShipmentCostCurrency: currency } : {}),
         ...(detailedPricing.length && rate?.zone_name ? { zone_name: String(rate.zone_name) } : {}),
         ...(detailedPricing.length && rate?.weight_range ? { weight_range: String(rate.weight_range) } : {}),
         ...(detailedPricing.length ? { detailed_pricing: detailedPricing } : {}),
-        BillAccountNumber: "",
-        PaymentMethod: order?.financial_status || "",
+        ...(directCarrier ? {} : { BillAccountNumber: "", PaymentMethod: order?.financial_status || "" }),
         LabelType: "PDF",
         Async: false,
       },
     };
+    const requestPayload = directCarrier ? minimalShipPayload(shippyPayload, { includeRateFields: false }) : shippyPayload;
 
     let shipped: Record<string, unknown>;
     let alreadyCreatedOrderId = shippyOrderIdFromShipment(shipment);
@@ -148,7 +149,7 @@ Deno.serve(async (req) => {
         const labelResponse = await getLabelUrlWithRetry(apiKey, alreadyCreatedOrderId);
         shipped = mergeShippyResponses({ NewOrderID: alreadyCreatedOrderId, OrderID: alreadyCreatedOrderId }, labelResponse);
       } else {
-        shipped = await shipWithCarrierFallback(apiKey, shippyPayload);
+        shipped = directCarrier ? await shippyproJson(apiKey, requestPayload) : await shipWithCarrierFallback(apiKey, requestPayload);
         const createdOrderId = shippyOrderId(shipped);
         generatedOrderId = createdOrderId || generatedOrderId;
         if (createdOrderId) {
@@ -156,7 +157,7 @@ Deno.serve(async (req) => {
             .from("wms_shipments")
             .update({
               carrier_reference: createdOrderId,
-              payload: shippyPayload,
+              payload: requestPayload,
               response: shipped,
               updated_at: new Date().toISOString(),
             })
@@ -175,7 +176,7 @@ Deno.serve(async (req) => {
         .from("wms_shipments")
         .update({
           stato: "errore",
-          payload: shippyPayload,
+          payload: requestPayload,
           response,
           errore: message,
           ...(savedOrderId ? { carrier_reference: savedOrderId } : {}),
@@ -211,7 +212,7 @@ Deno.serve(async (req) => {
         .from("wms_shipments")
         .update({
           stato: "errore",
-          payload: shippyPayload,
+          payload: requestPayload,
           response: shipped,
           errore: message,
           ...(createdOrderId ? { carrier_reference: createdOrderId } : {}),
@@ -228,7 +229,7 @@ Deno.serve(async (req) => {
         tracking,
         label_url: finalLabelUrl,
         carrier_reference: String(createdOrderId || shipment.id),
-        payload: shippyPayload,
+        payload: requestPayload,
         response: shipped,
         errore: null,
         updated_at: new Date().toISOString(),
@@ -300,6 +301,10 @@ function needsItalianStreetNumber(corriere: unknown, destinatario: Record<string
   const carrier = String(corriere || "").trim().toLowerCase();
   const country = normalizeCountry(destinatario.paese_codice || destinatario.paese || "IT");
   return country === "IT" && ["gls", "brt"].includes(carrier);
+}
+
+function isDirectLabelCarrier(corriere: unknown) {
+  return ["gls", "brt"].includes(String(corriere || "").trim().toLowerCase());
 }
 
 function hasStreetNumber(value: unknown) {
@@ -603,7 +608,7 @@ class ShippyProApiError extends Error {
   }
 }
 
-function minimalShipPayload(body: Record<string, unknown>) {
+function minimalShipPayload(body: Record<string, unknown>, options: { includeRateFields?: boolean } = {}) {
   const params = (body.Params || {}) as Record<string, unknown>;
   const minimalParams: Record<string, unknown> = {
     to_address: params.to_address,
@@ -617,8 +622,10 @@ function minimalShipPayload(body: Record<string, unknown>) {
     LabelType: "PDF",
   };
 
-  if (params.RateID) minimalParams.RateID = params.RateID;
-  if (params.OrderID) minimalParams.OrderID = params.OrderID;
+  if (options.includeRateFields !== false) {
+    if (params.RateID) minimalParams.RateID = params.RateID;
+    if (params.OrderID) minimalParams.OrderID = params.OrderID;
+  }
 
   for (const key of Object.keys(minimalParams)) {
     if (minimalParams[key] === undefined || minimalParams[key] === null || minimalParams[key] === "") {

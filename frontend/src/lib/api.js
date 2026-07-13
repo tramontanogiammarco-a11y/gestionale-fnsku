@@ -729,6 +729,12 @@ async function updateWmsShipment(id, payload) {
   }
 
   if (!Object.keys(updates).length) fail("Nessuna modifica da salvare");
+  if (existing.stato === "errore") {
+    updates.stato = "bozza";
+    updates.errore = null;
+    updates.response = null;
+    updates.carrier_reference = null;
+  }
 
   const { data, error } = await requireSupabase()
     .from("wms_shipments")
