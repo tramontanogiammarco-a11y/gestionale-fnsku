@@ -111,7 +111,7 @@ Deno.serve(async (req) => {
       },
     };
 
-    const shipped = await shippyproJson(apiKey, shippyPayload);
+    const shipped = await shipWithCarrierFallback(apiKey, shippyPayload);
     const labelUrl = normalizeLabelUrl(shipped?.LabelURL);
     const pdfBase64 = firstPdf(shipped);
     const labelPath = pdfBase64
@@ -189,11 +189,16 @@ function requiredRecipientFields(destinatario: Record<string, unknown>) {
 
 function resolveCarrier(payload: Payload, corriere: string | null | undefined) {
   const key = String(corriere || "").trim().toUpperCase();
+  const service = String(payload.carrier_service || Deno.env.get(`SHIPPYPRO_CARRIER_SERVICE_${key}`) || Deno.env.get("SHIPPYPRO_CARRIER_SERVICE") || "").trim();
   return {
     name: String(payload.carrier_name || Deno.env.get(`SHIPPYPRO_CARRIER_NAME_${key}`) || Deno.env.get("SHIPPYPRO_CARRIER_NAME") || "").trim(),
     id: String(payload.carrier_id || Deno.env.get(`SHIPPYPRO_CARRIER_ID_${key}`) || Deno.env.get("SHIPPYPRO_CARRIER_ID") || "").trim(),
-    service: String(payload.carrier_service || Deno.env.get(`SHIPPYPRO_CARRIER_SERVICE_${key}`) || Deno.env.get("SHIPPYPRO_CARRIER_SERVICE") || "").trim(),
+    service: isDefaultServiceLabel(service) ? "" : service,
   };
+}
+
+function isDefaultServiceLabel(value: string) {
+  return ["", "-", "—", "standard", "default"].includes(value.trim().toLowerCase());
 }
 
 function buildParcels(colli: number, weight: number | string | null | undefined) {
@@ -231,6 +236,30 @@ async function shippyproJson(apiKey: string, body: Record<string, unknown>) {
   const error = shippyproError(data);
   if (error && !normalizeLabelUrl(data?.LabelURL) && !firstPdf(data)) throw new Error(error);
   return data;
+}
+
+async function shipWithCarrierFallback(apiKey: string, body: Record<string, unknown>) {
+  try {
+    return await shippyproJson(apiKey, body);
+  } catch (error) {
+    const params = (body.Params || {}) as Record<string, unknown>;
+    if (!params.CarrierService) throw error;
+
+    const retryBody = {
+      ...body,
+      Params: {
+        ...params,
+        CarrierService: undefined,
+      },
+    };
+    delete (retryBody.Params as Record<string, unknown>).CarrierService;
+
+    try {
+      return await shippyproJson(apiKey, retryBody);
+    } catch (_) {
+      throw error;
+    }
+  }
 }
 
 function normalizeLabelUrl(value: unknown) {
