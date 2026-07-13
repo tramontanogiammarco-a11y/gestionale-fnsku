@@ -142,6 +142,7 @@ Deno.serve(async (req) => {
 
     let shipped: Record<string, unknown>;
     let alreadyCreatedOrderId = shippyOrderIdFromShipment(shipment);
+    let generatedOrderId = alreadyCreatedOrderId;
     try {
       if (alreadyCreatedOrderId) {
         const labelResponse = await getLabelUrlWithRetry(apiKey, alreadyCreatedOrderId);
@@ -149,6 +150,18 @@ Deno.serve(async (req) => {
       } else {
         shipped = await shipWithCarrierFallback(apiKey, shippyPayload);
         const createdOrderId = shippyOrderId(shipped);
+        generatedOrderId = createdOrderId || generatedOrderId;
+        if (createdOrderId) {
+          await adminClient
+            .from("wms_shipments")
+            .update({
+              carrier_reference: createdOrderId,
+              payload: shippyPayload,
+              response: shipped,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", shipment.id);
+        }
         if (createdOrderId && !hasLabelOrTracking(shipped)) {
           const labelResponse = await getLabelUrlWithRetry(apiKey, createdOrderId);
           shipped = mergeShippyResponses(shipped, labelResponse);
@@ -157,7 +170,7 @@ Deno.serve(async (req) => {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Errore creazione etichetta ShippyPro";
       const response = error instanceof ShippyProApiError ? error.body : null;
-      const savedOrderId = response ? shippyOrderId(response) : alreadyCreatedOrderId;
+      const savedOrderId = response ? shippyOrderId(response) || generatedOrderId : generatedOrderId;
       await adminClient
         .from("wms_shipments")
         .update({
@@ -186,11 +199,14 @@ Deno.serve(async (req) => {
     const tracking = shipped?.TrackingNumber || firstParcelTracking(shipped) || findNestedString(shipped, TRACKING_KEYS) || null;
     const createdOrderId = shippyOrderId(shipped);
     if (!finalLabelUrl && !tracking) {
-      const message = shippyproError(shipped) || (
-        createdOrderId
-          ? `ShippyPro ha creato l'ordine ${createdOrderId}, ma l'etichetta non e ancora disponibile. Riprova tra qualche secondo: ora la recupero senza creare doppioni. Risposta ricevuta: ${summarizeShippyResponse(shipped)}`
-          : `ShippyPro non ha restituito etichetta o tracking. Risposta ricevuta: ${summarizeShippyResponse(shipped)}`
-      );
+      const apiError = shippyproError(shipped);
+      const message = createdOrderId
+        ? [
+          `ShippyPro ha creato l'ordine ${createdOrderId}, ma la label non e ancora disponibile.`,
+          "Riprova tra qualche secondo: ora la recupero senza creare doppioni.",
+          apiError ? `Dettaglio ShippyPro: ${apiError}` : `Risposta ricevuta: ${summarizeShippyResponse(shipped)}`,
+        ].join(" ")
+        : apiError || `ShippyPro non ha restituito etichetta o tracking. Risposta ricevuta: ${summarizeShippyResponse(shipped)}`;
       await adminClient
         .from("wms_shipments")
         .update({
@@ -669,7 +685,12 @@ function shippyOrderIdFromShipment(shipment: Record<string, unknown>) {
   const response = shipment.response && typeof shipment.response === "object"
     ? shipment.response as Record<string, unknown>
     : null;
-  return String(shipment.carrier_reference || shippyOrderId(response) || "").trim();
+  const errorText = typeof shipment.errore === "string" ? shipment.errore : "";
+  return String(shipment.carrier_reference || shippyOrderId(response) || shippyOrderIdFromText(errorText) || "").trim();
+}
+
+function shippyOrderIdFromText(value: string) {
+  return value.match(/(?:NewOrderID|OrderID)\s*=\s*([0-9]+)/i)?.[1] || "";
 }
 
 function mergeShippyResponses(shipResponse: Record<string, unknown>, labelResponse: Record<string, unknown>) {
