@@ -78,6 +78,22 @@ function cleanRow(row) {
   return out;
 }
 
+function optionalText(value) {
+  const text = String(value || "").trim();
+  return text || null;
+}
+
+function normalizeReferenzaPayload(payload = {}) {
+  const out = { ...payload };
+  for (const key of ["ean", "sku", "asin", "fnsku", "foto_url"]) {
+    if (Object.prototype.hasOwnProperty.call(out, key)) out[key] = optionalText(out[key]);
+  }
+  if (Object.prototype.hasOwnProperty.call(out, "titolo")) {
+    out.titolo = String(out.titolo || "").trim();
+  }
+  return out;
+}
+
 async function clientiMap(ids) {
   const unique = [...new Set((ids || []).filter(Boolean))];
   if (!unique.length) return {};
@@ -279,9 +295,10 @@ async function listReferenze(params) {
 
 async function createReferenza(payload) {
   const cliente_id = await resolveClienteId(payload.cliente_id);
+  const referenza = normalizeReferenzaPayload(payload);
   const { data, error } = await requireSupabase()
     .from("referenze")
-    .insert({ ...payload, cliente_id, origine: payload.origine || "manuale" })
+    .insert({ ...referenza, cliente_id, origine: payload.origine || "manuale" })
     .select()
     .single();
   if (error) fail(error.message);
@@ -291,7 +308,7 @@ async function createReferenza(payload) {
 async function updateReferenza(id, payload) {
   const { data, error } = await requireSupabase()
     .from("referenze")
-    .update(payload)
+    .update(normalizeReferenzaPayload(payload))
     .eq("id", id)
     .select()
     .single();
@@ -335,23 +352,25 @@ async function importReferenze(formData) {
   const lines = text.split(/\r?\n/).filter(Boolean);
   const headers = (lines.shift() || "").split(/[;,]/).map((h) => h.trim().toLowerCase());
   const eanIdx = headers.findIndex((h) => ["ean", "barcode", "gtin", "upc"].includes(h));
-  if (eanIdx < 0) fail("Colonna EAN non trovata");
   const skuIdx = headers.findIndex((h) => h === "sku");
   const asinIdx = headers.findIndex((h) => h === "asin");
   const titleIdx = headers.findIndex((h) => ["titolo", "title", "productname"].includes(h));
+  if (eanIdx < 0 && titleIdx < 0) fail("Serve almeno una colonna Titolo o EAN.");
 
   const cid = await resolveClienteId(clienteId || undefined);
   const rows = lines.map((line) => {
     const cols = line.split(/[;,]/).map((c) => c.trim());
+    const ean = eanIdx >= 0 ? cols[eanIdx] : "";
+    const titolo = titleIdx >= 0 ? cols[titleIdx] : "";
     return {
       cliente_id: cid,
-      ean: cols[eanIdx],
-      sku: skuIdx >= 0 ? cols[skuIdx] || null : null,
-      asin: asinIdx >= 0 ? cols[asinIdx] || null : null,
-      titolo: titleIdx >= 0 ? cols[titleIdx] || cols[eanIdx] : cols[eanIdx],
+      ean: optionalText(ean),
+      sku: skuIdx >= 0 ? optionalText(cols[skuIdx]) : null,
+      asin: asinIdx >= 0 ? optionalText(cols[asinIdx]) : null,
+      titolo: titolo || ean,
       origine: "import",
     };
-  }).filter((r) => r.ean);
+  }).filter((r) => r.titolo);
   if (rows.length) {
     const { error } = await supabase.from("referenze").insert(rows);
     if (error) fail(error.message);
@@ -849,6 +868,7 @@ async function magazzino(params) {
   const bundleMap = {};
   const bundleRefs = [];
   for (const ref of refs || []) {
+    if (!ref.ean) continue;
     titoloMap[ref.ean] ??= ref.titolo;
     fnskuMap[ref.ean] ??= ref.fnsku;
     if (ref.sku) {
@@ -968,6 +988,7 @@ async function preparato(params) {
   const refByEan = {};
   const skusByEan = {};
   for (const ref of refs || []) {
+    if (!ref.ean) continue;
     refByEan[ref.ean] ??= ref;
     if (ref.sku) {
       skusByEan[ref.ean] ||= [];

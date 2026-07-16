@@ -17,18 +17,29 @@ import { Loader2, Plus, Upload, ImageOff, Save, Image, Trash2, Package, Layers }
 
 export default function ClientReferenze() {
   const [referenze, setReferenze] = useState(null);
+  const [eanEdit, setEanEdit] = useState({});
   const [fnskuEdit, setFnskuEdit] = useState({});
 
   const load = () =>
     api.get("/referenze").then((r) => {
       setReferenze(r.data);
-      const fe = {}; r.data.forEach((x) => (fe[x.id] = x.fnsku || "")); setFnskuEdit(fe);
+      const ee = {};
+      const fe = {};
+      r.data.forEach((x) => {
+        ee[x.id] = x.ean || "";
+        fe[x.id] = x.fnsku || "";
+      });
+      setEanEdit(ee);
+      setFnskuEdit(fe);
     });
   useEffect(() => { load(); }, []);
 
-  const salvaFnsku = async (id) => {
-    await api.put(`/referenze/${id}`, { fnsku: fnskuEdit[id] || null });
-    toast.success("FNSKU salvato");
+  const salvaReferenza = async (id) => {
+    await api.put(`/referenze/${id}`, {
+      ean: optionalText(eanEdit[id]),
+      fnsku: optionalText(fnskuEdit[id]),
+    });
+    toast.success("Referenza salvata");
     load();
   };
 
@@ -91,7 +102,15 @@ export default function ClientReferenze() {
                       </div>
                     )}
                   </TableCell>
-                  <TableCell className="font-mono text-xs">{r.ean}</TableCell>
+                  <TableCell>
+                    <Input
+                      data-testid={`cref-ean-${r.id}`}
+                      value={eanEdit[r.id] ?? ""}
+                      onChange={(e) => setEanEdit({ ...eanEdit, [r.id]: e.target.value })}
+                      placeholder="da aggiungere"
+                      className="h-8 w-40 font-mono text-xs"
+                    />
+                  </TableCell>
                   <TableCell className="font-mono text-xs">{r.sku || "—"}</TableCell>
                   <TableCell>
                     <Input
@@ -103,7 +122,7 @@ export default function ClientReferenze() {
                     />
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button size="sm" variant="ghost" data-testid={`cref-save-${r.id}`} onClick={() => salvaFnsku(r.id)}><Save className="h-4 w-4" /></Button>
+                    <Button size="sm" variant="ghost" data-testid={`cref-save-${r.id}`} onClick={() => salvaReferenza(r.id)}><Save className="h-4 w-4" /></Button>
                   </TableCell>
                 </TableRow>
               ))}
@@ -113,6 +132,11 @@ export default function ClientReferenze() {
       </Card>
     </div>
   );
+}
+
+function optionalText(value) {
+  const text = String(value || "").trim();
+  return text || null;
 }
 
 function FotoCell({ ref_id, url, onUpload }) {
@@ -143,7 +167,7 @@ function AddDialog({ onDone, referenze }) {
   const [componenti, setComponenti] = useState([{ ean: "", quantita: "1" }]);
 
   // Prodotti selezionabili come componenti (esclusi altri bundle)
-  const prodotti = (referenze || []).filter((r) => !r.is_bundle);
+  const prodotti = (referenze || []).filter((r) => !r.is_bundle && r.ean);
 
   const reset = () => {
     setForm({ ean: "", titolo: "", sku: "", asin: "", fnsku: "" });
@@ -155,7 +179,7 @@ function AddDialog({ onDone, referenze }) {
   const delComp = (i) => setComponenti(componenti.filter((_, idx) => idx !== i));
 
   const salva = async () => {
-    if (!form.ean || !form.titolo) { toast.error("EAN e titolo sono obbligatori"); return; }
+    if (!form.titolo.trim()) { toast.error("Il titolo è obbligatorio"); return; }
     let comps = [];
     if (isBundle) {
       comps = componenti
@@ -166,7 +190,10 @@ function AddDialog({ onDone, referenze }) {
     setSaving(true);
     try {
       const { data } = await api.post("/referenze", {
-        ...form, is_bundle: isBundle, componenti: comps,
+        ...form,
+        ean: optionalText(form.ean),
+        is_bundle: isBundle,
+        componenti: comps,
       });
       if (file) {
         const fd = new FormData(); fd.append("file", file);
@@ -190,11 +217,11 @@ function AddDialog({ onDone, referenze }) {
             <Checkbox checked={isBundle} onCheckedChange={(v) => setIsBundle(!!v)} data-testid="add-is-bundle" />
             <div>
               <div className="text-sm font-medium flex items-center gap-1.5"><Package className="h-4 w-4" /> Questo è un bundle</div>
-              <div className="text-xs text-muted-foreground">Unisce più prodotti esistenti (es. X + Y) in un'unica referenza Amazon con EAN e FNSKU propri.</div>
+              <div className="text-xs text-muted-foreground">Unisce più prodotti esistenti (es. X + Y) in un'unica referenza Amazon con EAN e FNSKU propri, anche aggiungibili dopo.</div>
             </div>
           </label>
 
-          <div><Label>EAN (del bundle) *</Label><Input data-testid="add-ean" value={form.ean} onChange={(e) => setForm({ ...form, ean: e.target.value })} className="mt-1 font-mono" /></div>
+          <div><Label>EAN opzionale</Label><Input data-testid="add-ean" value={form.ean} onChange={(e) => setForm({ ...form, ean: e.target.value })} className="mt-1 font-mono" placeholder="puoi aggiungerlo dopo" /></div>
           <div><Label>Titolo *</Label><Input data-testid="add-titolo" value={form.titolo} onChange={(e) => setForm({ ...form, titolo: e.target.value })} className="mt-1" /></div>
           <div className="grid grid-cols-2 gap-2">
             <div><Label>SKU</Label><Input data-testid="add-sku" value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} className="mt-1 font-mono" /></div>

@@ -1,6 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { api, fileUrl } from "@/lib/api";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -8,18 +11,31 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, ImageOff, Layers } from "lucide-react";
+import { Loader2, ImageOff, Layers, Save } from "lucide-react";
 
 export default function AdminReferenze() {
   const [referenze, setReferenze] = useState(null);
   const [clienti, setClienti] = useState([]);
   const [filtro, setFiltro] = useState("all");
+  const [eanEdit, setEanEdit] = useState({});
 
   useEffect(() => { api.get("/clienti").then((r) => setClienti(r.data)); }, []);
-  useEffect(() => {
+  const load = useCallback(() => {
     const q = filtro !== "all" ? `?cliente_id=${filtro}` : "";
-    api.get(`/referenze${q}`).then((r) => setReferenze(r.data));
+    api.get(`/referenze${q}`).then((r) => {
+      setReferenze(r.data);
+      const ee = {};
+      r.data.forEach((x) => { ee[x.id] = x.ean || ""; });
+      setEanEdit(ee);
+    });
   }, [filtro]);
+  useEffect(() => { load(); }, [load]);
+
+  const salvaEan = async (id) => {
+    await api.put(`/referenze/${id}`, { ean: optionalText(eanEdit[id]) });
+    toast.success("EAN salvato");
+    load();
+  };
 
   return (
     <div className="space-y-6" data-testid="admin-referenze">
@@ -50,11 +66,12 @@ export default function AdminReferenze() {
                 <TableHead>ASIN</TableHead>
                 <TableHead>FNSKU</TableHead>
                 <TableHead>Origine</TableHead>
+                <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {referenze.length === 0 && (
-                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-10">Nessuna referenza.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-10">Nessuna referenza.</TableCell></TableRow>
               )}
               {referenze.map((r) => (
                 <TableRow key={r.id} data-testid={`ref-row-${r.id}`}>
@@ -78,11 +95,22 @@ export default function AdminReferenze() {
                       </div>
                     )}
                   </TableCell>
-                  <TableCell className="font-mono text-xs">{r.ean}</TableCell>
+                  <TableCell>
+                    <Input
+                      data-testid={`ref-ean-${r.id}`}
+                      value={eanEdit[r.id] ?? ""}
+                      onChange={(e) => setEanEdit({ ...eanEdit, [r.id]: e.target.value })}
+                      placeholder="da aggiungere"
+                      className="h-8 w-40 font-mono text-xs"
+                    />
+                  </TableCell>
                   <TableCell className="font-mono text-xs">{r.sku || "—"}</TableCell>
                   <TableCell className="font-mono text-xs">{r.asin || "—"}</TableCell>
                   <TableCell className="font-mono text-xs">{r.fnsku || <span className="text-amber-600">mancante</span>}</TableCell>
                   <TableCell><span className="text-xs capitalize">{r.origine}</span></TableCell>
+                  <TableCell className="text-right">
+                    <Button size="sm" variant="ghost" data-testid={`ref-ean-save-${r.id}`} onClick={() => salvaEan(r.id)}><Save className="h-4 w-4" /></Button>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -91,4 +119,9 @@ export default function AdminReferenze() {
       </Card>
     </div>
   );
+}
+
+function optionalText(value) {
+  const text = String(value || "").trim();
+  return text || null;
 }

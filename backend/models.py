@@ -72,7 +72,7 @@ class ComponenteBundle(BaseModel):
 
 class ReferenzaCreate(BaseModel):
     cliente_id: Optional[str] = None  # richiesto solo per admin
-    ean: str
+    ean: Optional[str] = None
     sku: Optional[str] = None
     asin: Optional[str] = None
     titolo: str
@@ -96,7 +96,7 @@ class ReferenzaUpdate(BaseModel):
 class Referenza(BaseModel):
     id: str = Field(default_factory=_uuid)
     cliente_id: str
-    ean: str
+    ean: Optional[str] = None
     sku: Optional[str] = None
     asin: Optional[str] = None
     titolo: str

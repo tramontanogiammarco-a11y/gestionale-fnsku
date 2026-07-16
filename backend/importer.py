@@ -66,26 +66,26 @@ def parse_referenze_file(content: bytes, filename: str) -> Tuple[List[dict], Lis
     df = df.fillna("")
     mapping = _map_columns(list(df.columns))
 
-    if "ean" not in mapping:
+    if "ean" not in mapping and "titolo" not in mapping:
         return [], [{"riga": 0,
-                     "errore": "Colonna EAN non trovata. Intestazioni attese: EAN, SKU, ASIN, Titolo."}]
+                     "errore": "Serve almeno una colonna Titolo o EAN. Intestazioni attese: EAN, SKU, ASIN, Titolo."}]
 
     righe_valide: List[dict] = []
     errori: List[dict] = []
 
     for idx, row in df.iterrows():
         numero_riga = int(idx) + 2  # +1 header, +1 base-1
-        ean = str(row[mapping["ean"]]).strip()
-        if not ean:
-            errori.append({"riga": numero_riga, "errore": "EAN mancante"})
-            continue
+        ean = str(row[mapping["ean"]]).strip() if "ean" in mapping else ""
 
         titolo = str(row[mapping["titolo"]]).strip() if "titolo" in mapping else ""
         if not titolo:
             titolo = ean  # fallback: usa l'EAN come titolo per non scartare la riga
+        if not titolo:
+            errori.append({"riga": numero_riga, "errore": "Titolo mancante"})
+            continue
 
         righe_valide.append({
-            "ean": ean,
+            "ean": ean or None,
             "sku": str(row[mapping["sku"]]).strip() if "sku" in mapping else "",
             "asin": str(row[mapping["asin"]]).strip() if "asin" in mapping else "",
             "titolo": titolo,

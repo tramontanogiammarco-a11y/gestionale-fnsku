@@ -56,6 +56,20 @@ def _clean(doc: dict) -> dict:
     return doc
 
 
+def _optional_text(value):
+    text = str(value or "").strip()
+    return text or None
+
+
+def _normalize_referenza_updates(updates: dict) -> dict:
+    for key in ("ean", "sku", "asin", "fnsku", "foto_url"):
+        if key in updates:
+            updates[key] = _optional_text(updates[key])
+    if "titolo" in updates:
+        updates["titolo"] = str(updates["titolo"] or "").strip()
+    return updates
+
+
 # ============================================================================
 # FILE STORAGE (foto prodotti, PDF etichette) — salvati in MongoDB
 # ============================================================================
@@ -149,11 +163,12 @@ async def lista_referenze(cliente_id: Optional[str] = Query(None),
 @router.post("/referenze")
 async def crea_referenza(payload: M.ReferenzaCreate, user: dict = Depends(get_current_user)):
     cid = _resolve_cliente_id(user, payload.cliente_id)
+    values = _normalize_referenza_updates(payload.model_dump())
     ref = M.Referenza(
-        cliente_id=cid, ean=payload.ean, sku=payload.sku, asin=payload.asin,
-        titolo=payload.titolo, fnsku=payload.fnsku, foto_url=payload.foto_url,
-        is_bundle=payload.is_bundle,
-        componenti=payload.componenti if payload.is_bundle else [],
+        cliente_id=cid, ean=values.get("ean"), sku=values.get("sku"), asin=values.get("asin"),
+        titolo=values.get("titolo"), fnsku=values.get("fnsku"), foto_url=values.get("foto_url"),
+        is_bundle=values.get("is_bundle", False),
+        componenti=values.get("componenti") if values.get("is_bundle") else [],
         origine="manuale",
     )
     await db.referenze.insert_one(ref.model_dump())
@@ -167,7 +182,7 @@ async def aggiorna_referenza(ref_id: str, payload: M.ReferenzaUpdate,
     if not d:
         raise HTTPException(status_code=404, detail="Referenza non trovata")
     await _assert_owns_cliente(user, d["cliente_id"])
-    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    updates = _normalize_referenza_updates(payload.model_dump(exclude_unset=True))
     if updates:
         await db.referenze.update_one({"id": ref_id}, {"$set": updates})
     d = await db.referenze.find_one({"id": ref_id})
@@ -568,6 +583,8 @@ async def _magazzino_per_cliente(cid: str):
     refs = await db.referenze.find({"cliente_id": cid}).to_list(5000)
     titolo_map, sku_map, bundle_map, bundle_refs = {}, {}, {}, []
     for rf in refs:
+        if not rf.get("ean"):
+            continue
         titolo_map.setdefault(rf["ean"], rf.get("titolo"))
         if rf.get("sku"):
             sku_map.setdefault(rf["ean"], set()).add(rf["sku"])
@@ -685,6 +702,8 @@ async def _preparato_per_cliente(cid: str):
     refs = await db.referenze.find({"cliente_id": cid}).to_list(5000)
     titolo_map, bundle_map = {}, {}
     for rf in refs:
+        if not rf.get("ean"):
+            continue
         titolo_map.setdefault(rf["ean"], rf.get("titolo"))
         if rf.get("is_bundle") and rf.get("componenti"):
             bundle_map[rf["ean"]] = rf["componenti"]
@@ -724,6 +743,8 @@ async def _prep_con_righe(prep: dict) -> dict:
     refs = await db.referenze.find({"cliente_id": prep["cliente_id"]}).to_list(5000)
     by_ean_sku, by_ean = {}, {}
     for rf in refs:
+        if not rf.get("ean"):
+            continue
         by_ean.setdefault(rf["ean"], rf)
         if rf.get("sku"):
             by_ean_sku[(rf["ean"], rf["sku"])] = rf

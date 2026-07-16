@@ -46,7 +46,7 @@ alter table public.profiles
 create table public.referenze (
   id uuid primary key default gen_random_uuid(),
   cliente_id uuid not null references public.clienti(id) on delete cascade,
-  ean text not null,
+  ean text,
   sku text,
   asin text,
   titolo text not null,
