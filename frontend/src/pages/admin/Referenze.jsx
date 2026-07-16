@@ -18,6 +18,8 @@ export default function AdminReferenze() {
   const [clienti, setClienti] = useState([]);
   const [filtro, setFiltro] = useState("all");
   const [eanEdit, setEanEdit] = useState({});
+  const [asinEdit, setAsinEdit] = useState({});
+  const [fnskuEdit, setFnskuEdit] = useState({});
 
   useEffect(() => { api.get("/clienti").then((r) => setClienti(r.data)); }, []);
   const load = useCallback(() => {
@@ -25,15 +27,27 @@ export default function AdminReferenze() {
     api.get(`/referenze${q}`).then((r) => {
       setReferenze(r.data);
       const ee = {};
-      r.data.forEach((x) => { ee[x.id] = x.ean || ""; });
+      const ae = {};
+      const fe = {};
+      r.data.forEach((x) => {
+        ee[x.id] = x.ean || "";
+        ae[x.id] = x.asin || "";
+        fe[x.id] = x.fnsku || "";
+      });
       setEanEdit(ee);
+      setAsinEdit(ae);
+      setFnskuEdit(fe);
     });
   }, [filtro]);
   useEffect(() => { load(); }, [load]);
 
-  const salvaEan = async (id) => {
-    await api.put(`/referenze/${id}`, { ean: optionalText(eanEdit[id]) });
-    toast.success("EAN salvato");
+  const salvaReferenza = async (id) => {
+    await api.put(`/referenze/${id}`, {
+      ean: optionalText(eanEdit[id]),
+      asin: optionalText(asinEdit[id]),
+      fnsku: optionalText(fnskuEdit[id]),
+    });
+    toast.success("Referenza salvata");
     load();
   };
 
@@ -105,11 +119,27 @@ export default function AdminReferenze() {
                     />
                   </TableCell>
                   <TableCell className="font-mono text-xs">{r.sku || "—"}</TableCell>
-                  <TableCell className="font-mono text-xs">{r.asin || "—"}</TableCell>
-                  <TableCell className="font-mono text-xs">{r.fnsku || <span className="text-amber-600">mancante</span>}</TableCell>
+                  <TableCell>
+                    <Input
+                      data-testid={`ref-asin-${r.id}`}
+                      value={asinEdit[r.id] ?? ""}
+                      onChange={(e) => setAsinEdit({ ...asinEdit, [r.id]: e.target.value })}
+                      placeholder="da aggiungere"
+                      className="h-8 w-36 font-mono text-xs"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Input
+                      data-testid={`ref-fnsku-${r.id}`}
+                      value={fnskuEdit[r.id] ?? ""}
+                      onChange={(e) => setFnskuEdit({ ...fnskuEdit, [r.id]: e.target.value })}
+                      placeholder="da aggiungere"
+                      className="h-8 w-40 font-mono text-xs"
+                    />
+                  </TableCell>
                   <TableCell><span className="text-xs capitalize">{r.origine}</span></TableCell>
                   <TableCell className="text-right">
-                    <Button size="sm" variant="ghost" data-testid={`ref-ean-save-${r.id}`} onClick={() => salvaEan(r.id)}><Save className="h-4 w-4" /></Button>
+                    <Button size="sm" variant="ghost" data-testid={`ref-save-${r.id}`} onClick={() => salvaReferenza(r.id)}><Save className="h-4 w-4" /></Button>
                   </TableCell>
                 </TableRow>
               ))}

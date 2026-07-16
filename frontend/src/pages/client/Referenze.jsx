@@ -18,18 +18,22 @@ import { Loader2, Plus, Upload, ImageOff, Save, Image, Trash2, Package, Layers }
 export default function ClientReferenze() {
   const [referenze, setReferenze] = useState(null);
   const [eanEdit, setEanEdit] = useState({});
+  const [asinEdit, setAsinEdit] = useState({});
   const [fnskuEdit, setFnskuEdit] = useState({});
 
   const load = () =>
     api.get("/referenze").then((r) => {
       setReferenze(r.data);
       const ee = {};
+      const ae = {};
       const fe = {};
       r.data.forEach((x) => {
         ee[x.id] = x.ean || "";
+        ae[x.id] = x.asin || "";
         fe[x.id] = x.fnsku || "";
       });
       setEanEdit(ee);
+      setAsinEdit(ae);
       setFnskuEdit(fe);
     });
   useEffect(() => { load(); }, []);
@@ -37,6 +41,7 @@ export default function ClientReferenze() {
   const salvaReferenza = async (id) => {
     await api.put(`/referenze/${id}`, {
       ean: optionalText(eanEdit[id]),
+      asin: optionalText(asinEdit[id]),
       fnsku: optionalText(fnskuEdit[id]),
     });
     toast.success("Referenza salvata");
@@ -74,13 +79,14 @@ export default function ClientReferenze() {
                 <TableHead>Titolo</TableHead>
                 <TableHead>EAN</TableHead>
                 <TableHead>SKU</TableHead>
+                <TableHead>ASIN</TableHead>
                 <TableHead>FNSKU</TableHead>
                 <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {referenze.length === 0 && (
-                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-10">Nessuna referenza. Aggiungine una o importa un file.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-10">Nessuna referenza. Aggiungine una o importa un file.</TableCell></TableRow>
               )}
               {referenze.map((r) => (
                 <TableRow key={r.id} data-testid={`cref-row-${r.id}`}>
@@ -112,6 +118,15 @@ export default function ClientReferenze() {
                     />
                   </TableCell>
                   <TableCell className="font-mono text-xs">{r.sku || "—"}</TableCell>
+                  <TableCell>
+                    <Input
+                      data-testid={`cref-asin-${r.id}`}
+                      value={asinEdit[r.id] ?? ""}
+                      onChange={(e) => setAsinEdit({ ...asinEdit, [r.id]: e.target.value })}
+                      placeholder="da aggiungere"
+                      className="h-8 w-36 font-mono text-xs"
+                    />
+                  </TableCell>
                   <TableCell>
                     <Input
                       data-testid={`cref-fnsku-${r.id}`}
