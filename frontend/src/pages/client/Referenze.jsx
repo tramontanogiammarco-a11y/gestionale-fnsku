@@ -175,7 +175,7 @@ function FotoCell({ ref_id, url, onUpload }) {
 
 function AddDialog({ onDone, referenze }) {
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ ean: "", titolo: "", sku: "", asin: "", fnsku: "" });
+  const [form, setForm] = useState({ ean: "", titolo: "", fnsku: "" });
   const [file, setFile] = useState(null);
   const [saving, setSaving] = useState(false);
   const [isBundle, setIsBundle] = useState(false);
@@ -185,7 +185,7 @@ function AddDialog({ onDone, referenze }) {
   const prodotti = (referenze || []).filter((r) => !r.is_bundle && r.ean);
 
   const reset = () => {
-    setForm({ ean: "", titolo: "", sku: "", asin: "", fnsku: "" });
+    setForm({ ean: "", titolo: "", fnsku: "" });
     setFile(null); setIsBundle(false); setComponenti([{ ean: "", quantita: "1" }]);
   };
 
@@ -205,8 +205,9 @@ function AddDialog({ onDone, referenze }) {
     setSaving(true);
     try {
       const { data } = await api.post("/referenze", {
-        ...form,
+        titolo: form.titolo,
         ean: optionalText(form.ean),
+        fnsku: optionalText(form.fnsku),
         is_bundle: isBundle,
         componenti: comps,
       });
@@ -238,10 +239,6 @@ function AddDialog({ onDone, referenze }) {
 
           <div><Label>EAN opzionale</Label><Input data-testid="add-ean" value={form.ean} onChange={(e) => setForm({ ...form, ean: e.target.value })} className="mt-1 font-mono" placeholder="puoi aggiungerlo dopo" /></div>
           <div><Label>Titolo *</Label><Input data-testid="add-titolo" value={form.titolo} onChange={(e) => setForm({ ...form, titolo: e.target.value })} className="mt-1" /></div>
-          <div className="grid grid-cols-2 gap-2">
-            <div><Label>SKU</Label><Input data-testid="add-sku" value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} className="mt-1 font-mono" /></div>
-            <div><Label>ASIN</Label><Input data-testid="add-asin" value={form.asin} onChange={(e) => setForm({ ...form, asin: e.target.value })} className="mt-1 font-mono" /></div>
-          </div>
           <div><Label>FNSKU</Label><Input data-testid="add-fnsku" value={form.fnsku} onChange={(e) => setForm({ ...form, fnsku: e.target.value })} className="mt-1 font-mono" placeholder="opzionale, aggiungibile dopo" /></div>
 
           {isBundle && (
