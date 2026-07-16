@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Card } from "@/components/ui/card";
@@ -7,15 +8,29 @@ import { Button } from "@/components/ui/button";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Loader2, ChevronRight } from "lucide-react";
+import { Loader2, ChevronRight, Trash2 } from "lucide-react";
 
 export default function AdminPreparazioni() {
   const [preps, setPreps] = useState(null);
   const [view, setView] = useState("attive");
   const navigate = useNavigate();
 
-  useEffect(() => { api.get("/preparazioni").then((r) => setPreps(r.data)); }, []);
+  const load = useCallback(() => api.get("/preparazioni").then((r) => setPreps(r.data)), []);
+  useEffect(() => { load(); }, [load]);
   const visiblePreps = (preps || []).filter((p) => view === "archivio" ? p.stato === "spedito" : p.stato !== "spedito");
+
+  const eliminaPreparazione = async (event, prep) => {
+    event.stopPropagation();
+    const nome = prep.cliente_ragione_sociale || "questo cliente";
+    if (!window.confirm(`Cancellare questa preparazione di ${nome}? Verranno eliminate anche le righe collegate.`)) return;
+    try {
+      await api.delete(`/preparazioni/${prep.id}`);
+      toast.success("Preparazione cancellata");
+      load();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Impossibile cancellare la preparazione");
+    }
+  };
 
   return (
     <div className="space-y-6" data-testid="admin-preparazioni">
@@ -59,7 +74,20 @@ export default function AdminPreparazioni() {
                   <TableCell>{p.righe?.reduce((a, r) => a + r.quantita, 0) || 0}</TableCell>
                   <TableCell>{new Date(p.created_at).toLocaleDateString("it-IT")}</TableCell>
                   <TableCell><StatusBadge stato={p.stato} tipo="prep" /></TableCell>
-                  <TableCell className="text-right"><ChevronRight className="h-4 w-4 text-muted-foreground" /></TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 text-destructive hover:text-destructive"
+                        data-testid={`delete-prep-admin-${p.id}`}
+                        onClick={(event) => eliminaPreparazione(event, p)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

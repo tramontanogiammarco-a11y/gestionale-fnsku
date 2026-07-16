@@ -453,6 +453,14 @@ async function updateEntrata(id, payload) {
   return getEntrata(data.id);
 }
 
+async function deleteEntrata(id) {
+  const { data: deleted, error } = await requireSupabase()
+    .rpc("admin_delete_entrata", { entrata_id: id });
+  if (error) fail(error.message);
+  if (!deleted) fail("Entrata non trovata", 404);
+  return ok({ ok: true });
+}
+
 async function riceviEntrata(id) {
   const { data, error } = await requireSupabase()
     .from("entrate")
@@ -809,6 +817,15 @@ async function updatePreparazioneStato(id, stato) {
 }
 
 async function deletePreparazione(id) {
+  const profile = await currentProfile();
+  if (isStaff(profile)) {
+    const { data: deleted, error } = await requireSupabase()
+      .rpc("admin_delete_preparazione", { prep_id: id });
+    if (error) fail(error.message);
+    if (!deleted) fail("Preparazione non trovata", 404);
+    return ok({ ok: true });
+  }
+
   const { data: deletedViaRpc, error: rpcError } = await requireSupabase()
     .rpc("delete_requested_preparazione", { prep_id: id });
 
@@ -1414,6 +1431,7 @@ export const api = {
 
   async delete(url) {
     const { path } = pathAndQuery(url);
+    if (path.match(/^\/entrate\/[^/]+$/)) return deleteEntrata(path.split("/")[2]);
     if (path.match(/^\/preparazioni\/[^/]+$/)) return deletePreparazione(path.split("/")[2]);
     if (path.match(/^\/referenze\/[^/]+$/)) {
       const { error } = await requireSupabase().from("referenze").delete().eq("id", path.split("/")[2]);

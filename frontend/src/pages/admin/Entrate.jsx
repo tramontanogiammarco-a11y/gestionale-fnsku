@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { STATI_ENTRATA } from "@/lib/statuses";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -8,7 +9,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Loader2, ChevronRight } from "lucide-react";
+import { Loader2, ChevronRight, Trash2 } from "lucide-react";
 
 export default function AdminEntrate() {
   const [entrate, setEntrate] = useState(null);
@@ -17,12 +18,25 @@ export default function AdminEntrate() {
   const stato = params.get("stato") || "";
   const navigate = useNavigate();
 
-  const load = () => {
+  const load = useCallback(() => {
     const q = stato ? `?stato=${stato}` : "";
     api.get(`/entrate${q}`).then((r) => setEntrate(r.data));
-  };
-  useEffect(load, [stato]);
+  }, [stato]);
+  useEffect(() => { load(); }, [load]);
   const visibleEntrate = (entrate || []).filter((e) => view === "archivio" ? e.stato !== "in_attesa" : e.stato === "in_attesa");
+
+  const eliminaEntrata = async (event, entrata) => {
+    event.stopPropagation();
+    const nome = entrata.cliente_ragione_sociale || "questo cliente";
+    if (!window.confirm(`Cancellare questa entrata di ${nome}? Verranno eliminate anche le righe collegate.`)) return;
+    try {
+      await api.delete(`/entrate/${entrata.id}`);
+      toast.success("Entrata cancellata");
+      load();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Impossibile cancellare l'entrata");
+    }
+  };
 
   return (
     <div className="space-y-6" data-testid="admin-entrate">
@@ -103,7 +117,20 @@ export default function AdminEntrate() {
                   <TableCell>{e.righe?.length || 0}</TableCell>
                   <TableCell>{new Date(e.data_annuncio).toLocaleDateString("it-IT")}</TableCell>
                   <TableCell><StatusBadge stato={e.stato} /></TableCell>
-                  <TableCell className="text-right"><ChevronRight className="h-4 w-4 text-muted-foreground" /></TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 text-destructive hover:text-destructive"
+                        data-testid={`delete-entrata-${e.id}`}
+                        onClick={(event) => eliminaEntrata(event, e)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
