@@ -816,6 +816,23 @@ async function updatePreparazioneStato(id, stato) {
   return getPreparazione(data.id);
 }
 
+async function updatePreparazioneRiga(id, payload) {
+  const updates = {};
+  if (Object.prototype.hasOwnProperty.call(payload, "fnsku")) {
+    updates.fnsku = optionalText(payload.fnsku);
+  }
+  if (!Object.keys(updates).length) fail("Nessun campo da aggiornare");
+
+  const { data, error } = await requireSupabase()
+    .from("preparazioni_righe")
+    .update(updates)
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) fail(error.message);
+  return ok(data);
+}
+
 async function deletePreparazione(id) {
   const profile = await currentProfile();
   if (isStaff(profile)) {
@@ -1425,6 +1442,7 @@ export const api = {
     if (path.match(/^\/box\/[^/]+\/stato$/)) return updateBoxStato(path.split("/")[2], payload.stato);
     if (path.match(/^\/box\/[^/]+$/)) return updateBox(path.split("/")[2], payload);
     if (path.match(/^\/preparazioni\/[^/]+\/stato$/)) return updatePreparazioneStato(path.split("/")[2], payload.stato);
+    if (path.match(/^\/preparazioni-righe\/[^/]+$/)) return updatePreparazioneRiga(path.split("/")[2], payload);
     if (path.match(/^\/wms\/spedizioni\/[^/]+$/)) return updateWmsShipment(path.split("/")[3], payload);
     fail(`Endpoint non migrato: ${path}`, 404);
   },
