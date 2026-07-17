@@ -806,9 +806,19 @@ async function createPreparazione(payload) {
 }
 
 async function updatePreparazioneStato(id, stato) {
+  const { data: current, error: readError } = await requireSupabase()
+    .from("preparazioni")
+    .select("data_pronto")
+    .eq("id", id)
+    .single();
+  if (readError) fail(readError.message);
+
+  const updates = { stato };
+  if (stato === "pronto" && !current?.data_pronto) updates.data_pronto = nowIso();
+
   const { data, error } = await requireSupabase()
     .from("preparazioni")
-    .update({ stato, data_pronto: stato === "pronto" ? nowIso() : undefined })
+    .update(updates)
     .eq("id", id)
     .select()
     .single();
@@ -1139,7 +1149,7 @@ async function fatturazione(params) {
 
   const [{ data: entrate, error: entrateError }, { data: preps, error: prepsError }, { data: boxes, error: boxesError }] = await Promise.all([
     supabase.from("entrate").select("*").eq("cliente_id", clienteId).gte("data_annuncio", start).lt("data_annuncio", end),
-    supabase.from("preparazioni").select("*").eq("cliente_id", clienteId).gte("created_at", start).lt("created_at", end),
+    supabase.from("preparazioni").select("*").eq("cliente_id", clienteId).in("stato", ["pronto", "spedito"]).gte("data_pronto", start).lt("data_pronto", end),
     supabase.from("box").select("*").eq("cliente_id", clienteId).gte("created_at", start).lt("created_at", end),
   ]);
   const firstError = entrateError || prepsError || boxesError;
