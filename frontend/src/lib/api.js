@@ -305,15 +305,134 @@ async function createReferenza(payload) {
   return ok(data);
 }
 
+async function cascadeReferenzaEan(clienteId, oldEan, newEan) {
+  if (!clienteId || !oldEan || !newEan || oldEan === newEan) return;
+
+  const { data: entrate, error: entrateError } = await supabase
+    .from("entrate")
+    .select("id")
+    .eq("cliente_id", clienteId);
+  if (entrateError) fail(entrateError.message);
+  const entrataIds = (entrate || []).map((row) => row.id);
+  if (entrataIds.length) {
+    const { error } = await supabase
+      .from("entrate_righe")
+      .update({ ean: newEan })
+      .in("entrata_id", entrataIds)
+      .eq("ean", oldEan);
+    if (error) fail(error.message);
+  }
+
+  const { data: preparazioni, error: prepError } = await supabase
+    .from("preparazioni")
+    .select("id")
+    .eq("cliente_id", clienteId);
+  if (prepError) fail(prepError.message);
+  const prepIds = (preparazioni || []).map((row) => row.id);
+  if (prepIds.length) {
+    const { error } = await supabase
+      .from("preparazioni_righe")
+      .update({ ean: newEan })
+      .in("preparazione_id", prepIds)
+      .eq("ean", oldEan);
+    if (error) fail(error.message);
+  }
+
+  const { data: boxes, error: boxError } = await supabase
+    .from("box")
+    .select("id,contenuto")
+    .eq("cliente_id", clienteId);
+  if (boxError) fail(boxError.message);
+  for (const box of boxes || []) {
+    const contenuto = (box.contenuto || []).map((item) => (
+      item.ean === oldEan ? { ...item, ean: newEan } : item
+    ));
+    if (JSON.stringify(contenuto) !== JSON.stringify(box.contenuto || [])) {
+      const { error } = await supabase.from("box").update({ contenuto }).eq("id", box.id);
+      if (error) fail(error.message);
+    }
+  }
+}
+
 async function updateReferenza(id, payload) {
+  const { data: current, error: readError } = await requireSupabase()
+    .from("referenze")
+    .select("*")
+    .eq("id", id)
+    .single();
+  if (readError) fail(readError.message);
+
+  const updates = normalizeReferenzaPayload(payload);
   const { data, error } = await requireSupabase()
     .from("referenze")
-    .update(normalizeReferenzaPayload(payload))
+    .update(updates)
     .eq("id", id)
     .select()
     .single();
   if (error) fail(error.message);
+  if (updates.ean && current.ean && updates.ean !== current.ean) {
+    await cascadeReferenzaEan(current.cliente_id, current.ean, updates.ean);
+  }
   return ok(data);
+}
+
+async function ensureReferenzeForEntrata(clienteId, righe = []) {
+  const rows = righe
+    .map((r) => ({
+      ean: optionalText(r.ean),
+      titolo: optionalText(r.titolo),
+      sku: optionalText(r.sku),
+      fnsku: optionalText(r.fnsku),
+    }))
+    .filter((r) => r.ean);
+  const eans = [...new Set(rows.map((r) => r.ean))];
+  if (!eans.length) return;
+
+  const { data: existing, error: readError } = await supabase
+    .from("referenze")
+    .select("*")
+    .eq("cliente_id", clienteId)
+    .in("ean", eans);
+  if (readError) fail(readError.message);
+
+  const byEan = new Map((existing || []).filter((ref) => ref.ean).map((ref) => [ref.ean, ref]));
+  const toInsert = [];
+  const updates = [];
+
+  for (const row of rows) {
+    const found = byEan.get(row.ean);
+    if (!found) {
+      const created = {
+        cliente_id: clienteId,
+        ean: row.ean,
+        titolo: row.titolo || row.ean,
+        sku: row.sku,
+        fnsku: row.fnsku,
+        origine: "entrata",
+      };
+      toInsert.push(created);
+      byEan.set(row.ean, created);
+      continue;
+    }
+
+    const patch = {};
+    if (row.titolo && (!found.titolo || found.titolo === found.ean)) patch.titolo = row.titolo;
+    if (row.sku && !found.sku) patch.sku = row.sku;
+    if (row.fnsku && !found.fnsku) patch.fnsku = row.fnsku;
+    if (Object.keys(patch).length) {
+      if (found.id) updates.push({ id: found.id, patch });
+      Object.assign(found, patch);
+    }
+  }
+
+  if (toInsert.length) {
+    const { error } = await supabase.from("referenze").insert(toInsert);
+    if (error) fail(error.message);
+  }
+  for (const { id, patch } of updates) {
+    const { error } = await supabase.from("referenze").update(patch).eq("id", id);
+    if (error) fail(error.message);
+  }
 }
 
 async function uploadReferenzaFoto(id, formData) {
@@ -416,6 +535,7 @@ async function getEntrata(id) {
 async function createEntrata(payload) {
   const cliente_id = await resolveClienteId(payload.cliente_id);
   const { righe = [], ...entrataPayload } = payload;
+  await ensureReferenzeForEntrata(cliente_id, righe);
   const { data: entrata, error } = await requireSupabase()
     .from("entrate")
     .insert({ ...entrataPayload, cliente_id })

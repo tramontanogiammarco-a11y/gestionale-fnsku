@@ -113,6 +113,8 @@ class Referenza(BaseModel):
 # ---------------------------------------------------------------------------
 class RigaEntrataInput(BaseModel):
     ean: str
+    sku: Optional[str] = None
+    titolo: Optional[str] = None
     quantita: int
     fnsku: Optional[str] = None
 

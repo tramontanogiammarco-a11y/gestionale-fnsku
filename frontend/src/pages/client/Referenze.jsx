@@ -17,30 +17,44 @@ import { Loader2, Plus, Upload, ImageOff, Save, Image, Trash2, Package, Layers }
 
 export default function ClientReferenze() {
   const [referenze, setReferenze] = useState(null);
+  const [titoloEdit, setTitoloEdit] = useState({});
   const [eanEdit, setEanEdit] = useState({});
+  const [skuEdit, setSkuEdit] = useState({});
   const [asinEdit, setAsinEdit] = useState({});
   const [fnskuEdit, setFnskuEdit] = useState({});
 
   const load = () =>
     api.get("/referenze").then((r) => {
       setReferenze(r.data);
+      const te = {};
       const ee = {};
+      const se = {};
       const ae = {};
       const fe = {};
       r.data.forEach((x) => {
+        te[x.id] = x.titolo || "";
         ee[x.id] = x.ean || "";
+        se[x.id] = x.sku || "";
         ae[x.id] = x.asin || "";
         fe[x.id] = x.fnsku || "";
       });
+      setTitoloEdit(te);
       setEanEdit(ee);
+      setSkuEdit(se);
       setAsinEdit(ae);
       setFnskuEdit(fe);
     });
   useEffect(() => { load(); }, []);
 
   const salvaReferenza = async (id) => {
+    if (!optionalText(titoloEdit[id])) {
+      toast.error("Il titolo è obbligatorio");
+      return;
+    }
     await api.put(`/referenze/${id}`, {
+      titolo: optionalText(titoloEdit[id]),
       ean: optionalText(eanEdit[id]),
+      sku: optionalText(skuEdit[id]),
       asin: optionalText(asinEdit[id]),
       fnsku: optionalText(fnskuEdit[id]),
     });
@@ -93,14 +107,20 @@ export default function ClientReferenze() {
                   <TableCell>
                     <FotoCell ref_id={r.id} url={r.foto_url} onUpload={uploadFoto} />
                   </TableCell>
-                  <TableCell className="font-medium max-w-xs truncate">
+                  <TableCell className="font-medium min-w-56">
                     <div className="flex items-center gap-2">
                       {r.is_bundle && (
                         <Badge variant="secondary" className="gap-1 shrink-0" data-testid={`cref-bundle-badge-${r.id}`}>
                           <Layers className="h-3 w-3" /> Bundle
                         </Badge>
                       )}
-                      <span className="truncate">{r.titolo}</span>
+                      <Input
+                        data-testid={`cref-titolo-${r.id}`}
+                        value={titoloEdit[r.id] ?? ""}
+                        onChange={(e) => setTitoloEdit({ ...titoloEdit, [r.id]: e.target.value })}
+                        placeholder="Titolo prodotto"
+                        className="h-8 min-w-52"
+                      />
                     </div>
                     {r.is_bundle && r.componenti?.length > 0 && (
                       <div className="text-[11px] text-muted-foreground font-normal mt-0.5">
@@ -117,7 +137,15 @@ export default function ClientReferenze() {
                       className="h-8 w-40 font-mono text-xs"
                     />
                   </TableCell>
-                  <TableCell className="font-mono text-xs">{r.sku || "—"}</TableCell>
+                  <TableCell>
+                    <Input
+                      data-testid={`cref-sku-${r.id}`}
+                      value={skuEdit[r.id] ?? ""}
+                      onChange={(e) => setSkuEdit({ ...skuEdit, [r.id]: e.target.value })}
+                      placeholder="SKU"
+                      className="h-8 w-36 font-mono text-xs"
+                    />
+                  </TableCell>
                   <TableCell>
                     <Input
                       data-testid={`cref-asin-${r.id}`}

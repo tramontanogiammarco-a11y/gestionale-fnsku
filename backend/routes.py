@@ -70,6 +70,80 @@ def _normalize_referenza_updates(updates: dict) -> dict:
     return updates
 
 
+async def _ensure_referenze_for_entrata(cid: str, righe):
+    rows = []
+    for r in righe:
+        ean = _optional_text(getattr(r, "ean", None))
+        if ean:
+            rows.append({
+                "ean": ean,
+                "titolo": _optional_text(getattr(r, "titolo", None)),
+                "sku": _optional_text(getattr(r, "sku", None)),
+                "fnsku": _optional_text(getattr(r, "fnsku", None)),
+            })
+    eans = sorted({r["ean"] for r in rows})
+    if not eans:
+        return
+
+    refs = await db.referenze.find({"cliente_id": cid, "ean": {"$in": eans}}).to_list(5000)
+    by_ean = {r.get("ean"): r for r in refs if r.get("ean")}
+    for row in rows:
+        found = by_ean.get(row["ean"])
+        if not found:
+            ref = M.Referenza(
+                cliente_id=cid,
+                ean=row["ean"],
+                sku=row["sku"],
+                titolo=row["titolo"] or row["ean"],
+                fnsku=row["fnsku"],
+                origine="entrata",
+            )
+            doc = ref.model_dump()
+            await db.referenze.insert_one(doc)
+            by_ean[row["ean"]] = doc
+            continue
+
+        patch = {}
+        if row["titolo"] and (not found.get("titolo") or found.get("titolo") == found.get("ean")):
+            patch["titolo"] = row["titolo"]
+        if row["sku"] and not found.get("sku"):
+            patch["sku"] = row["sku"]
+        if row["fnsku"] and not found.get("fnsku"):
+            patch["fnsku"] = row["fnsku"]
+        if patch:
+            await db.referenze.update_one({"id": found["id"]}, {"$set": patch})
+            found.update(patch)
+
+
+async def _cascade_referenza_ean(cid: str, old_ean: str, new_ean: str):
+    if not cid or not old_ean or not new_ean or old_ean == new_ean:
+        return
+
+    entrate = await db.entrate.find({"cliente_id": cid}, {"id": 1}).to_list(50000)
+    entrata_ids = [e["id"] for e in entrate]
+    if entrata_ids:
+        await db.entrate_righe.update_many(
+            {"entrata_id": {"$in": entrata_ids}, "ean": old_ean},
+            {"$set": {"ean": new_ean}},
+        )
+
+    preparazioni = await db.preparazioni.find({"cliente_id": cid}, {"id": 1}).to_list(50000)
+    prep_ids = [p["id"] for p in preparazioni]
+    if prep_ids:
+        await db.preparazioni_righe.update_many(
+            {"preparazione_id": {"$in": prep_ids}, "ean": old_ean},
+            {"$set": {"ean": new_ean}},
+        )
+
+    boxes = await db.box.find({"cliente_id": cid, "contenuto.ean": old_ean}).to_list(50000)
+    for box in boxes:
+        contenuto = [
+            {**item, "ean": new_ean} if item.get("ean") == old_ean else item
+            for item in box.get("contenuto", [])
+        ]
+        await db.box.update_one({"id": box["id"]}, {"$set": {"contenuto": contenuto}})
+
+
 # ============================================================================
 # FILE STORAGE (foto prodotti, PDF etichette) — salvati in MongoDB
 # ============================================================================
@@ -185,6 +259,8 @@ async def aggiorna_referenza(ref_id: str, payload: M.ReferenzaUpdate,
     updates = _normalize_referenza_updates(payload.model_dump(exclude_unset=True))
     if updates:
         await db.referenze.update_one({"id": ref_id}, {"$set": updates})
+        if updates.get("ean") and d.get("ean") and updates["ean"] != d["ean"]:
+            await _cascade_referenza_ean(d["cliente_id"], d["ean"], updates["ean"])
     d = await db.referenze.find_one({"id": ref_id})
     return _clean(d)
 
@@ -275,6 +351,7 @@ async def lista_entrate(cliente_id: Optional[str] = Query(None),
 @router.post("/entrate")
 async def crea_entrata(payload: M.EntrataCreate, user: dict = Depends(get_current_user)):
     cid = _resolve_cliente_id(user, payload.cliente_id)
+    await _ensure_referenze_for_entrata(cid, payload.righe)
     entrata = M.Entrata(cliente_id=cid, tipo=payload.tipo, colli=payload.colli,
                         ddt=payload.ddt, tracking=payload.tracking, note=payload.note)
     await db.entrate.insert_one(entrata.model_dump())

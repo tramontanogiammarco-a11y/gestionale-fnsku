@@ -103,7 +103,7 @@ function NuovaEntrataDialog({ onDone }) {
   const [ddt, setDdt] = useState("");
   const [tracking, setTracking] = useState("");
   const [note, setNote] = useState("");
-  const [righe, setRighe] = useState([{ ean: "", quantita: "", fnsku: "" }]);
+  const [righe, setRighe] = useState([{ ean: "", titolo: "", sku: "", quantita: "", fnsku: "" }]);
   const [referenze, setReferenze] = useState([]);
   const [saving, setSaving] = useState(false);
 
@@ -114,23 +114,31 @@ function NuovaEntrataDialog({ onDone }) {
     // autocompleta FNSKU se l'EAN corrisponde a una referenza
     if (k === "ean") {
       const ref = referenze.find((x) => x.ean === v);
+      if (ref?.titolo) next[i].titolo = ref.titolo;
+      if (ref?.sku) next[i].sku = ref.sku;
       if (ref?.fnsku) next[i].fnsku = ref.fnsku;
     }
     setRighe(next);
   };
-  const addRow = () => setRighe([...righe, { ean: "", quantita: "", fnsku: "" }]);
+  const addRow = () => setRighe([...righe, { ean: "", titolo: "", sku: "", quantita: "", fnsku: "" }]);
   const delRow = (i) => setRighe(righe.filter((_, idx) => idx !== i));
 
   const salva = async () => {
     const valide = righe
       .filter((r) => r.ean && Number(r.quantita) > 0)
-      .map((r) => ({ ean: r.ean, quantita: Number(r.quantita), fnsku: r.fnsku || null }));
+      .map((r) => ({
+        ean: r.ean,
+        titolo: r.titolo || null,
+        sku: r.sku || null,
+        quantita: Number(r.quantita),
+        fnsku: r.fnsku || null,
+      }));
     if (valide.length === 0) { toast.error("Aggiungi almeno una riga con EAN e quantità"); return; }
     setSaving(true);
     try {
       await api.post("/entrate", { tipo, colli: Number(colli) || 1, ddt: ddt || null, tracking: tracking || null, note, righe: valide });
       toast.success("Entrata annunciata");
-      setOpen(false); setTipo("pallet"); setColli(1); setDdt(""); setTracking(""); setNote(""); setRighe([{ ean: "", quantita: "", fnsku: "" }]);
+      setOpen(false); setTipo("pallet"); setColli(1); setDdt(""); setTracking(""); setNote(""); setRighe([{ ean: "", titolo: "", sku: "", quantita: "", fnsku: "" }]);
       onDone();
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail));
@@ -140,7 +148,7 @@ function NuovaEntrataDialog({ onDone }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild><Button data-testid="nuova-entrata-btn"><PackagePlus className="h-4 w-4 mr-2" /> Nuova entrata</Button></DialogTrigger>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-4xl">
         <DialogHeader><DialogTitle>Annuncia arrivo merce</DialogTitle></DialogHeader>
         <div className="space-y-4">
           <div className="grid grid-cols-4 gap-3">
@@ -170,16 +178,21 @@ function NuovaEntrataDialog({ onDone }) {
           <p className="text-xs text-muted-foreground -mt-2">Indica il DDT o il tracking per farmi riconoscere la spedizione in arrivo.</p>
 
           <div>
-            <Label className="text-xs">Contenuto (EAN · quantità · FNSKU)</Label>
+            <Label className="text-xs">Contenuto (EAN · titolo · SKU · quantità · FNSKU)</Label>
             <datalist id="ean-list">
               {referenze.map((r) => <option key={r.id} value={r.ean}>{r.titolo}</option>)}
             </datalist>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Se l'EAN non esiste ancora, viene creato automaticamente nelle tue referenze.
+            </p>
             <div className="mt-1 space-y-2">
               {righe.map((r, i) => (
                 <div key={i} className="grid grid-cols-12 gap-2 items-center" data-testid={`entrata-riga-${i}`}>
-                  <Input list="ean-list" className="col-span-5 font-mono text-xs" data-testid={`entrata-ean-${i}`} value={r.ean} onChange={(e) => update(i, "ean", e.target.value)} placeholder="EAN" />
-                  <Input type="number" min={1} className="col-span-2" data-testid={`entrata-qta-${i}`} value={r.quantita} onChange={(e) => update(i, "quantita", e.target.value)} placeholder="Q.tà" />
-                  <Input className="col-span-4 font-mono text-xs" data-testid={`entrata-fnsku-${i}`} value={r.fnsku} onChange={(e) => update(i, "fnsku", e.target.value)} placeholder="FNSKU (opz.)" />
+                  <Input list="ean-list" className="col-span-3 font-mono text-xs" data-testid={`entrata-ean-${i}`} value={r.ean} onChange={(e) => update(i, "ean", e.target.value)} placeholder="EAN" />
+                  <Input className="col-span-3 text-xs" data-testid={`entrata-titolo-${i}`} value={r.titolo} onChange={(e) => update(i, "titolo", e.target.value)} placeholder="Titolo prodotto" />
+                  <Input className="col-span-2 font-mono text-xs" data-testid={`entrata-sku-${i}`} value={r.sku} onChange={(e) => update(i, "sku", e.target.value)} placeholder="SKU" />
+                  <Input type="number" min={1} className="col-span-1" data-testid={`entrata-qta-${i}`} value={r.quantita} onChange={(e) => update(i, "quantita", e.target.value)} placeholder="Q.tà" />
+                  <Input className="col-span-2 font-mono text-xs" data-testid={`entrata-fnsku-${i}`} value={r.fnsku} onChange={(e) => update(i, "fnsku", e.target.value)} placeholder="FNSKU" />
                   <Button variant="ghost" size="icon" className="col-span-1" onClick={() => delRow(i)} disabled={righe.length === 1} data-testid={`entrata-del-${i}`}><Trash2 className="h-4 w-4" /></Button>
                 </div>
               ))}
