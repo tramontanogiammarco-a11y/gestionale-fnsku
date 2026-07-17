@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { api, fileUrl } from "@/lib/api";
 import { StatusBadge } from "@/components/StatusBadge";
+import { ClientBoxDetails } from "@/components/ClientBoxDetails";
 import { Button } from "@/components/ui/button";
 import { Loader2, Upload, CheckCircle2 } from "lucide-react";
 
@@ -30,22 +31,7 @@ export function ClientBoxUpload({ box, onDone }) {
         <div className="font-heading font-semibold font-mono">{box.numero_box}</div>
         <StatusBadge stato={box.stato} tipo="box" />
       </div>
-      <div className="text-xs text-muted-foreground mt-1">
-        {box.peso_kg ? `${box.peso_kg} kg · ` : ""}
-        {box.lunghezza_cm && box.larghezza_cm && box.altezza_cm
-          ? `${box.lunghezza_cm}×${box.larghezza_cm}×${box.altezza_cm} cm` : "dimensioni n/d"}
-      </div>
-      {box.contenuto?.length > 0 && (
-        <div className="mt-3 rounded bg-slate-50 p-2">
-          <div className="text-[11px] font-bold uppercase tracking-widest text-slate-500 mb-1">Contenuto</div>
-          {box.contenuto.map((c, i) => (
-            <div key={i} className="flex justify-between text-xs py-0.5">
-              <span className="font-mono">{c.ean}{c.fnsku ? ` · ${c.fnsku}` : ""}</span>
-              <span>×{c.quantita}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      <ClientBoxDetails box={box} testIdPrefix="cbu-dati-etichette" />
       <div className="mt-4">
         <input ref={labelsRef} type="file" accept="application/pdf" className="hidden"
                data-testid={`cbu-labels-input-${box.id}`}

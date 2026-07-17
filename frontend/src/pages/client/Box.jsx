@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api, fileUrl } from "@/lib/api";
 import { StatusBadge } from "@/components/StatusBadge";
+import { ClientBoxDetails } from "@/components/ClientBoxDetails";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loader2, Upload, FileText, CheckCircle2 } from "lucide-react";
@@ -82,26 +83,7 @@ function BoxItem({ box, titoli, onDone }) {
         {box.contenuto?.length || 0} referenze · {box.contenuto?.reduce((a, c) => a + (c.quantita || 0), 0) || 0} pezzi
       </div>
 
-      {box.contenuto?.length > 0 && (
-        <div className="mt-2 rounded-md border border-border bg-muted/40 p-2 text-xs" data-testid={`cbox-contenuto-${box.id}`}>
-          <div className="font-medium text-foreground mb-1">Contenuto del box</div>
-          <div className="space-y-1">
-            {box.contenuto.map((c, i) => (
-              <div key={i} className="flex items-start justify-between gap-2" data-testid={`cbox-item-${box.id}-${i}`}>
-                <div className="min-w-0">
-                  {titoli?.[c.ean] && <div className="truncate text-foreground">{titoli[c.ean]}</div>}
-                  <div className="font-mono text-[11px] text-muted-foreground">
-                    EAN {c.ean}
-                    {c.sku ? ` · SKU ${c.sku}` : ""}
-                    {c.fnsku ? ` · FNSKU ${c.fnsku}` : ""}
-                  </div>
-                </div>
-                <span className="shrink-0 font-semibold">×{c.quantita}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <ClientBoxDetails box={box} titoli={titoli} testIdPrefix="cbox-dati-etichette" />
 
       <div className="mt-4">
         <input ref={labelsRef} type="file" accept="application/pdf" className="hidden"
