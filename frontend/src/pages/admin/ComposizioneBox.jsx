@@ -116,8 +116,7 @@ export default function AdminComposizioneBox() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>EAN</TableHead>
-                  <TableHead>Prodotto</TableHead>
+                  <TableHead>Prodotto / EAN</TableHead>
                   <TableHead>SKU</TableHead>
                   <TableHead className="text-right">Richiesto</TableHead>
                   <TableHead className="text-right">In box</TableHead>
@@ -126,14 +125,16 @@ export default function AdminComposizioneBox() {
               </TableHeader>
               <TableBody>
                 {preparato.length === 0 && (
-                  <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-10">
+                  <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-10">
                     Nessuna merce in preparazione. Il cliente deve prima creare una richiesta di preparazione.
                   </TableCell></TableRow>
                 )}
                 {preparato.map((m) => (
                   <TableRow key={m.ean} data-testid={`comp-prep-${m.ean}`}>
-                    <TableCell className="font-mono text-xs">{m.ean}</TableCell>
-                    <TableCell className="max-w-xs truncate">{m.titolo || "—"}</TableCell>
+                    <TableCell>
+                      <div className="max-w-xs truncate text-sm font-medium">{m.titolo || "Titolo non disponibile"}</div>
+                      <div className="mt-0.5 font-mono text-xs text-muted-foreground">EAN {m.ean || "—"}</div>
+                    </TableCell>
                     <TableCell className="font-mono text-xs">{skusFor(m).join(", ") || "—"}</TableCell>
                     <TableCell className="text-right">{m.richiesto}</TableCell>
                     <TableCell className="text-right text-orange-600">{m.in_box}</TableCell>
@@ -399,11 +400,11 @@ function BoxFormDialog({ mode, clienteId, imballabili, box, onDone, trigger }) {
                 <div key={i} className="grid grid-cols-12 gap-2 items-center" data-testid={`comp-cont-row-${i}`}>
                   <div className="col-span-8">
                     <Select value={r.ean} onValueChange={(v) => update(i, "ean", v)}>
-                      <SelectTrigger className="h-9" data-testid={`comp-cont-ean-${i}`}><SelectValue placeholder="Scegli EAN / SKU" /></SelectTrigger>
+                      <SelectTrigger className="h-9" data-testid={`comp-cont-ean-${i}`}><SelectValue placeholder="Scegli prodotto / EAN / SKU" /></SelectTrigger>
                       <SelectContent>
                         {opzioni.map((m) => (
                           <SelectItem key={m.ean} value={m.ean}>
-                            {m.ean}{skusFor(m).length ? ` · ${skusFor(m).join("/")}` : ""} — {m.titolo || ""} (max {libero(m.ean)})
+                            {m.titolo || "Titolo non disponibile"} — EAN {m.ean}{skusFor(m).length ? ` · SKU ${skusFor(m).join("/")}` : ""} (max {libero(m.ean)})
                           </SelectItem>
                         ))}
                       </SelectContent>

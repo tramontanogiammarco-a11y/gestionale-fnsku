@@ -31,6 +31,7 @@ export default function ClientPreparazioneDetail() {
       setRighe((r.data.righe || []).map((rg) => ({
         id: rg.id,
         referenza_id: rg.referenza_id,
+        titolo: rg.titolo || "",
         ean: rg.ean || "",
         sku: rg.sku || "",
         fnsku: rg.fnsku || "",
@@ -202,7 +203,7 @@ export default function ClientPreparazioneDetail() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>EAN</TableHead>
+              <TableHead>Prodotto</TableHead>
               <TableHead>SKU</TableHead>
               <TableHead>FNSKU</TableHead>
               <TableHead>Q.tà</TableHead>
@@ -214,6 +215,7 @@ export default function ClientPreparazioneDetail() {
             {righe.map((row, index) => (
               <TableRow key={row.id || `new-${index}`} data-testid={`cprep-riga-${row.id || index}`}>
                 <TableCell>
+                  {row.titolo && <div className="mb-1 max-w-44 truncate text-xs font-semibold text-slate-900">{row.titolo}</div>}
                   <Input className="h-8 w-36 font-mono text-xs" value={row.ean} onChange={(e) => updateRiga(index, "ean", e.target.value)} data-testid={`cprep-ean-${row.id || index}`} />
                 </TableCell>
                 <TableCell>

@@ -262,7 +262,7 @@ export default function AdminPreparazioneDetail() {
           <TableHeader>
             <TableRow>
               <TableHead className="w-10"></TableHead>
-              <TableHead>EAN</TableHead>
+              <TableHead>Prodotto</TableHead>
               <TableHead>Servizi</TableHead>
               <TableHead>FNSKU</TableHead>
               <TableHead>Q.tà</TableHead>
@@ -280,7 +280,10 @@ export default function AdminPreparazioneDetail() {
                     onCheckedChange={(v) => setSelezione({ ...selezione, [rg.id]: v })}
                   />
                 </TableCell>
-                <TableCell className="font-mono text-xs">{rg.ean}</TableCell>
+                <TableCell>
+                  <div className="max-w-xs truncate text-sm font-medium">{rg.titolo || "Titolo non disponibile"}</div>
+                  <div className="mt-0.5 font-mono text-xs text-muted-foreground">EAN {rg.ean || "—"}</div>
+                </TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-1">
                     {(rg.servizi || []).length === 0 && <span className="text-xs text-muted-foreground">—</span>}

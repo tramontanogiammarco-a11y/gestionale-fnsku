@@ -115,6 +115,7 @@ function NuovaPreparazioneDialog({ onDone }) {
 
   const fnskuPerEan = (ean) => magazzino.find((m) => m.ean === ean)?.fnsku || "";
   const dispPerEan = (ean) => magazzino.find((m) => m.ean === ean)?.disponibile;
+  const prodottoPerEan = (ean) => magazzino.find((m) => m.ean === ean);
 
   const update = (i, k, v) => {
     const next = [...righe]; next[i][k] = v;
@@ -247,6 +248,7 @@ function NuovaPreparazioneDialog({ onDone }) {
             <div className="mt-1 space-y-3">
               {righe.map((r, i) => {
                 const disp = dispPerEan(r.ean);
+                const prodotto = prodottoPerEan(r.ean);
                 return (
                   <div key={i} className="rounded-md border border-border p-3" data-testid={`prep-riga-${i}`}>
                     <div className="grid grid-cols-12 gap-2 items-center">
@@ -255,6 +257,12 @@ function NuovaPreparazioneDialog({ onDone }) {
                       <Input type="number" min={1} className="col-span-2" data-testid={`prep-qta-${i}`} value={r.quantita} onChange={(e) => update(i, "quantita", e.target.value)} placeholder={disp != null ? `max ${disp}` : "Q.tà"} />
                       <Button variant="ghost" size="icon" className="col-span-1" onClick={() => delRow(i)} disabled={righe.length === 1} data-testid={`prep-del-${i}`}><Trash2 className="h-4 w-4" /></Button>
                     </div>
+                    {prodotto && (
+                      <div className="mt-2 rounded-md bg-slate-50 px-2 py-1 text-xs">
+                        <span className="font-semibold text-slate-900">{prodotto.titolo || "Titolo non disponibile"}</span>
+                        <span className="ml-2 font-mono text-muted-foreground">EAN {prodotto.ean}</span>
+                      </div>
+                    )}
                     <div className="flex flex-wrap gap-4 mt-2 pl-1">
                       {Object.keys(SERVIZI).map((key) => (
                         <label key={key} className="flex items-center gap-1.5 text-xs cursor-pointer">
