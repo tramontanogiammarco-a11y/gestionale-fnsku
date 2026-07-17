@@ -72,7 +72,8 @@ export default function ClientReferenze() {
     try {
       await Promise.all(modificate.map((r) => api.put(`/referenze/${r.id}`, {
         titolo: optionalText(titoloEdit[r.id]),
-        ean: optionalText(eanEdit[r.id]),
+        ean: optionalText(eanEdit[r.id]) || r._pseudo_ean || null,
+        _pseudo_ean: r._pseudo_ean,
         sku: optionalText(skuEdit[r.id]),
         asin: optionalText(asinEdit[r.id]),
         fnsku: optionalText(fnskuEdit[r.id]),

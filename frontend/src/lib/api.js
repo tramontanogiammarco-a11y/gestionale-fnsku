@@ -83,8 +83,28 @@ function optionalText(value) {
   return text || null;
 }
 
+function normalizedText(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isRealEan(ean, titolo) {
+  const cleanEan = optionalText(ean);
+  if (!cleanEan) return false;
+  return normalizedText(cleanEan) !== normalizedText(titolo);
+}
+
+function isPseudoTitleEan(row = {}) {
+  return Boolean(optionalText(row.ean) && normalizedText(row.ean) === normalizedText(row.titolo));
+}
+
+function exposeReferenza(row) {
+  if (!isPseudoTitleEan(row)) return row;
+  return { ...row, ean: null, _pseudo_ean: row.ean };
+}
+
 function normalizeReferenzaPayload(payload = {}) {
   const out = { ...payload };
+  delete out._pseudo_ean;
   for (const key of ["ean", "sku", "asin", "fnsku", "foto_url"]) {
     if (Object.prototype.hasOwnProperty.call(out, key)) out[key] = optionalText(out[key]);
   }
@@ -92,6 +112,55 @@ function normalizeReferenzaPayload(payload = {}) {
     out.titolo = String(out.titolo || "").trim();
   }
   return out;
+}
+
+async function findLooseReferenza(clienteId, referenza = {}) {
+  const titleKey = normalizedText(referenza.titolo);
+  const ean = optionalText(referenza.ean);
+  const eanIsReal = isRealEan(ean, referenza.titolo);
+  const { data, error } = await supabase
+    .from("referenze")
+    .select("*")
+    .eq("cliente_id", clienteId)
+    .eq("is_bundle", Boolean(referenza.is_bundle || false));
+  if (error) fail(error.message);
+
+  if (eanIsReal) {
+    const byEan = (data || []).find((row) => optionalText(row.ean) === ean);
+    if (byEan) return byEan;
+  }
+  if (!titleKey || referenza.is_bundle) return null;
+  return (data || []).find((row) => (
+    normalizedText(row.titolo) === titleKey && !isRealEan(row.ean, row.titolo)
+  )) || null;
+}
+
+async function upsertLooseReferenza(clienteId, referenza = {}) {
+  const existing = await findLooseReferenza(clienteId, referenza);
+  if (!existing) return null;
+
+  const patch = {};
+  for (const key of ["titolo", "ean", "sku", "asin", "fnsku", "foto_url"]) {
+    if (!Object.prototype.hasOwnProperty.call(referenza, key)) continue;
+    const value = key === "titolo" ? String(referenza[key] || "").trim() : optionalText(referenza[key]);
+    if (value && !existing[key]) patch[key] = value;
+    if (key === "ean" && value && !isRealEan(existing.ean, existing.titolo) && isRealEan(value, referenza.titolo || existing.titolo)) {
+      patch[key] = value;
+    }
+    if (key === "ean" && value && !isRealEan(existing.ean, existing.titolo) && isPseudoTitleEan({ ean: value, titolo: referenza.titolo || existing.titolo })) {
+      patch[key] = value;
+    }
+  }
+  if (!Object.keys(patch).length) return existing;
+
+  const { data, error } = await supabase
+    .from("referenze")
+    .update(patch)
+    .eq("id", existing.id)
+    .select()
+    .single();
+  if (error) fail(error.message);
+  return data;
 }
 
 async function clientiMap(ids) {
@@ -294,19 +363,22 @@ async function listReferenze(params) {
   if (requestedClienteId) query = query.eq("cliente_id", requestedClienteId);
   const { data, error } = await query;
   if (error) fail(error.message);
-  return ok(data || []);
+  return ok((data || []).map(exposeReferenza));
 }
 
 async function createReferenza(payload) {
   const cliente_id = await resolveClienteId(payload.cliente_id);
   const referenza = normalizeReferenzaPayload(payload);
+  const existing = await upsertLooseReferenza(cliente_id, referenza);
+  if (existing) return ok(exposeReferenza(existing));
+
   const { data, error } = await requireSupabase()
     .from("referenze")
     .insert({ ...referenza, cliente_id, origine: payload.origine || "manuale" })
     .select()
     .single();
   if (error) fail(error.message);
-  return ok(data);
+  return ok(exposeReferenza(data));
 }
 
 async function cascadeReferenzaEan(clienteId, oldEan, newEan) {
@@ -422,6 +494,9 @@ async function updateReferenza(id, payload) {
   if (readError) fail(readError.message);
 
   const updates = normalizeReferenzaPayload(payload);
+  if (!updates.ean && payload._pseudo_ean && isPseudoTitleEan({ ean: payload._pseudo_ean, titolo: updates.titolo || current.titolo })) {
+    updates.ean = payload._pseudo_ean;
+  }
   const { data, error } = await requireSupabase()
     .from("referenze")
     .update(updates)
@@ -432,7 +507,7 @@ async function updateReferenza(id, payload) {
   if (updates.ean && current.ean && updates.ean !== current.ean) {
     await cascadeReferenzaEan(current.cliente_id, current.ean, updates.ean);
   }
-  return ok(data);
+  return ok(exposeReferenza(data));
 }
 
 async function deleteReferenza(id) {
@@ -457,39 +532,47 @@ async function ensureReferenzeForEntrata(clienteId, righe = []) {
       sku: optionalText(r.sku),
       fnsku: optionalText(r.fnsku),
     }))
-    .filter((r) => r.ean);
-  const eans = [...new Set(rows.map((r) => r.ean))];
-  if (!eans.length) return;
+    .filter((r) => r.ean || r.titolo);
+  if (!rows.length) return;
 
   const { data: existing, error: readError } = await supabase
     .from("referenze")
     .select("*")
-    .eq("cliente_id", clienteId)
-    .in("ean", eans);
+    .eq("cliente_id", clienteId);
   if (readError) fail(readError.message);
 
-  const byEan = new Map((existing || []).filter((ref) => ref.ean).map((ref) => [ref.ean, ref]));
+  const byRealEan = new Map((existing || [])
+    .filter((ref) => isRealEan(ref.ean, ref.titolo))
+    .map((ref) => [optionalText(ref.ean), ref]));
+  const byLooseTitle = new Map((existing || [])
+    .filter((ref) => !ref.is_bundle && !isRealEan(ref.ean, ref.titolo))
+    .map((ref) => [normalizedText(ref.titolo), ref]));
   const toInsert = [];
   const updates = [];
 
   for (const row of rows) {
-    const found = byEan.get(row.ean);
+    const rowTitle = row.titolo || row.ean;
+    const found = isRealEan(row.ean, rowTitle)
+      ? byRealEan.get(row.ean)
+      : byLooseTitle.get(normalizedText(rowTitle));
     if (!found) {
       const created = {
         cliente_id: clienteId,
         ean: row.ean,
-        titolo: row.titolo || row.ean,
+        titolo: rowTitle,
         sku: row.sku,
         fnsku: row.fnsku,
         origine: "entrata",
       };
       toInsert.push(created);
-      byEan.set(row.ean, created);
+      if (isRealEan(row.ean, rowTitle)) byRealEan.set(row.ean, created);
+      else byLooseTitle.set(normalizedText(rowTitle), created);
       continue;
     }
 
     const patch = {};
     if (row.titolo && (!found.titolo || found.titolo === found.ean)) patch.titolo = row.titolo;
+    if (row.ean && !isRealEan(row.ean, rowTitle) && !found.ean) patch.ean = row.ean;
     if (row.sku && !found.sku) patch.sku = row.sku;
     if (row.fnsku && !found.fnsku) patch.fnsku = row.fnsku;
     if (Object.keys(patch).length) {
@@ -512,7 +595,7 @@ async function ensureReferenzeFromOperational(clienteId) {
   if (!clienteId) return;
 
   const [{ data: refs, error: refsError }, { data: entrate, error: entrateError }, { data: preps, error: prepsError }, { data: boxes, error: boxesError }] = await Promise.all([
-    supabase.from("referenze").select("ean").eq("cliente_id", clienteId),
+    supabase.from("referenze").select("*").eq("cliente_id", clienteId),
     supabase.from("entrate").select("id").eq("cliente_id", clienteId),
     supabase.from("preparazioni").select("id").eq("cliente_id", clienteId),
     supabase.from("box").select("contenuto").eq("cliente_id", clienteId),
@@ -520,22 +603,27 @@ async function ensureReferenzeFromOperational(clienteId) {
   const firstError = refsError || entrateError || prepsError || boxesError;
   if (firstError) fail(firstError.message);
 
-  const existing = new Set((refs || []).map((ref) => optionalText(ref.ean)).filter(Boolean));
-  const byEan = new Map();
+  const existingRealEan = new Set((refs || []).filter((ref) => isRealEan(ref.ean, ref.titolo)).map((ref) => optionalText(ref.ean)));
+  const existingLooseTitle = new Set((refs || []).filter((ref) => !ref.is_bundle && !isRealEan(ref.ean, ref.titolo)).map((ref) => normalizedText(ref.titolo)));
+  const byKey = new Map();
   const add = (item = {}) => {
     const ean = optionalText(item.ean);
-    if (!ean || existing.has(ean)) return;
-    if (byEan.has(ean)) {
-      const found = byEan.get(ean);
+    if (!ean) return;
+    const titolo = optionalText(item.titolo) || ean;
+    const real = isRealEan(ean, titolo);
+    const key = real ? `ean:${ean}` : `title:${normalizedText(titolo)}`;
+    if ((real && existingRealEan.has(ean)) || (!real && existingLooseTitle.has(normalizedText(titolo)))) return;
+    if (byKey.has(key)) {
+      const found = byKey.get(key);
       found.titolo = found.titolo || optionalText(item.titolo) || ean;
       found.sku = found.sku || optionalText(item.sku);
       found.fnsku = found.fnsku || optionalText(item.fnsku);
       return;
     }
-    byEan.set(ean, {
+    byKey.set(key, {
       cliente_id: clienteId,
       ean,
-      titolo: optionalText(item.titolo) || ean,
+      titolo,
       sku: optionalText(item.sku),
       fnsku: optionalText(item.fnsku),
       origine: "entrata",
@@ -560,7 +648,7 @@ async function ensureReferenzeFromOperational(clienteId) {
     for (const item of box.contenuto || []) add(item);
   }
 
-  const missing = [...byEan.values()];
+  const missing = [...byKey.values()];
   if (missing.length) {
     const { error } = await supabase.from("referenze").insert(missing);
     if (error) fail(error.message);
