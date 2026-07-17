@@ -22,6 +22,7 @@ export default function ClientReferenze() {
   const [skuEdit, setSkuEdit] = useState({});
   const [asinEdit, setAsinEdit] = useState({});
   const [fnskuEdit, setFnskuEdit] = useState({});
+  const [savingAll, setSavingAll] = useState(false);
 
   const load = () =>
     api.get("/referenze").then((r) => {
@@ -46,20 +47,43 @@ export default function ClientReferenze() {
     });
   useEffect(() => { load(); }, []);
 
-  const salvaReferenza = async (id) => {
-    if (!optionalText(titoloEdit[id])) {
-      toast.error("Il titolo è obbligatorio");
+  const salvaTutte = async () => {
+    if (!referenze?.length) return;
+    const senzaTitolo = referenze.find((r) => !optionalText(titoloEdit[r.id]));
+    if (senzaTitolo) {
+      toast.error("Ogni referenza deve avere un titolo");
       return;
     }
-    await api.put(`/referenze/${id}`, {
-      titolo: optionalText(titoloEdit[id]),
-      ean: optionalText(eanEdit[id]),
-      sku: optionalText(skuEdit[id]),
-      asin: optionalText(asinEdit[id]),
-      fnsku: optionalText(fnskuEdit[id]),
-    });
-    toast.success("Referenza salvata");
-    load();
+
+    const modificate = referenze.filter((r) => (
+      optionalText(titoloEdit[r.id]) !== optionalText(r.titolo)
+      || optionalText(eanEdit[r.id]) !== optionalText(r.ean)
+      || optionalText(skuEdit[r.id]) !== optionalText(r.sku)
+      || optionalText(asinEdit[r.id]) !== optionalText(r.asin)
+      || optionalText(fnskuEdit[r.id]) !== optionalText(r.fnsku)
+    ));
+
+    if (!modificate.length) {
+      toast.info("Nessuna modifica da salvare");
+      return;
+    }
+
+    setSavingAll(true);
+    try {
+      await Promise.all(modificate.map((r) => api.put(`/referenze/${r.id}`, {
+        titolo: optionalText(titoloEdit[r.id]),
+        ean: optionalText(eanEdit[r.id]),
+        sku: optionalText(skuEdit[r.id]),
+        asin: optionalText(asinEdit[r.id]),
+        fnsku: optionalText(fnskuEdit[r.id]),
+      })));
+      toast.success(`${modificate.length} referenze salvate`);
+      load();
+    } catch (e) {
+      toast.error(formatApiError(e.response?.data?.detail));
+    } finally {
+      setSavingAll(false);
+    }
   };
 
   const uploadFoto = async (id, file) => {
@@ -88,7 +112,10 @@ export default function ClientReferenze() {
           <h1 className="font-heading text-2xl font-bold tracking-tight">Le mie referenze</h1>
           <p className="text-muted-foreground text-sm mt-1">Prodotti da inviare al prep center.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={salvaTutte} disabled={!referenze?.length || savingAll} data-testid="cref-save-all">
+            {savingAll ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />} Salva modifiche
+          </Button>
           <ImportDialog onDone={load} />
           <AddDialog onDone={load} referenze={referenze || []} />
         </div>
@@ -178,9 +205,6 @@ export default function ClientReferenze() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">
-                      <Button size="sm" title="Salva modifiche" data-testid={`cref-save-${r.id}`} onClick={() => salvaReferenza(r.id)}>
-                        <Save className="h-4 w-4 mr-1" /> Salva
-                      </Button>
                       <Button size="sm" variant="ghost" title="Elimina" className="text-destructive hover:text-destructive" data-testid={`cref-delete-${r.id}`} onClick={() => eliminaReferenza(r)}><Trash2 className="h-4 w-4" /></Button>
                     </div>
                   </TableCell>
