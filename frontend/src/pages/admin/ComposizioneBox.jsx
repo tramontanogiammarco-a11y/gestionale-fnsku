@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api, fileUrl } from "@/lib/api";
 import { toast } from "sonner";
 import { STATI_BOX } from "@/lib/statuses";
@@ -16,7 +16,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, FileText, Trash2, Boxes as BoxesIcon, ClipboardList } from "lucide-react";
+import { Loader2, Plus, FileText, Trash2, Boxes as BoxesIcon, ClipboardList, Copy, Pencil } from "lucide-react";
 
 function azioneErrore(e) {
   if (e?.response?.status === 403)
@@ -27,6 +27,17 @@ function azioneErrore(e) {
 function skusFor(item) {
   if (Array.isArray(item?.skus)) return item.skus.filter(Boolean);
   return item?.sku ? [item.sku] : [];
+}
+
+function numeroOrNull(value) {
+  const clean = String(value || "").replace(",", ".").trim();
+  return clean ? Number(clean) : null;
+}
+
+function quantitaBox(box, ean) {
+  return (box?.contenuto || [])
+    .filter((c) => c.ean === ean)
+    .reduce((sum, c) => sum + Number(c.quantita || 0), 0);
 }
 
 // Componi box a livello di CLIENTE pescando SOLO dalla merce in preparazione
@@ -174,7 +185,33 @@ export default function AdminComposizioneBox() {
                         </>
                       )}
                     </div>
-                    <div className="mt-3">
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <BoxFormDialog
+                        mode="edit"
+                        clienteId={clienteId}
+                        imballabili={imballabili}
+                        box={b}
+                        onDone={() => load(clienteId)}
+                        trigger={(
+                          <Button size="sm" variant="outline" data-testid={`comp-box-edit-${b.id}`}>
+                            <Pencil className="h-4 w-4 mr-1" /> Modifica
+                          </Button>
+                        )}
+                      />
+                      <BoxFormDialog
+                        mode="duplicate"
+                        clienteId={clienteId}
+                        imballabili={imballabili}
+                        box={b}
+                        onDone={() => load(clienteId)}
+                        trigger={(
+                          <Button size="sm" variant="outline" data-testid={`comp-box-duplicate-${b.id}`}>
+                            <Copy className="h-4 w-4 mr-1" /> Duplica
+                          </Button>
+                        )}
+                      />
+                    </div>
+                    <div className="mt-2">
                       <Select value={b.stato} onValueChange={(v) => cambiaStatoBox(b.id, v)}>
                         <SelectTrigger className="w-full h-8" data-testid={`comp-box-stato-${b.id}`}><SelectValue /></SelectTrigger>
                         <SelectContent>
@@ -194,6 +231,22 @@ export default function AdminComposizioneBox() {
 }
 
 function NuovoBoxClienteDialog({ clienteId, imballabili, onCreated }) {
+  return (
+    <BoxFormDialog
+      mode="create"
+      clienteId={clienteId}
+      imballabili={imballabili}
+      onDone={onCreated}
+      trigger={(
+        <Button size="sm" disabled={imballabili.length === 0} data-testid="comp-nuovo-box-btn">
+          <Plus className="h-4 w-4 mr-1" /> Nuovo box
+        </Button>
+      )}
+    />
+  );
+}
+
+function BoxFormDialog({ mode, clienteId, imballabili, box, onDone, trigger }) {
   const [open, setOpen] = useState(false);
   const [numero, setNumero] = useState("");
   const [peso, setPeso] = useState("");
@@ -201,6 +254,53 @@ function NuovoBoxClienteDialog({ clienteId, imballabili, onCreated }) {
   const [scatolaTipo, setScatolaTipo] = useState("cliente");
   const [righe, setRighe] = useState([{ ean: "", quantita: "" }]);
   const [saving, setSaving] = useState(false);
+  const isEdit = mode === "edit";
+  const isDuplicate = mode === "duplicate";
+  const sourceContent = useMemo(() => box?.contenuto || [], [box]);
+  const optionMap = new Map();
+
+  imballabili.forEach((m) => optionMap.set(m.ean, m));
+  sourceContent.forEach((c) => {
+    if (!optionMap.has(c.ean)) {
+      optionMap.set(c.ean, {
+        ean: c.ean,
+        sku: c.sku,
+        skus: c.sku ? [c.sku] : [],
+        fnsku: c.fnsku,
+        titolo: "gia in questo box",
+        disponibile: 0,
+      });
+    }
+  });
+  const opzioni = Array.from(optionMap.values());
+
+  useEffect(() => {
+    if (!open) return;
+    if (box) {
+      setNumero(isDuplicate ? "" : box.numero_box || "");
+      setPeso(box.peso_kg ? String(box.peso_kg) : "");
+      setDim({
+        l: box.lunghezza_cm ? String(box.lunghezza_cm) : "",
+        w: box.larghezza_cm ? String(box.larghezza_cm) : "",
+        h: box.altezza_cm ? String(box.altezza_cm) : "",
+      });
+      setScatolaTipo(box.scatola_tipo || "cliente");
+      setRighe(sourceContent.length
+        ? sourceContent.map((c) => ({
+          ean: c.ean || "",
+          sku: c.sku || "",
+          fnsku: c.fnsku || "",
+          quantita: c.quantita ? String(c.quantita) : "",
+        }))
+        : [{ ean: "", quantita: "" }]);
+    } else {
+      setNumero("");
+      setPeso("");
+      setDim({ l: "", w: "", h: "" });
+      setScatolaTipo("cliente");
+      setRighe([{ ean: "", quantita: "" }]);
+    }
+  }, [open, box, isDuplicate, sourceContent]);
 
   const onScatola = (v) => {
     setScatolaTipo(v);
@@ -208,10 +308,22 @@ function NuovoBoxClienteDialog({ clienteId, imballabili, onCreated }) {
     else if (v === "40x30x30") setDim({ l: "40", w: "30", h: "30" });
   };
 
-  const infoEan = (ean) => imballabili.find((x) => x.ean === ean);
-  const libero = (ean) => { const m = infoEan(ean); return m ? m.disponibile : 0; };
+  const infoEan = (ean) => optionMap.get(ean);
+  const libero = (ean) => {
+    const m = imballabili.find((x) => x.ean === ean);
+    return Number(m?.disponibile || 0) + (isEdit ? quantitaBox(box, ean) : 0);
+  };
 
-  const update = (i, k, v) => { const n = [...righe]; n[i][k] = v; setRighe(n); };
+  const update = (i, k, v) => {
+    const n = [...righe];
+    n[i][k] = v;
+    if (k === "ean") {
+      const info = infoEan(v);
+      n[i].sku = skusFor(info)[0] || "";
+      n[i].fnsku = info?.fnsku || "";
+    }
+    setRighe(n);
+  };
   const addRow = () => setRighe([...righe, { ean: "", quantita: "" }]);
   const delRow = (i) => setRighe(righe.filter((_, idx) => idx !== i));
 
@@ -221,44 +333,47 @@ function NuovoBoxClienteDialog({ clienteId, imballabili, onCreated }) {
       .filter((r) => r.ean && Number(r.quantita) > 0)
       .map((r) => {
         const info = infoEan(r.ean);
-        return { ean: r.ean, sku: skusFor(info)[0] || null, fnsku: info?.fnsku || "", quantita: Number(r.quantita) };
+        return { ean: r.ean, sku: skusFor(info)[0] || r.sku || null, fnsku: info?.fnsku || r.fnsku || "", quantita: Number(r.quantita) };
       });
     if (cont.length === 0) { toast.error("Aggiungi almeno una referenza con quantità"); return; }
-    const eccesso = cont.find((c) => c.quantita > libero(c.ean));
-    if (eccesso) { toast.error(`Quantità oltre la merce in preparazione per EAN ${eccesso.ean} (max ${libero(eccesso.ean)}).`); return; }
+    const totali = cont.reduce((acc, c) => ({ ...acc, [c.ean]: (acc[c.ean] || 0) + c.quantita }), {});
+    const eccesso = Object.entries(totali).find(([ean, qta]) => qta > libero(ean));
+    if (eccesso) { toast.error(`Quantità oltre la merce in preparazione per EAN ${eccesso[0]} (max ${libero(eccesso[0])}).`); return; }
     setSaving(true);
     try {
-      await api.post("/box", {
+      const payload = {
         cliente_id: clienteId,
         numero_box: numero,
-        peso_kg: peso ? Number(peso) : null,
-        lunghezza_cm: dim.l ? Number(dim.l) : null,
-        larghezza_cm: dim.w ? Number(dim.w) : null,
-        altezza_cm: dim.h ? Number(dim.h) : null,
+        peso_kg: numeroOrNull(peso),
+        lunghezza_cm: numeroOrNull(dim.l),
+        larghezza_cm: numeroOrNull(dim.w),
+        altezza_cm: numeroOrNull(dim.h),
         scatola_tipo: scatolaTipo,
         contenuto: cont,
-      });
-      toast.success("Box creato");
-      setOpen(false); setNumero(""); setPeso(""); setDim({ l: "", w: "", h: "" }); setScatolaTipo("cliente"); setRighe([{ ean: "", quantita: "" }]);
-      onCreated();
+      };
+      if (isEdit) await api.put(`/box/${box.id}`, payload);
+      else await api.post("/box", payload);
+      toast.success(isEdit ? "Box aggiornato" : "Box creato");
+      setOpen(false);
+      onDone();
     } catch (e) {
       toast.error(azioneErrore(e));
     } finally { setSaving(false); }
   };
 
+  const titolo = isEdit ? "Modifica box" : isDuplicate ? "Duplica box" : "Nuovo box (multi-referenza)";
+  const salvaLabel = isEdit ? "Salva modifiche" : isDuplicate ? "Duplica box" : "Crea box";
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button size="sm" disabled={imballabili.length === 0} data-testid="comp-nuovo-box-btn">
-          <Plus className="h-4 w-4 mr-1" /> Nuovo box
-        </Button>
-      </DialogTrigger>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className="max-w-xl">
-        <DialogHeader><DialogTitle>Nuovo box (multi-referenza)</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{titolo}</DialogTitle></DialogHeader>
         <div className="space-y-3">
           <div>
             <Label>Numero box</Label>
             <Input data-testid="comp-box-numero" value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="BOX-001" className="mt-1" />
+            {isDuplicate && <div className="mt-1 text-xs text-muted-foreground">Stesso contenuto di {box?.numero_box}: cambia solo il numero e salva.</div>}
           </div>
           <div>
             <Label className="text-xs">Scatola</Label>
@@ -286,9 +401,9 @@ function NuovoBoxClienteDialog({ clienteId, imballabili, onCreated }) {
                     <Select value={r.ean} onValueChange={(v) => update(i, "ean", v)}>
                       <SelectTrigger className="h-9" data-testid={`comp-cont-ean-${i}`}><SelectValue placeholder="Scegli EAN / SKU" /></SelectTrigger>
                       <SelectContent>
-                        {imballabili.map((m) => (
+                        {opzioni.map((m) => (
                           <SelectItem key={m.ean} value={m.ean}>
-                            {m.ean}{skusFor(m).length ? ` · ${skusFor(m).join("/")}` : ""} — {m.titolo || ""} (da imballare {m.disponibile})
+                            {m.ean}{skusFor(m).length ? ` · ${skusFor(m).join("/")}` : ""} — {m.titolo || ""} (max {libero(m.ean)})
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -304,7 +419,7 @@ function NuovoBoxClienteDialog({ clienteId, imballabili, onCreated }) {
         </div>
         <DialogFooter>
           <Button onClick={salva} disabled={saving} data-testid="comp-box-salva">
-            {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Crea box
+            {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} {salvaLabel}
           </Button>
         </DialogFooter>
       </DialogContent>
