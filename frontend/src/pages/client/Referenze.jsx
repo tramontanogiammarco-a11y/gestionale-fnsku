@@ -107,7 +107,7 @@ export default function ClientReferenze() {
                 <TableHead>SKU</TableHead>
                 <TableHead>ASIN</TableHead>
                 <TableHead>FNSKU</TableHead>
-                <TableHead></TableHead>
+                <TableHead className="text-right">Azioni</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -178,7 +178,9 @@ export default function ClientReferenze() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">
-                      <Button size="sm" variant="ghost" title="Salva" data-testid={`cref-save-${r.id}`} onClick={() => salvaReferenza(r.id)}><Save className="h-4 w-4" /></Button>
+                      <Button size="sm" title="Salva modifiche" data-testid={`cref-save-${r.id}`} onClick={() => salvaReferenza(r.id)}>
+                        <Save className="h-4 w-4 mr-1" /> Salva
+                      </Button>
                       <Button size="sm" variant="ghost" title="Elimina" className="text-destructive hover:text-destructive" data-testid={`cref-delete-${r.id}`} onClick={() => eliminaReferenza(r)}><Trash2 className="h-4 w-4" /></Button>
                     </div>
                   </TableCell>
