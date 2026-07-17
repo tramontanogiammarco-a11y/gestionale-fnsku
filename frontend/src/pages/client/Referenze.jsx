@@ -44,6 +44,9 @@ export default function ClientReferenze() {
       setSkuEdit(se);
       setAsinEdit(ae);
       setFnskuEdit(fe);
+    }).catch((e) => {
+      toast.error(formatApiError(e.response?.data?.detail) || "Impossibile caricare le referenze");
+      setReferenze([]);
     });
   useEffect(() => { load(); }, []);
 

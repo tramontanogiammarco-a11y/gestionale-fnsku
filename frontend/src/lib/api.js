@@ -357,10 +357,16 @@ async function listReferenze(params) {
   const profile = await currentProfile();
   const requestedClienteId = params.get("cliente_id");
   const scopedClienteId = isStaff(profile) ? requestedClienteId : profile.cliente_id;
-  if (scopedClienteId) await ensureReferenzeFromOperational(scopedClienteId);
+  if (scopedClienteId) {
+    try {
+      await ensureReferenzeFromOperational(scopedClienteId);
+    } catch (error) {
+      console.warn("Sincronizzazione referenze operative saltata", error);
+    }
+  }
 
   let query = requireSupabase().from("referenze").select("*").order("created_at", { ascending: false });
-  if (requestedClienteId) query = query.eq("cliente_id", requestedClienteId);
+  if (scopedClienteId) query = query.eq("cliente_id", scopedClienteId);
   const { data, error } = await query;
   if (error) fail(error.message);
   return ok((data || []).map(exposeReferenza));
