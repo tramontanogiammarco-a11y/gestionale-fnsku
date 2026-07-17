@@ -285,9 +285,13 @@ async function updateCliente(id, payload) {
 }
 
 async function listReferenze(params) {
+  const profile = await currentProfile();
+  const requestedClienteId = params.get("cliente_id");
+  const scopedClienteId = isStaff(profile) ? requestedClienteId : profile.cliente_id;
+  if (scopedClienteId) await ensureReferenzeFromOperational(scopedClienteId);
+
   let query = requireSupabase().from("referenze").select("*").order("created_at", { ascending: false });
-  const clienteId = params.get("cliente_id");
-  if (clienteId) query = query.eq("cliente_id", clienteId);
+  if (requestedClienteId) query = query.eq("cliente_id", requestedClienteId);
   const { data, error } = await query;
   if (error) fail(error.message);
   return ok(data || []);
@@ -431,6 +435,65 @@ async function ensureReferenzeForEntrata(clienteId, righe = []) {
   }
   for (const { id, patch } of updates) {
     const { error } = await supabase.from("referenze").update(patch).eq("id", id);
+    if (error) fail(error.message);
+  }
+}
+
+async function ensureReferenzeFromOperational(clienteId) {
+  if (!clienteId) return;
+
+  const [{ data: refs, error: refsError }, { data: entrate, error: entrateError }, { data: preps, error: prepsError }, { data: boxes, error: boxesError }] = await Promise.all([
+    supabase.from("referenze").select("ean").eq("cliente_id", clienteId),
+    supabase.from("entrate").select("id").eq("cliente_id", clienteId),
+    supabase.from("preparazioni").select("id").eq("cliente_id", clienteId),
+    supabase.from("box").select("contenuto").eq("cliente_id", clienteId),
+  ]);
+  const firstError = refsError || entrateError || prepsError || boxesError;
+  if (firstError) fail(firstError.message);
+
+  const existing = new Set((refs || []).map((ref) => optionalText(ref.ean)).filter(Boolean));
+  const byEan = new Map();
+  const add = (item = {}) => {
+    const ean = optionalText(item.ean);
+    if (!ean || existing.has(ean)) return;
+    if (byEan.has(ean)) {
+      const found = byEan.get(ean);
+      found.titolo = found.titolo || optionalText(item.titolo) || ean;
+      found.sku = found.sku || optionalText(item.sku);
+      found.fnsku = found.fnsku || optionalText(item.fnsku);
+      return;
+    }
+    byEan.set(ean, {
+      cliente_id: clienteId,
+      ean,
+      titolo: optionalText(item.titolo) || ean,
+      sku: optionalText(item.sku),
+      fnsku: optionalText(item.fnsku),
+      origine: "entrata",
+    });
+  };
+
+  const entrataIds = (entrate || []).map((row) => row.id);
+  if (entrataIds.length) {
+    const { data, error } = await supabase.from("entrate_righe").select("ean,fnsku").in("entrata_id", entrataIds);
+    if (error) fail(error.message);
+    for (const row of data || []) add(row);
+  }
+
+  const prepIds = (preps || []).map((row) => row.id);
+  if (prepIds.length) {
+    const { data, error } = await supabase.from("preparazioni_righe").select("ean,sku,fnsku").in("preparazione_id", prepIds);
+    if (error) fail(error.message);
+    for (const row of data || []) add(row);
+  }
+
+  for (const box of boxes || []) {
+    for (const item of box.contenuto || []) add(item);
+  }
+
+  const missing = [...byEan.values()];
+  if (missing.length) {
+    const { error } = await supabase.from("referenze").insert(missing);
     if (error) fail(error.message);
   }
 }
