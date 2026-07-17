@@ -34,6 +34,20 @@ const PREZZO_FIELDS = [
   ["iva", "IVA (%)"],
 ];
 
+function parseListinoNumber(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const normalized = String(value || "").trim().replace(",", ".");
+  if (!normalized) return 0;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeListino(listino) {
+  return Object.fromEntries(
+    Object.entries({ ...DEFAULT_LISTINO, ...(listino || {}) }).map(([key, value]) => [key, parseListinoNumber(value)])
+  );
+}
+
 function ListinoFields({ value, onChange }) {
   return (
     <div className="grid grid-cols-2 gap-3">
@@ -41,7 +55,8 @@ function ListinoFields({ value, onChange }) {
         <div key={key}>
           <Label className="text-xs">{label}</Label>
           <Input
-            type="number" step="0.01" min={0}
+            type="text"
+            inputMode="decimal"
             data-testid={`listino-${key}`}
             value={value[key] ?? 0}
             onChange={(e) => onChange({ ...value, [key]: e.target.value })}
@@ -128,7 +143,7 @@ function NuovoClienteDialog({ onCreated }) {
     }
     setSaving(true);
     try {
-      const listinoNum = Object.fromEntries(Object.entries(listino).map(([k, v]) => [k, Number(v) || 0]));
+      const listinoNum = normalizeListino(listino);
       await api.post("/clienti", { ...form, listino: listinoNum });
       toast.success("Cliente creato con credenziali e listino");
       setOpen(false);
@@ -188,10 +203,17 @@ function ModificaClienteDialog({ cliente, onSaved }) {
   const [listino, setListino] = useState({ ...DEFAULT_LISTINO, ...(cliente.listino || {}) });
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    if (!open) return;
+    setRagione(cliente.ragione_sociale);
+    setNote(cliente.note || "");
+    setListino({ ...DEFAULT_LISTINO, ...(cliente.listino || {}) });
+  }, [open, cliente]);
+
   const salva = async () => {
     setSaving(true);
     try {
-      const listinoNum = Object.fromEntries(Object.entries(listino).map(([k, v]) => [k, Number(v) || 0]));
+      const listinoNum = normalizeListino(listino);
       await api.put(`/clienti/${cliente.id}`, { ragione_sociale: ragione, note, listino: listinoNum });
       toast.success("Cliente aggiornato");
       setOpen(false);
@@ -204,7 +226,15 @@ function ModificaClienteDialog({ cliente, onSaved }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="sm" data-testid={`edit-cliente-${cliente.id}`} onClick={(e) => e.stopPropagation()}><Pencil className="h-4 w-4" /></Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          data-testid={`edit-cliente-${cliente.id}`}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Pencil className="h-4 w-4" />
+        </Button>
       </DialogTrigger>
       <DialogContent className="max-w-2xl">
         <DialogHeader><DialogTitle>Modifica cliente e listino</DialogTitle></DialogHeader>
