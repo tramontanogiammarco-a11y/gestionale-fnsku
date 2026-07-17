@@ -71,27 +71,25 @@ export default function ClientPreparazioni() {
                 })}
               </div>
               <div className="flex items-center justify-between gap-2 mt-3">
-                {p.stato === "richiesta" ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    data-testid={`delete-prep-${p.id}`}
-                    className="text-destructive hover:text-destructive"
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      if (!window.confirm("Cancellare questa preparazione? Potrai crearne una nuova subito dopo.")) return;
-                      try {
-                        await api.delete(`/preparazioni/${p.id}`);
-                        toast.success("Preparazione cancellata");
-                        load();
-                      } catch (err) {
-                        toast.error(formatApiError(err.response?.data?.detail));
-                      }
-                    }}
-                  >
-                    <Trash2 className="h-4 w-4" /> Cancella
-                  </Button>
-                ) : <span />}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  data-testid={`delete-prep-${p.id}`}
+                  className="text-destructive hover:text-destructive"
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (!window.confirm("Cancellare questa preparazione e tutte le sue righe?")) return;
+                    try {
+                      await api.delete(`/preparazioni/${p.id}`);
+                      toast.success("Preparazione cancellata");
+                      load();
+                    } catch (err) {
+                      toast.error(formatApiError(err.response?.data?.detail));
+                    }
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" /> Cancella
+                </Button>
                 <div className="flex items-center gap-1 text-xs font-medium text-blue-600">
                   Apri dettaglio<ChevronRight className="h-4 w-4" />
                 </div>

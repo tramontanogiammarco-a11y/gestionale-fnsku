@@ -84,9 +84,30 @@ export default function ClientEntrate() {
                 })}
               </div>
               {e.note && <p className="text-xs text-muted-foreground mt-2">{e.note}</p>}
-              <div className="flex items-center justify-end gap-1 mt-3 text-xs font-medium text-blue-600">
-                {e.stato === "in_attesa" ? "Apri e gestisci FNSKU" : "Merce arrivata · dettaglio"}
-                <ChevronRight className="h-4 w-4" />
+              <div className="flex items-center justify-between gap-2 mt-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  data-testid={`delete-entrata-${e.id}`}
+                  className="text-destructive hover:text-destructive"
+                  onClick={async (event) => {
+                    event.stopPropagation();
+                    if (!window.confirm("Cancellare questa entrata e tutte le sue righe?")) return;
+                    try {
+                      await api.delete(`/entrate/${e.id}`);
+                      toast.success("Entrata cancellata");
+                      load();
+                    } catch (err) {
+                      toast.error(formatApiError(err.response?.data?.detail));
+                    }
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" /> Cancella
+                </Button>
+                <div className="flex items-center gap-1 text-xs font-medium text-blue-600">
+                  {e.stato === "in_attesa" ? "Apri e gestisci FNSKU" : "Merce arrivata · dettaglio"}
+                  <ChevronRight className="h-4 w-4" />
+                </div>
               </div>
             </Card>
           ))}

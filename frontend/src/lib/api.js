@@ -683,15 +683,66 @@ async function createEntrata(payload) {
   return getEntrata(entrata.id);
 }
 
-async function updateEntrataRiga(id, payload) {
+async function createEntrataRiga(payload) {
+  const clienteId = await clienteIdForEntrata(payload.entrata_id);
+  await ensureReferenzeForEntrata(clienteId, [payload]);
+
   const { data, error } = await requireSupabase()
     .from("entrate_righe")
-    .update(payload)
+    .insert({
+      entrata_id: payload.entrata_id,
+      ean: payload.ean,
+      quantita: Number(payload.quantita || 0),
+      fnsku: optionalText(payload.fnsku),
+    })
+    .select()
+    .single();
+  if (error) fail(error.message);
+  return ok(data);
+}
+
+async function updateEntrataRiga(id, payload) {
+  const updates = {};
+  if (Object.prototype.hasOwnProperty.call(payload, "ean")) updates.ean = optionalText(payload.ean);
+  if (Object.prototype.hasOwnProperty.call(payload, "quantita")) updates.quantita = Number(payload.quantita || 0);
+  if (Object.prototype.hasOwnProperty.call(payload, "fnsku")) updates.fnsku = optionalText(payload.fnsku);
+  if (!Object.keys(updates).length) fail("Nessun campo da aggiornare");
+
+  if (Object.prototype.hasOwnProperty.call(payload, "ean") || Object.prototype.hasOwnProperty.call(payload, "fnsku")) {
+    const { data: current, error: readError } = await requireSupabase()
+      .from("entrate_righe")
+      .select("entrata_id,ean")
+      .eq("id", id)
+      .single();
+    if (readError) fail(readError.message);
+    const clienteId = await clienteIdForEntrata(current.entrata_id);
+    await ensureReferenzeForEntrata(clienteId, [{ ...payload, ean: updates.ean || current.ean }]);
+  }
+
+  const { data, error } = await requireSupabase()
+    .from("entrate_righe")
+    .update(updates)
     .eq("id", id)
     .select()
     .single();
   if (error) fail(error.message);
   return ok(data);
+}
+
+async function deleteEntrataRiga(id) {
+  const { error } = await requireSupabase().from("entrate_righe").delete().eq("id", id);
+  if (error) fail(error.message);
+  return ok({ ok: true });
+}
+
+async function clienteIdForEntrata(entrataId) {
+  const { data, error } = await requireSupabase()
+    .from("entrate")
+    .select("cliente_id")
+    .eq("id", entrataId)
+    .single();
+  if (error) fail(error.message);
+  return data.cliente_id;
 }
 
 async function updateEntrata(id, payload) {
@@ -706,10 +757,17 @@ async function updateEntrata(id, payload) {
 }
 
 async function deleteEntrata(id) {
-  const { data: deleted, error } = await requireSupabase()
-    .rpc("admin_delete_entrata", { entrata_id: id });
+  const profile = await currentProfile();
+  if (isStaff(profile)) {
+    const { data: deleted, error } = await requireSupabase()
+      .rpc("admin_delete_entrata", { entrata_id: id });
+    if (error) fail(error.message);
+    if (!deleted) fail("Entrata non trovata", 404);
+    return ok({ ok: true });
+  }
+
+  const { error } = await requireSupabase().from("entrate").delete().eq("id", id);
   if (error) fail(error.message);
-  if (!deleted) fail("Entrata non trovata", 404);
   return ok({ ok: true });
 }
 
@@ -1078,12 +1136,62 @@ async function updatePreparazioneStato(id, stato) {
   return getPreparazione(data.id);
 }
 
+async function updatePreparazione(id, payload) {
+  const updates = {};
+  if (Object.prototype.hasOwnProperty.call(payload, "note")) updates.note = payload.note || "";
+  if (!Object.keys(updates).length) fail("Nessun campo da aggiornare");
+
+  const { data, error } = await requireSupabase()
+    .from("preparazioni")
+    .update(updates)
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) fail(error.message);
+  return getPreparazione(data.id);
+}
+
+async function createPreparazioneRiga(payload) {
+  const clienteId = await clienteIdForPreparazione(payload.preparazione_id);
+  await ensureReferenzeForEntrata(clienteId, [payload]);
+
+  const { data, error } = await requireSupabase()
+    .from("preparazioni_righe")
+    .insert({
+      preparazione_id: payload.preparazione_id,
+      ean: payload.ean,
+      sku: optionalText(payload.sku),
+      fnsku: optionalText(payload.fnsku),
+      quantita: Number(payload.quantita || 0),
+      servizi: payload.servizi || [],
+    })
+    .select()
+    .single();
+  if (error) fail(error.message);
+  return ok(data);
+}
+
 async function updatePreparazioneRiga(id, payload) {
   const updates = {};
+  if (Object.prototype.hasOwnProperty.call(payload, "ean")) updates.ean = optionalText(payload.ean);
+  if (Object.prototype.hasOwnProperty.call(payload, "sku")) updates.sku = optionalText(payload.sku);
   if (Object.prototype.hasOwnProperty.call(payload, "fnsku")) {
     updates.fnsku = optionalText(payload.fnsku);
   }
+  if (Object.prototype.hasOwnProperty.call(payload, "quantita")) updates.quantita = Number(payload.quantita || 0);
+  if (Object.prototype.hasOwnProperty.call(payload, "servizi")) updates.servizi = payload.servizi || [];
   if (!Object.keys(updates).length) fail("Nessun campo da aggiornare");
+
+  if (Object.prototype.hasOwnProperty.call(payload, "ean") || Object.prototype.hasOwnProperty.call(payload, "sku") || Object.prototype.hasOwnProperty.call(payload, "fnsku")) {
+    const { data: current, error: readError } = await requireSupabase()
+      .from("preparazioni_righe")
+      .select("preparazione_id,ean")
+      .eq("id", id)
+      .single();
+    if (readError) fail(readError.message);
+    const clienteId = await clienteIdForPreparazione(current.preparazione_id);
+    await ensureReferenzeForEntrata(clienteId, [{ ...payload, ean: updates.ean || current.ean }]);
+  }
 
   const { data, error } = await requireSupabase()
     .from("preparazioni_righe")
@@ -1093,6 +1201,22 @@ async function updatePreparazioneRiga(id, payload) {
     .single();
   if (error) fail(error.message);
   return ok(data);
+}
+
+async function deletePreparazioneRiga(id) {
+  const { error } = await requireSupabase().from("preparazioni_righe").delete().eq("id", id);
+  if (error) fail(error.message);
+  return ok({ ok: true });
+}
+
+async function clienteIdForPreparazione(preparazioneId) {
+  const { data, error } = await requireSupabase()
+    .from("preparazioni")
+    .select("cliente_id")
+    .eq("id", preparazioneId)
+    .single();
+  if (error) fail(error.message);
+  return data.cliente_id;
 }
 
 async function deletePreparazione(id) {
@@ -1105,38 +1229,14 @@ async function deletePreparazione(id) {
     return ok({ ok: true });
   }
 
-  const { data: deletedViaRpc, error: rpcError } = await requireSupabase()
-    .rpc("delete_requested_preparazione", { prep_id: id });
-
-  if (!rpcError) {
-    if (!deletedViaRpc) {
-      fail("Preparazione non trovata o gia presa in lavorazione", 409);
-    }
-    return ok({ ok: true });
-  }
-
-  const missingRpc = rpcError.code === "PGRST202" || /delete_requested_preparazione|schema cache|function/i.test(rpcError.message || "");
-  if (!missingRpc) fail(rpcError.message);
-
-  const { data: prep, error: readError } = await requireSupabase()
-    .from("preparazioni")
-    .select("id,stato")
-    .eq("id", id)
-    .single();
-  if (readError || !prep) fail("Preparazione non trovata", 404);
-  if (prep.stato !== "richiesta") {
-    fail("Puoi cancellare solo preparazioni ancora in stato Richiesta", 409);
-  }
-
   const { data: deleted, error } = await requireSupabase()
     .from("preparazioni")
     .delete()
     .eq("id", id)
-    .eq("stato", "richiesta")
     .select("id");
   if (error) fail(error.message);
   if (!deleted?.length) {
-    fail("Esegui la funzione SQL di cancellazione in Supabase e riprova", 403);
+    fail("Preparazione non trovata", 404);
   }
   return ok({ ok: true });
 }
@@ -1683,6 +1783,7 @@ export const api = {
     if (path.match(/^\/referenze\/[^/]+\/foto$/)) return uploadReferenzaFoto(path.split("/")[2], payload);
     if (path.match(/^\/entrate\/[^/]+\/documento$/)) return uploadEntrataDocumento(path.split("/")[2], payload);
     if (path === "/entrate") return createEntrata(payload);
+    if (path === "/entrate-righe") return createEntrataRiga(payload);
     if (path.match(/^\/entrate\/[^/]+\/ricevi$/)) return riceviEntrata(path.split("/")[2]);
     if (path === "/box") return createBox(payload);
     if (path.match(/^\/box\/[^/]+\/etichette$/)) return uploadBoxLabel(path.split("/")[2], "combined", payload);
@@ -1691,6 +1792,7 @@ export const api = {
       return uploadBoxLabel(id, tipo, payload);
     }
     if (path === "/preparazioni") return createPreparazione(payload);
+    if (path === "/preparazioni-righe") return createPreparazioneRiga(payload);
     if (path === "/etichette/genera" && config.responseType === "blob") return ok(generateLabelsPdfBlob(payload));
     fail(`Endpoint non migrato: ${path}`, 404);
   },
@@ -1704,6 +1806,7 @@ export const api = {
     if (path.match(/^\/box\/[^/]+\/stato$/)) return updateBoxStato(path.split("/")[2], payload.stato);
     if (path.match(/^\/box\/[^/]+$/)) return updateBox(path.split("/")[2], payload);
     if (path.match(/^\/preparazioni\/[^/]+\/stato$/)) return updatePreparazioneStato(path.split("/")[2], payload.stato);
+    if (path.match(/^\/preparazioni\/[^/]+$/)) return updatePreparazione(path.split("/")[2], payload);
     if (path.match(/^\/preparazioni-righe\/[^/]+$/)) return updatePreparazioneRiga(path.split("/")[2], payload);
     if (path.match(/^\/wms\/spedizioni\/[^/]+$/)) return updateWmsShipment(path.split("/")[3], payload);
     fail(`Endpoint non migrato: ${path}`, 404);
@@ -1712,7 +1815,9 @@ export const api = {
   async delete(url) {
     const { path } = pathAndQuery(url);
     if (path.match(/^\/entrate\/[^/]+$/)) return deleteEntrata(path.split("/")[2]);
+    if (path.match(/^\/entrate-righe\/[^/]+$/)) return deleteEntrataRiga(path.split("/")[2]);
     if (path.match(/^\/preparazioni\/[^/]+$/)) return deletePreparazione(path.split("/")[2]);
+    if (path.match(/^\/preparazioni-righe\/[^/]+$/)) return deletePreparazioneRiga(path.split("/")[2]);
     if (path.match(/^\/referenze\/[^/]+$/)) return deleteReferenza(path.split("/")[2]);
     fail(`Endpoint non migrato: ${path}`, 404);
   },
