@@ -144,6 +144,31 @@ async def _cascade_referenza_ean(cid: str, old_ean: str, new_ean: str):
         await db.box.update_one({"id": box["id"]}, {"$set": {"contenuto": contenuto}})
 
 
+async def _assert_referenza_non_usata(ref: dict):
+    ean = ref.get("ean")
+    if not ean:
+        return
+    cid = ref["cliente_id"]
+
+    entrate = await db.entrate.find({"cliente_id": cid}, {"id": 1}).to_list(50000)
+    entrata_ids = [e["id"] for e in entrate]
+    if entrata_ids and await db.entrate_righe.count_documents({"entrata_id": {"$in": entrata_ids}, "ean": ean}):
+        raise HTTPException(status_code=409, detail="Non puoi eliminare una referenza gia usata in entrate.")
+
+    preparazioni = await db.preparazioni.find({"cliente_id": cid}, {"id": 1}).to_list(50000)
+    prep_ids = [p["id"] for p in preparazioni]
+    if prep_ids and await db.preparazioni_righe.count_documents({"preparazione_id": {"$in": prep_ids}, "ean": ean}):
+        raise HTTPException(status_code=409, detail="Non puoi eliminare una referenza gia usata in preparazioni.")
+
+    if await db.box.count_documents({"cliente_id": cid, "contenuto.ean": ean}):
+        raise HTTPException(status_code=409, detail="Non puoi eliminare una referenza gia usata in box.")
+
+    bundle_refs = await db.referenze.find({"cliente_id": cid, "id": {"$ne": ref["id"]}}).to_list(50000)
+    for bundle_ref in bundle_refs:
+        if any(item.get("ean") == ean for item in bundle_ref.get("componenti", [])):
+            raise HTTPException(status_code=409, detail="Non puoi eliminare una referenza usata come componente di un bundle.")
+
+
 # ============================================================================
 # FILE STORAGE (foto prodotti, PDF etichette) — salvati in MongoDB
 # ============================================================================
@@ -271,6 +296,7 @@ async def elimina_referenza(ref_id: str, user: dict = Depends(get_current_user))
     if not d:
         raise HTTPException(status_code=404, detail="Referenza non trovata")
     await _assert_owns_cliente(user, d["cliente_id"])
+    await _assert_referenza_non_usata(d)
     await db.referenze.delete_one({"id": ref_id})
     return {"ok": True}
 

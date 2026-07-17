@@ -69,6 +69,18 @@ export default function ClientReferenze() {
     load();
   };
 
+  const eliminaReferenza = async (r) => {
+    const label = r.titolo || r.ean || "questa referenza";
+    if (!window.confirm(`Eliminare ${label}?`)) return;
+    try {
+      await api.delete(`/referenze/${r.id}`);
+      toast.success("Referenza eliminata");
+      load();
+    } catch (e) {
+      toast.error(formatApiError(e.response?.data?.detail));
+    }
+  };
+
   return (
     <div className="space-y-6" data-testid="client-referenze">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -165,7 +177,10 @@ export default function ClientReferenze() {
                     />
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button size="sm" variant="ghost" data-testid={`cref-save-${r.id}`} onClick={() => salvaReferenza(r.id)}><Save className="h-4 w-4" /></Button>
+                    <div className="flex items-center justify-end gap-1">
+                      <Button size="sm" variant="ghost" title="Salva" data-testid={`cref-save-${r.id}`} onClick={() => salvaReferenza(r.id)}><Save className="h-4 w-4" /></Button>
+                      <Button size="sm" variant="ghost" title="Elimina" className="text-destructive hover:text-destructive" data-testid={`cref-delete-${r.id}`} onClick={() => eliminaReferenza(r)}><Trash2 className="h-4 w-4" /></Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

@@ -358,6 +358,61 @@ async function cascadeReferenzaEan(clienteId, oldEan, newEan) {
   }
 }
 
+async function assertReferenzaNonUsata(ref) {
+  if (!ref?.ean) return;
+
+  const { data: entrate, error: entrateError } = await supabase
+    .from("entrate")
+    .select("id")
+    .eq("cliente_id", ref.cliente_id);
+  if (entrateError) fail(entrateError.message);
+  const entrataIds = (entrate || []).map((row) => row.id);
+  if (entrataIds.length) {
+    const { count, error } = await supabase
+      .from("entrate_righe")
+      .select("id", { count: "exact", head: true })
+      .in("entrata_id", entrataIds)
+      .eq("ean", ref.ean);
+    if (error) fail(error.message);
+    if (count > 0) fail("Non puoi eliminare una referenza gia usata in entrate.");
+  }
+
+  const { data: preparazioni, error: prepError } = await supabase
+    .from("preparazioni")
+    .select("id")
+    .eq("cliente_id", ref.cliente_id);
+  if (prepError) fail(prepError.message);
+  const prepIds = (preparazioni || []).map((row) => row.id);
+  if (prepIds.length) {
+    const { count, error } = await supabase
+      .from("preparazioni_righe")
+      .select("id", { count: "exact", head: true })
+      .in("preparazione_id", prepIds)
+      .eq("ean", ref.ean);
+    if (error) fail(error.message);
+    if (count > 0) fail("Non puoi eliminare una referenza gia usata in preparazioni.");
+  }
+
+  const { data: boxes, error: boxError } = await supabase
+    .from("box")
+    .select("contenuto")
+    .eq("cliente_id", ref.cliente_id);
+  if (boxError) fail(boxError.message);
+  if ((boxes || []).some((box) => (box.contenuto || []).some((item) => item.ean === ref.ean))) {
+    fail("Non puoi eliminare una referenza gia usata in box.");
+  }
+
+  const { data: refs, error: refsError } = await supabase
+    .from("referenze")
+    .select("componenti")
+    .eq("cliente_id", ref.cliente_id)
+    .neq("id", ref.id);
+  if (refsError) fail(refsError.message);
+  if ((refs || []).some((row) => (row.componenti || []).some((item) => item.ean === ref.ean))) {
+    fail("Non puoi eliminare una referenza usata come componente di un bundle.");
+  }
+}
+
 async function updateReferenza(id, payload) {
   const { data: current, error: readError } = await requireSupabase()
     .from("referenze")
@@ -378,6 +433,20 @@ async function updateReferenza(id, payload) {
     await cascadeReferenzaEan(current.cliente_id, current.ean, updates.ean);
   }
   return ok(data);
+}
+
+async function deleteReferenza(id) {
+  const { data: ref, error: readError } = await requireSupabase()
+    .from("referenze")
+    .select("*")
+    .eq("id", id)
+    .single();
+  if (readError || !ref) fail(readError?.message || "Referenza non trovata", 404);
+  await assertReferenzaNonUsata(ref);
+
+  const { error } = await requireSupabase().from("referenze").delete().eq("id", id);
+  if (error) fail(error.message);
+  return ok({ ok: true });
 }
 
 async function ensureReferenzeForEntrata(clienteId, righe = []) {
@@ -1644,11 +1713,7 @@ export const api = {
     const { path } = pathAndQuery(url);
     if (path.match(/^\/entrate\/[^/]+$/)) return deleteEntrata(path.split("/")[2]);
     if (path.match(/^\/preparazioni\/[^/]+$/)) return deletePreparazione(path.split("/")[2]);
-    if (path.match(/^\/referenze\/[^/]+$/)) {
-      const { error } = await requireSupabase().from("referenze").delete().eq("id", path.split("/")[2]);
-      if (error) fail(error.message);
-      return ok({ ok: true });
-    }
+    if (path.match(/^\/referenze\/[^/]+$/)) return deleteReferenza(path.split("/")[2]);
     fail(`Endpoint non migrato: ${path}`, 404);
   },
 };
