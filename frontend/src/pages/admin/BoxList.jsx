@@ -38,6 +38,7 @@ export default function AdminBox() {
     pronto: { label: "Spedito", next: "spedito" },
   }[stato]);
   const visibleBoxes = (boxes || []).filter((b) => view === "archivio" ? b.stato === "spedito" : b.stato !== "spedito");
+  const sharedPdfCounts = countSharedLabelUrls(boxes || []);
 
   return (
     <div className="space-y-6" data-testid="admin-box">
@@ -89,7 +90,7 @@ export default function AdminBox() {
                     <div className="flex gap-2">
                       {b.etichetta_amazon_pdf_url && b.etichetta_amazon_pdf_url === b.etichetta_ups_pdf_url ? (
                         <a href={fileUrl(b.etichetta_amazon_pdf_url)} target="_blank" rel="noreferrer" title="Etichette Amazon + UPS" className="inline-flex items-center gap-1 text-emerald-600">
-                          <FileText className="h-4 w-4" /><span className="text-xs">Etichette</span>
+                          <FileText className="h-4 w-4" /><span className="text-xs">{sharedPdfCounts[b.etichetta_amazon_pdf_url] > 1 ? `Gruppo ${sharedPdfCounts[b.etichetta_amazon_pdf_url]} box` : "Etichette"}</span>
                         </a>
                       ) : (
                         <>
@@ -127,4 +128,14 @@ export default function AdminBox() {
       </Card>
     </div>
   );
+}
+
+function countSharedLabelUrls(boxes) {
+  return boxes.reduce((acc, box) => {
+    const url = box.etichetta_amazon_pdf_url && box.etichetta_amazon_pdf_url === box.etichetta_ups_pdf_url
+      ? box.etichetta_amazon_pdf_url
+      : null;
+    if (url) acc[url] = (acc[url] || 0) + 1;
+    return acc;
+  }, {});
 }

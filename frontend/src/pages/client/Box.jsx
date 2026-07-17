@@ -5,14 +5,21 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { ClientBoxDetails } from "@/components/ClientBoxDetails";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, Upload, FileText, CheckCircle2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Loader2, Upload, FileText, CheckCircle2, Layers } from "lucide-react";
 
 export default function ClientBox() {
   const [boxes, setBoxes] = useState(null);
   const [titoli, setTitoli] = useState({});
   const [view, setView] = useState("attivi");
+  const [selected, setSelected] = useState([]);
+  const [groupUploading, setGroupUploading] = useState(false);
+  const groupLabelsRef = useRef();
 
-  const load = () => api.get("/box").then((r) => setBoxes(r.data));
+  const load = () => api.get("/box").then((r) => {
+    setBoxes(r.data);
+    setSelected((current) => current.filter((id) => (r.data || []).some((box) => box.id === id && box.stato === "pronto")));
+  });
   useEffect(() => {
     load();
     api.get("/referenze").then((r) => {
@@ -20,11 +27,49 @@ export default function ClientBox() {
     });
   }, []);
 
+  const visibleBoxes = (boxes || []).filter((b) => view === "archivio" ? b.stato === "spedito" : b.stato !== "spedito");
+  const groupableBoxes = visibleBoxes.filter((b) => b.stato === "pronto");
+  const selectedBoxes = (boxes || []).filter((b) => selected.includes(b.id));
+  const sharedPdfCounts = countSharedLabelUrls(boxes || []);
+
+  const toggleBox = (boxId) => {
+    setSelected((current) => (
+      current.includes(boxId) ? current.filter((id) => id !== boxId) : [...current, boxId]
+    ));
+  };
+
+  const toggleAllReady = () => {
+    const ids = groupableBoxes.map((box) => box.id);
+    const allSelected = ids.length > 0 && ids.every((id) => selected.includes(id));
+    setSelected(allSelected ? selected.filter((id) => !ids.includes(id)) : [...new Set([...selected, ...ids])]);
+  };
+
+  const uploadGroup = async (file) => {
+    if (!selected.length) {
+      toast.error("Seleziona almeno una box pronta");
+      return;
+    }
+    setGroupUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("box_ids", JSON.stringify(selected));
+      const { data } = await api.post("/box/etichette-gruppo", fd);
+      toast.success(`PDF collegato a ${data.aggiornate || selected.length} box`);
+      setSelected([]);
+      load();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Errore nel caricamento del PDF gruppo");
+    } finally {
+      setGroupUploading(false);
+    }
+  };
+
   return (
     <div className="space-y-6" data-testid="client-box">
       <div>
         <h1 className="font-heading text-2xl font-bold tracking-tight">I miei box</h1>
-        <p className="text-muted-foreground text-sm mt-1">Carica un unico PDF con entrambe le etichette del box.</p>
+        <p className="text-muted-foreground text-sm mt-1">Carica le etichette singole oppure un PDF unico per piu box pronte.</p>
       </div>
 
       {boxes && (
@@ -40,22 +85,82 @@ export default function ClientBox() {
         </div>
       )}
 
+      {boxes && view === "attivi" && groupableBoxes.length > 0 && (
+        <Card className="p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="font-heading font-semibold flex items-center gap-2">
+                <Layers className="h-4 w-4 text-primary" /> Etichette gruppo
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Seleziona le box pronte e carica una sola volta il PDF con tutte le etichette Amazon e UPS.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="outline" size="sm" onClick={toggleAllReady} data-testid="cbox-select-ready">
+                {groupableBoxes.every((box) => selected.includes(box.id)) ? "Deseleziona pronte" : "Seleziona pronte"}
+              </Button>
+              <input
+                ref={groupLabelsRef}
+                type="file"
+                accept="application/pdf"
+                className="hidden"
+                data-testid="cbox-group-labels-input"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) uploadGroup(file);
+                }}
+              />
+              <Button
+                disabled={selected.length === 0 || groupUploading}
+                onClick={() => groupLabelsRef.current.click()}
+                data-testid="cbox-group-labels-btn"
+              >
+                {groupUploading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
+                Carica PDF gruppo ({selected.length})
+              </Button>
+            </div>
+          </div>
+          {selectedBoxes.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2 text-xs">
+              {selectedBoxes.map((box) => (
+                <span key={box.id} className="rounded-full border border-border bg-slate-50 px-2 py-1 font-mono">
+                  {box.numero_box}
+                </span>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
+
       {!boxes ? (
         <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
-      ) : boxes.filter((b) => view === "archivio" ? b.stato === "spedito" : b.stato !== "spedito").length === 0 ? (
+      ) : visibleBoxes.length === 0 ? (
         <Card className="p-10 text-center text-muted-foreground">
           {view === "archivio" ? "Nessun box archiviato." : "Nessun box attivo."}
         </Card>
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
-          {boxes.filter((b) => view === "archivio" ? b.stato === "spedito" : b.stato !== "spedito").map((b) => <BoxItem key={b.id} box={b} titoli={titoli} onDone={load} />)}
+          {visibleBoxes.map((b) => (
+            <BoxItem
+              key={b.id}
+              box={b}
+              titoli={titoli}
+              onDone={load}
+              selected={selected.includes(b.id)}
+              onToggle={() => toggleBox(b.id)}
+              selectable={b.stato === "pronto"}
+              sharedCount={sharedPdfCounts[b.etichetta_amazon_pdf_url] || 0}
+            />
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-function BoxItem({ box, titoli, onDone }) {
+function BoxItem({ box, titoli, onDone, selected, onToggle, selectable, sharedCount }) {
   const labelsRef = useRef();
   const [uploading, setUploading] = useState(null);
 
@@ -76,7 +181,12 @@ function BoxItem({ box, titoli, onDone }) {
   return (
     <Card className="p-4" data-testid={`cbox-${box.id}`}>
       <div className="flex items-center justify-between">
-        <div className="font-heading font-semibold font-mono">{box.numero_box}</div>
+        <div className="flex items-center gap-2">
+          {selectable && (
+            <Checkbox checked={selected} onCheckedChange={onToggle} data-testid={`cbox-select-${box.id}`} />
+          )}
+          <div className="font-heading font-semibold font-mono">{box.numero_box}</div>
+        </div>
         <StatusBadge stato={box.stato} tipo="box" />
       </div>
       <div className="text-xs text-muted-foreground mt-1">
@@ -92,7 +202,7 @@ function BoxItem({ box, titoli, onDone }) {
         {box.etichetta_amazon_pdf_url || box.etichetta_ups_pdf_url ? (
           <a href={fileUrl(box.etichetta_amazon_pdf_url || box.etichetta_ups_pdf_url)} target="_blank" rel="noreferrer"
              className="flex items-center gap-1 text-xs text-emerald-600" data-testid={`cbox-labels-done-${box.id}`}>
-            <CheckCircle2 className="h-4 w-4" /> PDF etichette caricato
+            <CheckCircle2 className="h-4 w-4" /> {sharedCount > 1 ? `PDF gruppo (${sharedCount} box)` : "PDF etichette caricato"}
           </a>
         ) : (
           <Button variant="outline" size="sm" className="w-full" disabled={!puoCaricare || uploading === "etichette"}
@@ -106,4 +216,14 @@ function BoxItem({ box, titoli, onDone }) {
       )}
     </Card>
   );
+}
+
+function countSharedLabelUrls(boxes) {
+  return boxes.reduce((acc, box) => {
+    const url = box.etichetta_amazon_pdf_url && box.etichetta_amazon_pdf_url === box.etichetta_ups_pdf_url
+      ? box.etichetta_amazon_pdf_url
+      : null;
+    if (url) acc[url] = (acc[url] || 0) + 1;
+    return acc;
+  }, {});
 }

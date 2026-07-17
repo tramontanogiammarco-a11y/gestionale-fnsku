@@ -978,6 +978,52 @@ async function uploadBoxLabel(id, tipo, formData) {
   return updateBox(id, { [field]: url });
 }
 
+async function uploadBoxLabelsGroup(formData) {
+  const file = formData.get("file");
+  if (!file) fail("File mancante");
+  let boxIds = [];
+  try {
+    boxIds = JSON.parse(String(formData.get("box_ids") || "[]"));
+  } catch {
+    fail("Selezione box non valida");
+  }
+  boxIds = [...new Set((boxIds || []).map((id) => String(id || "").trim()).filter(Boolean))];
+  if (!boxIds.length) fail("Seleziona almeno una box");
+
+  const { data: boxes, error: boxError } = await requireSupabase()
+    .from("box")
+    .select("id,cliente_id,numero_box,stato")
+    .in("id", boxIds);
+  if (boxError) fail(boxError.message);
+  if ((boxes || []).length !== boxIds.length) fail("Una o piu box non sono disponibili", 404);
+
+  const clienteIds = [...new Set((boxes || []).map((box) => box.cliente_id))];
+  if (clienteIds.length !== 1) fail("Le box selezionate devono appartenere allo stesso cliente");
+  const nonPronte = (boxes || []).filter((box) => box.stato !== "pronto");
+  if (nonPronte.length) fail("Puoi caricare etichette di gruppo solo su box pronte");
+
+  const sortedBoxes = [...boxes].sort((a, b) => String(a.numero_box || "").localeCompare(String(b.numero_box || ""), "it", { numeric: true }));
+  const safeName = String(file.name || "etichette.pdf").replace(/[^a-zA-Z0-9._-]+/g, "-");
+  const path = `${clienteIds[0]}/box/gruppo-${Date.now()}-${safeName}`;
+  const { error: uploadError } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: true });
+  if (uploadError) fail(uploadError.message);
+  const url = fileUrl(path);
+
+  const { data, error } = await requireSupabase()
+    .from("box")
+    .update({ etichetta_amazon_pdf_url: url, etichetta_ups_pdf_url: url })
+    .in("id", boxIds)
+    .select();
+  if (error) fail(error.message);
+  return ok({
+    ok: true,
+    url,
+    box_ids: boxIds,
+    box_numeri: sortedBoxes.map((box) => box.numero_box),
+    aggiornate: data?.length || 0,
+  });
+}
+
 async function listPreparazioni(params) {
   let query = requireSupabase().from("preparazioni").select("*").order("created_at", { ascending: false });
   if (params.get("cliente_id")) query = query.eq("cliente_id", params.get("cliente_id"));
@@ -1880,6 +1926,7 @@ export const api = {
     if (path === "/entrate-righe") return createEntrataRiga(payload);
     if (path.match(/^\/entrate\/[^/]+\/ricevi$/)) return riceviEntrata(path.split("/")[2]);
     if (path === "/box") return createBox(payload);
+    if (path === "/box/etichette-gruppo") return uploadBoxLabelsGroup(payload);
     if (path.match(/^\/box\/[^/]+\/etichette$/)) return uploadBoxLabel(path.split("/")[2], "combined", payload);
     if (path.match(/^\/box\/[^/]+\/etichetta-(amazon|ups)$/)) {
       const [, id, tipo] = path.match(/^\/box\/([^/]+)\/etichetta-(amazon|ups)$/);
