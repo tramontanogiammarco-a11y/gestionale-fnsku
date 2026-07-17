@@ -160,7 +160,11 @@ function NuovoClienteDialog({ onCreated }) {
       <DialogTrigger asChild>
         <Button data-testid="nuovo-cliente-btn"><UserPlus className="h-4 w-4 mr-2" /> Nuovo cliente</Button>
       </DialogTrigger>
-      <DialogContent className="max-w-2xl">
+      <DialogContent
+        className="max-w-2xl"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+      >
         <DialogHeader><DialogTitle>Nuovo account cliente</DialogTitle></DialogHeader>
         <div className="space-y-3 max-h-[70vh] overflow-auto pr-1">
           <div className="grid grid-cols-2 gap-3">
@@ -236,7 +240,11 @@ function ModificaClienteDialog({ cliente, onSaved }) {
           <Pencil className="h-4 w-4" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-2xl">
+      <DialogContent
+        className="max-w-2xl"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+      >
         <DialogHeader><DialogTitle>Modifica cliente e listino</DialogTitle></DialogHeader>
         <div className="space-y-3 max-h-[70vh] overflow-auto pr-1">
           <div className="grid grid-cols-2 gap-3">
