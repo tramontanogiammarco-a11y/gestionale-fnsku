@@ -1544,7 +1544,7 @@ async function preparato(params) {
       in_box: inBox[ean] || 0,
       disponibile: Math.max(0, richiesto[ean] - (inBox[ean] || 0)),
     };
-  }).filter((r) => r.disponibile > 0));
+  }));
 }
 
 async function dashboardStats() {

@@ -138,7 +138,7 @@ export default function AdminComposizioneBox() {
                     <TableCell className="font-mono text-xs">{skusFor(m).join(", ") || "—"}</TableCell>
                     <TableCell className="text-right">{m.richiesto}</TableCell>
                     <TableCell className="text-right text-orange-600">{m.in_box}</TableCell>
-                    <TableCell className="text-right font-bold text-emerald-700">{m.disponibile}</TableCell>
+                    <TableCell className={`text-right font-bold ${m.disponibile > 0 ? "text-emerald-700" : "text-slate-500"}`}>{m.disponibile}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -156,9 +156,37 @@ export default function AdminComposizioneBox() {
               <div className="grid gap-3 md:grid-cols-2">
                 {boxes.map((b) => (
                   <Card className="p-4" key={b.id} data-testid={`comp-box-${b.id}`}>
-                    <div className="flex items-center justify-between">
-                      <div className="font-heading font-semibold font-mono">{b.numero_box}</div>
-                      <StatusBadge stato={b.stato} tipo="box" />
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="font-heading font-semibold font-mono">{b.numero_box}</div>
+                        <div className="mt-1"><StatusBadge stato={b.stato} tipo="box" /></div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <BoxFormDialog
+                          mode="edit"
+                          clienteId={clienteId}
+                          imballabili={imballabili}
+                          box={b}
+                          onDone={() => load(clienteId)}
+                          trigger={(
+                            <Button size="sm" variant="outline" data-testid={`comp-box-edit-${b.id}`}>
+                              <Pencil className="h-4 w-4 mr-1" /> Modifica
+                            </Button>
+                          )}
+                        />
+                        <BoxFormDialog
+                          mode="duplicate"
+                          clienteId={clienteId}
+                          imballabili={imballabili}
+                          box={b}
+                          onDone={() => load(clienteId)}
+                          trigger={(
+                            <Button size="sm" variant="outline" data-testid={`comp-box-duplicate-${b.id}`}>
+                              <Copy className="h-4 w-4 mr-1" /> Duplica
+                            </Button>
+                          )}
+                        />
+                      </div>
                     </div>
                     <div className="text-xs text-muted-foreground mt-1">
                       {b.peso_kg ? `${b.peso_kg} kg · ` : ""}
@@ -185,32 +213,6 @@ export default function AdminComposizioneBox() {
                           {b.etichetta_ups_pdf_url && <a href={fileUrl(b.etichetta_ups_pdf_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-emerald-600"><FileText className="h-3 w-3" /> UPS</a>}
                         </>
                       )}
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <BoxFormDialog
-                        mode="edit"
-                        clienteId={clienteId}
-                        imballabili={imballabili}
-                        box={b}
-                        onDone={() => load(clienteId)}
-                        trigger={(
-                          <Button size="sm" variant="outline" data-testid={`comp-box-edit-${b.id}`}>
-                            <Pencil className="h-4 w-4 mr-1" /> Modifica
-                          </Button>
-                        )}
-                      />
-                      <BoxFormDialog
-                        mode="duplicate"
-                        clienteId={clienteId}
-                        imballabili={imballabili}
-                        box={b}
-                        onDone={() => load(clienteId)}
-                        trigger={(
-                          <Button size="sm" variant="outline" data-testid={`comp-box-duplicate-${b.id}`}>
-                            <Copy className="h-4 w-4 mr-1" /> Duplica
-                          </Button>
-                        )}
-                      />
                     </div>
                     <div className="mt-2">
                       <Select value={b.stato} onValueChange={(v) => cambiaStatoBox(b.id, v)}>
@@ -312,7 +314,7 @@ function BoxFormDialog({ mode, clienteId, imballabili, box, onDone, trigger }) {
   const infoEan = (ean) => optionMap.get(ean);
   const libero = (ean) => {
     const m = imballabili.find((x) => x.ean === ean);
-    return Number(m?.disponibile || 0) + (isEdit ? quantitaBox(box, ean) : 0);
+    return Number(m?.disponibile || 0) + ((isEdit || isDuplicate) ? quantitaBox(box, ean) : 0);
   };
 
   const update = (i, k, v) => {
