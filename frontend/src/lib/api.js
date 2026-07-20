@@ -1502,7 +1502,7 @@ async function magazzino(params) {
 async function preparato(params) {
   const cid = await resolveClienteId(params.get("cliente_id") || undefined);
   const [{ data: preps, error: prepsError }, { data: boxes, error: boxesError }, { data: refs, error: refsError }] = await Promise.all([
-    supabase.from("preparazioni").select("*").eq("cliente_id", cid).in("stato", ["pronto", "spedito"]),
+    supabase.from("preparazioni").select("*").eq("cliente_id", cid).eq("stato", "pronto"),
     supabase.from("box").select("*").eq("cliente_id", cid).neq("stato", "spedito"),
     supabase.from("referenze").select("*").eq("cliente_id", cid),
   ]);
