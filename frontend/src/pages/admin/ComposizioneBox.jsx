@@ -124,12 +124,12 @@ export default function AdminComposizioneBox() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {preparato.length === 0 && (
+                {imballabili.length === 0 && (
                   <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-10">
-                    Nessuna merce in preparazione. Il cliente deve prima creare una richiesta di preparazione.
+                    Nessuna merce da imballare. Il cliente deve prima mettere una preparazione in pronto oppure la merce risulta gia boxata.
                   </TableCell></TableRow>
                 )}
-                {preparato.map((m) => (
+                {imballabili.map((m) => (
                   <TableRow key={m.ean} data-testid={`comp-prep-${m.ean}`}>
                     <TableCell>
                       <div className="max-w-xs truncate text-sm font-medium">{m.titolo || "Titolo non disponibile"}</div>
