@@ -16,6 +16,14 @@ import {
 } from "@/components/ui/table";
 import { Loader2, ArrowLeft, ClipboardList, Save, Trash2, Plus } from "lucide-react";
 
+function isPreparazioneAttiva(prep) {
+  return prep.stato === "richiesta" || prep.stato === "in_lavorazione";
+}
+
+function statoCliente(prep) {
+  return isPreparazioneAttiva(prep) ? prep.stato : "spedito";
+}
+
 export default function ClientPreparazioneDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -142,13 +150,14 @@ export default function ClientPreparazioneDetail() {
     return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
   }
 
+  const displayStato = statoCliente(prep);
   const order = ["richiesta", "in_lavorazione", "pronto", "spedito"];
-  const currentIndex = order.indexOf(prep.stato);
+  const currentIndex = order.indexOf(displayStato);
   const timeline = [
     { label: "Richiesta", date: prep.created_at, done: currentIndex >= 0 },
-    { label: "In lavorazione", done: currentIndex >= 1, current: prep.stato === "richiesta", empty: "Da avviare" },
-    { label: "Pronta", date: prep.data_pronto, done: currentIndex >= 2, current: prep.stato === "in_lavorazione", empty: "Da completare" },
-    { label: "Spedita", date: prep.data_spedito, done: currentIndex >= 3, current: prep.stato === "pronto", empty: "Da spedire" },
+    { label: "In lavorazione", done: currentIndex >= 1, current: displayStato === "richiesta", empty: "Da avviare" },
+    { label: "Pronta", date: prep.data_pronto, done: currentIndex >= 2, current: displayStato === "in_lavorazione", empty: "Da completare" },
+    { label: "Completata", date: prep.data_spedito || prep.data_pronto, done: currentIndex >= 3, current: displayStato === "pronto", empty: "Da completare" },
   ];
 
   return (
@@ -161,7 +170,7 @@ export default function ClientPreparazioneDetail() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="font-heading text-2xl font-bold tracking-tight">Preparazione</h1>
-            <StatusBadge stato={prep.stato} tipo="prep" />
+            <StatusBadge stato={displayStato} tipo="prep" />
           </div>
           <div className="flex flex-wrap gap-2">
             <Button onClick={salva} disabled={saving} data-testid="save-prep-detail">
@@ -175,7 +184,7 @@ export default function ClientPreparazioneDetail() {
         <div className="text-sm text-slate-600 mt-1">Creata il {new Date(prep.created_at).toLocaleDateString("it-IT")}</div>
         <div className="flex items-center gap-1 mt-3 max-w-md">
           {FLUSSO_PREP.map((s, i) => {
-            const done = FLUSSO_PREP.indexOf(prep.stato) >= i;
+            const done = FLUSSO_PREP.indexOf(displayStato) >= i;
             return <div key={s} className={`h-1.5 flex-1 rounded-full ${done ? "bg-blue-500" : "bg-slate-200"}`} title={STATI_PREP[s].label} />;
           })}
         </div>

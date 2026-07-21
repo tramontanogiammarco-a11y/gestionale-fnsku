@@ -20,6 +20,10 @@ function isPreparazioneAttiva(prep) {
   return prep.stato === "richiesta" || prep.stato === "in_lavorazione";
 }
 
+function statoCliente(prep) {
+  return isPreparazioneAttiva(prep) ? prep.stato : "spedito";
+}
+
 export default function ClientPreparazioni() {
   const [preps, setPreps] = useState(null);
   const [view, setView] = useState("attive");
@@ -59,49 +63,52 @@ export default function ClientPreparazioni() {
         </Card>
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
-          {preps.filter((p) => view === "archivio" ? !isPreparazioneAttiva(p) : isPreparazioneAttiva(p)).map((p) => (
-            <Card key={p.id} data-testid={`cprep-${p.id}`} className="p-4 cursor-pointer hover:shadow-sm transition-shadow" onClick={() => navigate(`/app/preparazioni/${p.id}`)}>
-              <div className="flex items-center justify-between">
-                <div className="font-heading font-semibold">Preparazione</div>
-                <StatusBadge stato={p.stato} tipo="prep" />
-              </div>
-              <div className="text-xs text-muted-foreground mt-1">
-                {new Date(p.created_at).toLocaleDateString("it-IT")} · {p.righe?.length || 0} righe · {p.righe?.reduce((a, r) => a + r.quantita, 0) || 0} pezzi
-              </div>
-              <div className="flex items-center gap-1 mt-3">
-                {FLUSSO_PREP.map((s, i) => {
-                  const done = FLUSSO_PREP.indexOf(p.stato) >= i;
-                  return <div key={s} className={`h-1.5 flex-1 rounded-full ${done ? "bg-blue-500" : "bg-slate-200"}`} title={STATI_PREP[s].label} />;
-                })}
-              </div>
-              <div className="flex items-center justify-between gap-2 mt-3">
-                {isPreparazioneAttiva(p) ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    data-testid={`delete-prep-${p.id}`}
-                    className="text-destructive hover:text-destructive"
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      if (!window.confirm("Cancellare questa preparazione e tutte le sue righe?")) return;
-                      try {
-                        await api.delete(`/preparazioni/${p.id}`);
-                        toast.success("Preparazione cancellata");
-                        load();
-                      } catch (err) {
-                        toast.error(formatApiError(err.response?.data?.detail));
-                      }
-                    }}
-                  >
-                    <Trash2 className="h-4 w-4" /> Cancella
-                  </Button>
-                ) : <div />}
-                <div className="flex items-center gap-1 text-xs font-medium text-blue-600">
-                  Apri dettaglio<ChevronRight className="h-4 w-4" />
+          {preps.filter((p) => view === "archivio" ? !isPreparazioneAttiva(p) : isPreparazioneAttiva(p)).map((p) => {
+            const displayStato = statoCliente(p);
+            return (
+              <Card key={p.id} data-testid={`cprep-${p.id}`} className="p-4 cursor-pointer hover:shadow-sm transition-shadow" onClick={() => navigate(`/app/preparazioni/${p.id}`)}>
+                <div className="flex items-center justify-between">
+                  <div className="font-heading font-semibold">Preparazione</div>
+                  <StatusBadge stato={displayStato} tipo="prep" />
                 </div>
-              </div>
-            </Card>
-          ))}
+                <div className="text-xs text-muted-foreground mt-1">
+                  {new Date(p.created_at).toLocaleDateString("it-IT")} · {p.righe?.length || 0} righe · {p.righe?.reduce((a, r) => a + r.quantita, 0) || 0} pezzi
+                </div>
+                <div className="flex items-center gap-1 mt-3">
+                  {FLUSSO_PREP.map((s, i) => {
+                    const done = FLUSSO_PREP.indexOf(displayStato) >= i;
+                    return <div key={s} className={`h-1.5 flex-1 rounded-full ${done ? "bg-blue-500" : "bg-slate-200"}`} title={STATI_PREP[s].label} />;
+                  })}
+                </div>
+                <div className="flex items-center justify-between gap-2 mt-3">
+                  {isPreparazioneAttiva(p) ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      data-testid={`delete-prep-${p.id}`}
+                      className="text-destructive hover:text-destructive"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (!window.confirm("Cancellare questa preparazione e tutte le sue righe?")) return;
+                        try {
+                          await api.delete(`/preparazioni/${p.id}`);
+                          toast.success("Preparazione cancellata");
+                          load();
+                        } catch (err) {
+                          toast.error(formatApiError(err.response?.data?.detail));
+                        }
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" /> Cancella
+                    </Button>
+                  ) : <div />}
+                  <div className="flex items-center gap-1 text-xs font-medium text-blue-600">
+                    Apri dettaglio<ChevronRight className="h-4 w-4" />
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>
