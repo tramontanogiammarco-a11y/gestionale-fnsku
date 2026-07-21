@@ -961,6 +961,17 @@ _SERV_LABEL = {"fnsku": "Etichettatura FNSKU", "busta": "Busta trasparente",
                "nastratura": "Nastratura", "pluriball": "Protezione pluriball"}
 
 
+def _box_scatola_codice(box: dict) -> Optional[str]:
+    if box.get("scatola_tipo") == "60x40x40":
+        return "scatola_60"
+    if box.get("scatola_tipo") == "40x30x30":
+        return "scatola_40"
+    dims = [float(box.get(k) or 0) for k in ("lunghezza_cm", "larghezza_cm", "altezza_cm")]
+    if all(v <= 0 for v in dims):
+        return None
+    return "scatola_60" if any(v >= 55 for v in dims) else "scatola_40"
+
+
 async def _calcola_fattura(cid: str, anno: int, mese: int, pallet: int):
     cli = await db.clienti.find_one({"id": cid})
     if not cli:
@@ -1008,12 +1019,11 @@ async def _calcola_fattura(cid: str, anno: int, mese: int, pallet: int):
     # Inscatolamento + costo scatole nostre legati alle preparazioni pronte nel periodo
     box_periodo = []
     if prep_ids:
-        box_periodo = await db.box.find({"cliente_id": cid, "preparazione_id": {"$in": prep_ids},
-                                         "stato": {"$in": ["pronto", "spedito"]}}).to_list(5000)
+        box_periodo = await db.box.find({"cliente_id": cid, "preparazione_id": {"$in": prep_ids}}).to_list(5000)
     nbox = len(box_periodo)
     add_riga("inscatolamento", "Inscatolamento box", nbox, prezzo("inscatolamento"))
-    n60 = sum(1 for b in box_periodo if b.get("scatola_tipo") == "60x40x40")
-    n40 = sum(1 for b in box_periodo if b.get("scatola_tipo") == "40x30x30")
+    n60 = sum(1 for b in box_periodo if _box_scatola_codice(b) == "scatola_60")
+    n40 = sum(1 for b in box_periodo if _box_scatola_codice(b) == "scatola_40")
     add_riga("scatola_60", "Scatola 60×40×40", n60, prezzo("scatola_60"))
     add_riga("scatola_40", "Scatola 40×30×30", n40, prezzo("scatola_40"))
 
@@ -1039,8 +1049,8 @@ async def _calcola_fattura(cid: str, anno: int, mese: int, pallet: int):
                           "quantita": len(boxes_prep), "prezzo": prezzo("inscatolamento"),
                           "importo": round(len(boxes_prep) * prezzo("inscatolamento"), 2)})
         for codice, label, qty in [
-            ("scatola_60", "Scatola 60×40×40", sum(1 for b in boxes_prep if b.get("scatola_tipo") == "60x40x40")),
-            ("scatola_40", "Scatola 40×30×30", sum(1 for b in boxes_prep if b.get("scatola_tipo") == "40x30x30")),
+            ("scatola_60", "Scatola 60×40×40", sum(1 for b in boxes_prep if _box_scatola_codice(b) == "scatola_60")),
+            ("scatola_40", "Scatola 40×30×30", sum(1 for b in boxes_prep if _box_scatola_codice(b) == "scatola_40")),
         ]:
             if qty:
                 costi.append({"codice": codice, "descrizione": label, "quantita": qty,

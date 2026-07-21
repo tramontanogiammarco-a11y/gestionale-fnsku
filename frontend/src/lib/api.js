@@ -104,6 +104,15 @@ const SERVICE_LABELS = {
   pluriball: "Pluriball",
 };
 
+function boxScatolaCodice(box = {}) {
+  if (box.scatola_tipo === "60x40x40") return "scatola_60";
+  if (box.scatola_tipo === "40x30x30") return "scatola_40";
+
+  const dims = [box.lunghezza_cm, box.larghezza_cm, box.altezza_cm].map((value) => Number(value || 0));
+  if (dims.every((value) => value <= 0)) return null;
+  return dims.some((value) => value >= 55) ? "scatola_60" : "scatola_40";
+}
+
 function isRealEan(ean, titolo) {
   const cleanEan = optionalText(ean);
   if (!cleanEan) return false;
@@ -1738,7 +1747,7 @@ async function fatturazione(params) {
   const righeByPrep = groupBy(prepRighe || [], "preparazione_id");
   const righeByEntrata = groupBy(entrateRighe || [], "entrata_id");
   const boxesByPrep = groupBy(
-    (boxes || []).filter((b) => prepIds.includes(b.preparazione_id) && ["pronto", "spedito"].includes(b.stato)),
+    (boxes || []).filter((b) => prepIds.includes(b.preparazione_id)),
     "preparazione_id"
   );
 
@@ -1758,8 +1767,8 @@ async function fatturazione(params) {
         servizioQty[servizio] = (servizioQty[servizio] || 0) + Number(riga.quantita || 0);
       }
     }
-    const scatola60 = boxesPrep.filter((b) => b.scatola_tipo === "60x40x40").length;
-    const scatola40 = boxesPrep.filter((b) => b.scatola_tipo === "40x30x30").length;
+    const scatola60 = boxesPrep.filter((b) => boxScatolaCodice(b) === "scatola_60").length;
+    const scatola40 = boxesPrep.filter((b) => boxScatolaCodice(b) === "scatola_40").length;
     const costi = [
       ...Object.entries(servizi).map(([codice, quantita]) => ({
         codice,
@@ -1815,8 +1824,8 @@ async function fatturazione(params) {
 
   const boxesFatturabili = Object.values(boxesByPrep).flat();
   addRiga("inscatolamento", "Inscatolamento box", boxesFatturabili.length, price("inscatolamento"));
-  const scatola60 = boxesFatturabili.filter((b) => b.scatola_tipo === "60x40x40").length;
-  const scatola40 = boxesFatturabili.filter((b) => b.scatola_tipo === "40x30x30").length;
+  const scatola60 = boxesFatturabili.filter((b) => boxScatolaCodice(b) === "scatola_60").length;
+  const scatola40 = boxesFatturabili.filter((b) => boxScatolaCodice(b) === "scatola_40").length;
   addRiga("scatola_60", "Scatola 60x40x40", scatola60, price("scatola_60"));
   addRiga("scatola_40", "Scatola 40x30x30", scatola40, price("scatola_40"));
   addRiga("stoccaggio_pallet", "Stoccaggio pallet mese", palletStoccati, price("stoccaggio_pallet"));
