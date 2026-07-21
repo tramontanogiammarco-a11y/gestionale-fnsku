@@ -99,6 +99,7 @@ function App() {
               <Route path="entrate/:id" element={<ClientEntrataDetail />} />
               <Route path="box" element={<ClientBox />} />
               <Route path="spedizioni" element={<ClientSpedizioni />} />
+              <Route path="fatturazione" element={<AdminFatturazione clientMode />} />
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />

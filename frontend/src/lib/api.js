@@ -87,6 +87,23 @@ function normalizedText(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function groupBy(rows, key) {
+  return (rows || []).reduce((acc, row) => {
+    const value = row?.[key];
+    if (!value) return acc;
+    acc[value] = acc[value] || [];
+    acc[value].push(row);
+    return acc;
+  }, {});
+}
+
+const SERVICE_LABELS = {
+  fnsku: "Applicazione etichette FNSKU",
+  busta: "Busta trasparente",
+  nastratura: "Nastratura",
+  pluriball: "Pluriball",
+};
+
 function isRealEan(ean, titolo) {
   const cleanEan = optionalText(ean);
   if (!cleanEan) return false;
@@ -1614,7 +1631,8 @@ async function dashboardStats() {
 }
 
 async function fatturazione(params) {
-  const clienteId = params.get("cliente_id");
+  const profile = await currentProfile();
+  const clienteId = isStaff(profile) ? params.get("cliente_id") : profile.cliente_id;
   const anno = Number(params.get("anno"));
   const mese = Number(params.get("mese"));
   const palletStoccati = Number(params.get("pallet") || 0);
@@ -1635,23 +1653,41 @@ async function fatturazione(params) {
   const addRiga = (codice, descrizione, quantita, prezzo) => {
     const q = Number(quantita || 0);
     const p = Number(prezzo || 0);
-    if (q <= 0 || p <= 0) return;
-    righe.push({ codice, descrizione, quantita: q, prezzo: p, importo: q * p });
+    if (q <= 0) return null;
+    const riga = { codice, descrizione, quantita: q, prezzo: p, importo: q * p };
+    righe.push(riga);
+    return riga;
   };
 
   const [{ data: entrate, error: entrateError }, { data: preps, error: prepsError }, { data: boxes, error: boxesError }] = await Promise.all([
-    supabase.from("entrate").select("*").eq("cliente_id", clienteId).gte("data_annuncio", start).lt("data_annuncio", end),
+    supabase.from("entrate").select("*").eq("cliente_id", clienteId).gte("data_ricezione", start).lt("data_ricezione", end),
     supabase.from("preparazioni").select("*").eq("cliente_id", clienteId).in("stato", ["pronto", "spedito"]).gte("data_pronto", start).lt("data_pronto", end),
-    supabase.from("box").select("*").eq("cliente_id", clienteId).gte("created_at", start).lt("created_at", end),
+    supabase.from("box").select("*").eq("cliente_id", clienteId),
   ]);
   const firstError = entrateError || prepsError || boxesError;
   if (firstError) fail(firstError.message);
 
   const prepIds = (preps || []).map((p) => p.id);
-  const { data: prepRighe, error: righeError } = prepIds.length
-    ? await supabase.from("preparazioni_righe").select("*").in("preparazione_id", prepIds)
-    : { data: [], error: null };
-  if (righeError) fail(righeError.message);
+  const entrataIds = (entrate || []).map((e) => e.id);
+  const [{ data: prepRighe, error: righeError }, { data: entrateRighe, error: entrateRigheError }, { data: refs, error: refsError }] = await Promise.all([
+    prepIds.length
+      ? supabase.from("preparazioni_righe").select("*").in("preparazione_id", prepIds)
+      : Promise.resolve({ data: [], error: null }),
+    entrataIds.length
+      ? supabase.from("entrate_righe").select("*").in("entrata_id", entrataIds)
+      : Promise.resolve({ data: [], error: null }),
+    supabase.from("referenze").select("id,cliente_id,ean,titolo,fnsku").eq("cliente_id", clienteId),
+  ]);
+  const detailError = righeError || entrateRigheError || refsError;
+  if (detailError) fail(detailError.message);
+
+  const refByEan = Object.fromEntries((refs || []).map((r) => [r.ean, r]));
+  const righeByPrep = groupBy(prepRighe || [], "preparazione_id");
+  const righeByEntrata = groupBy(entrateRighe || [], "entrata_id");
+  const boxesByPrep = groupBy(
+    (boxes || []).filter((b) => prepIds.includes(b.preparazione_id) && ["pronto", "spedito"].includes(b.stato)),
+    "preparazione_id"
+  );
 
   const entrataPallet = (entrate || []).filter((e) => e.tipo === "pallet").reduce((sum, e) => sum + Number(e.colli || 1), 0);
   const entrataScatola = (entrate || []).filter((e) => e.tipo === "scatola").reduce((sum, e) => sum + Number(e.colli || 1), 0);
@@ -1659,22 +1695,101 @@ async function fatturazione(params) {
   addRiga("entrata_scatola", "Entrata scatola", entrataScatola, price("entrata_scatola"));
 
   const servizioQty = {};
-  for (const riga of prepRighe || []) {
-    for (const servizio of riga.servizi || []) {
-      servizioQty[servizio] = (servizioQty[servizio] || 0) + Number(riga.quantita || 0);
+  const preparazioniDettaglio = (preps || []).map((prep) => {
+    const righePrep = righeByPrep[prep.id] || [];
+    const boxesPrep = boxesByPrep[prep.id] || [];
+    const servizi = {};
+    for (const riga of righePrep) {
+      for (const servizio of riga.servizi || []) {
+        servizi[servizio] = (servizi[servizio] || 0) + Number(riga.quantita || 0);
+        servizioQty[servizio] = (servizioQty[servizio] || 0) + Number(riga.quantita || 0);
+      }
     }
-  }
-  addRiga("fnsku", "Applicazione etichette FNSKU", servizioQty.fnsku, price("fnsku"));
-  addRiga("busta", "Busta trasparente", servizioQty.busta, price("busta"));
-  addRiga("nastratura", "Nastratura", servizioQty.nastratura, price("nastratura"));
-  addRiga("pluriball", "Pluriball", servizioQty.pluriball, price("pluriball"));
+    const scatola60 = boxesPrep.filter((b) => b.scatola_tipo === "60x40x40").length;
+    const scatola40 = boxesPrep.filter((b) => b.scatola_tipo === "40x30x30").length;
+    const costi = [
+      ...Object.entries(servizi).map(([codice, quantita]) => ({
+        codice,
+        descrizione: SERVICE_LABELS[codice] || codice,
+        quantita,
+        prezzo: price(codice),
+        importo: Number(quantita || 0) * price(codice),
+      })),
+      boxesPrep.length > 0 ? {
+        codice: "inscatolamento",
+        descrizione: "Inscatolamento box",
+        quantita: boxesPrep.length,
+        prezzo: price("inscatolamento"),
+        importo: boxesPrep.length * price("inscatolamento"),
+      } : null,
+      scatola60 > 0 ? {
+        codice: "scatola_60",
+        descrizione: "Scatola 60x40x40",
+        quantita: scatola60,
+        prezzo: price("scatola_60"),
+        importo: scatola60 * price("scatola_60"),
+      } : null,
+      scatola40 > 0 ? {
+        codice: "scatola_40",
+        descrizione: "Scatola 40x30x30",
+        quantita: scatola40,
+        prezzo: price("scatola_40"),
+        importo: scatola40 * price("scatola_40"),
+      } : null,
+    ].filter(Boolean);
 
-  addRiga("inscatolamento", "Inscatolamento box", (boxes || []).length, price("inscatolamento"));
-  const scatola60 = (boxes || []).filter((b) => Number(b.lunghezza_cm || 0) >= 55 || Number(b.larghezza_cm || 0) >= 55).length;
-  const scatola40 = (boxes || []).filter((b) => Number(b.lunghezza_cm || 0) > 0 && Number(b.lunghezza_cm || 0) < 55 && Number(b.larghezza_cm || 0) < 55).length;
+    return {
+      id: prep.id,
+      stato: prep.stato,
+      created_at: prep.created_at,
+      data_pronto: prep.data_pronto,
+      righe: righePrep.map((riga) => ({
+        ...riga,
+        titolo: refByEan[riga.ean]?.titolo || riga.ean,
+        fnsku: riga.fnsku || refByEan[riga.ean]?.fnsku || null,
+      })),
+      pezzi: righePrep.reduce((sum, riga) => sum + Number(riga.quantita || 0), 0),
+      servizi,
+      boxes: boxesPrep,
+      costi,
+      totale: costi.reduce((sum, riga) => sum + Number(riga.importo || 0), 0),
+    };
+  });
+
+  for (const codice of ["fnsku", "busta", "nastratura", "pluriball"]) {
+    addRiga(codice, SERVICE_LABELS[codice], servizioQty[codice], price(codice));
+  }
+
+  const boxesFatturabili = Object.values(boxesByPrep).flat();
+  addRiga("inscatolamento", "Inscatolamento box", boxesFatturabili.length, price("inscatolamento"));
+  const scatola60 = boxesFatturabili.filter((b) => b.scatola_tipo === "60x40x40").length;
+  const scatola40 = boxesFatturabili.filter((b) => b.scatola_tipo === "40x30x30").length;
   addRiga("scatola_60", "Scatola 60x40x40", scatola60, price("scatola_60"));
   addRiga("scatola_40", "Scatola 40x30x30", scatola40, price("scatola_40"));
   addRiga("stoccaggio_pallet", "Stoccaggio pallet mese", palletStoccati, price("stoccaggio_pallet"));
+
+  const entrateDettaglio = (entrate || []).map((entrata) => {
+    const colli = Number(entrata.colli || 1);
+    const codice = entrata.tipo === "pallet" ? "entrata_pallet" : "entrata_scatola";
+    const costo = {
+      codice,
+      descrizione: entrata.tipo === "pallet" ? "Entrata pallet" : "Entrata scatola",
+      quantita: colli,
+      prezzo: price(codice),
+      importo: colli * price(codice),
+    };
+    const righeEntrata = righeByEntrata[entrata.id] || [];
+    return {
+      ...entrata,
+      righe: righeEntrata.map((riga) => ({
+        ...riga,
+        titolo: refByEan[riga.ean]?.titolo || riga.ean,
+        fnsku: riga.fnsku || refByEan[riga.ean]?.fnsku || null,
+      })),
+      pezzi: righeEntrata.reduce((sum, riga) => sum + Number(riga.quantita || 0), 0),
+      costo,
+    };
+  });
 
   const subtotale = righe.reduce((sum, r) => sum + r.importo, 0);
   const ivaPerc = Number(listino.iva ?? 22);
@@ -1691,9 +1806,18 @@ async function fatturazione(params) {
     metriche: {
       entrata_pallet: entrataPallet,
       entrata_scatola: entrataScatola,
-      preparazioni: (preps || []).length,
-      box: (boxes || []).length,
+      preparazioni: preparazioniDettaglio.length,
+      box: boxesFatturabili.length,
       servizi: servizioQty,
+    },
+    dettaglio: {
+      entrate: entrateDettaglio,
+      preparazioni: preparazioniDettaglio,
+      stoccaggio: {
+        pallet: palletStoccati,
+        prezzo: price("stoccaggio_pallet"),
+        importo: palletStoccati * price("stoccaggio_pallet"),
+      },
     },
   });
 }

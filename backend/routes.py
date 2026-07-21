@@ -952,59 +952,120 @@ async def _calcola_fattura(cid: str, anno: int, mese: int, pallet: int):
     period = f"{anno:04d}-{mese:02d}"
     righe_out = []
 
+    def add_riga(codice, descrizione, quantita, unitario):
+        qta = int(quantita or 0)
+        unit = float(unitario or 0)
+        if qta <= 0:
+            return None
+        riga = {"codice": codice, "descrizione": descrizione, "quantita": qta,
+                "prezzo": unit, "importo": round(qta * unit, 2)}
+        righe_out.append(riga)
+        return riga
+
+    refs = await db.referenze.find({"cliente_id": cid}).to_list(50000)
+    ref_by_ean = {r.get("ean"): r for r in refs if r.get("ean")}
+
     # Servizi dalle preparazioni diventate "pronto" nel periodo
     serv_qty = {"fnsku": 0, "busta": 0, "nastratura": 0, "pluriball": 0}
     preps = await db.preparazioni.find(
         {"cliente_id": cid, "stato": {"$in": ["pronto", "spedito"]}}).to_list(5000)
-    prep_ids = [p["id"] for p in preps if (p.get("data_pronto") or "").startswith(period)]
+    preps_periodo = [p for p in preps if (p.get("data_pronto") or "").startswith(period)]
+    prep_ids = [p["id"] for p in preps_periodo]
+    preparazioni_dettaglio = []
+    prighe = []
     if prep_ids:
         prighe = await db.preparazioni_righe.find({"preparazione_id": {"$in": prep_ids}}).to_list(50000)
-        for r in prighe:
-            for s in r.get("servizi", []):
-                if s in serv_qty:
-                    serv_qty[s] += int(r.get("quantita", 0))
+    righe_by_prep = {}
+    for r in prighe:
+        righe_by_prep.setdefault(r["preparazione_id"], []).append(_clean(r))
+        for s in r.get("servizi", []):
+            if s in serv_qty:
+                serv_qty[s] += int(r.get("quantita", 0))
     for s in ["fnsku", "busta", "nastratura", "pluriball"]:
-        if serv_qty[s] > 0:
-            righe_out.append({"descrizione": _SERV_LABEL[s], "quantita": serv_qty[s],
-                              "prezzo": prezzo(s), "importo": round(serv_qty[s] * prezzo(s), 2)})
+        add_riga(s, _SERV_LABEL[s], serv_qty[s], prezzo(s))
 
-    # Inscatolamento + costo scatole nostre (box spediti nel periodo)
-    box_sped = await db.box.find({"cliente_id": cid, "stato": "spedito"}).to_list(5000)
-    box_periodo = [b for b in box_sped if (b.get("data_spedito") or "").startswith(period)]
+    # Inscatolamento + costo scatole nostre legati alle preparazioni pronte nel periodo
+    box_periodo = []
+    if prep_ids:
+        box_periodo = await db.box.find({"cliente_id": cid, "preparazione_id": {"$in": prep_ids},
+                                         "stato": {"$in": ["pronto", "spedito"]}}).to_list(5000)
     nbox = len(box_periodo)
-    if nbox > 0:
-        righe_out.append({"descrizione": "Inscatolamento (box spediti)", "quantita": nbox,
-                          "prezzo": prezzo("inscatolamento"), "importo": round(nbox * prezzo("inscatolamento"), 2)})
+    add_riga("inscatolamento", "Inscatolamento box", nbox, prezzo("inscatolamento"))
     n60 = sum(1 for b in box_periodo if b.get("scatola_tipo") == "60x40x40")
     n40 = sum(1 for b in box_periodo if b.get("scatola_tipo") == "40x30x30")
-    if n60 > 0:
-        righe_out.append({"descrizione": "Scatola 60×40×40", "quantita": n60,
-                          "prezzo": prezzo("scatola_60"), "importo": round(n60 * prezzo("scatola_60"), 2)})
-    if n40 > 0:
-        righe_out.append({"descrizione": "Scatola 40×30×30", "quantita": n40,
-                          "prezzo": prezzo("scatola_40"), "importo": round(n40 * prezzo("scatola_40"), 2)})
+    add_riga("scatola_60", "Scatola 60×40×40", n60, prezzo("scatola_60"))
+    add_riga("scatola_40", "Scatola 40×30×30", n40, prezzo("scatola_40"))
+
+    box_by_prep = {}
+    for b in box_periodo:
+        box_by_prep.setdefault(b.get("preparazione_id"), []).append(_clean(b))
+    for idx, p in enumerate(preps_periodo, start=1):
+        righe_prep = righe_by_prep.get(p["id"], [])
+        servizi_prep = {}
+        for r in righe_prep:
+            ref = ref_by_ean.get(r.get("ean")) or {}
+            r["titolo"] = ref.get("titolo") or r.get("ean")
+            r["fnsku"] = r.get("fnsku") or ref.get("fnsku")
+            for s in r.get("servizi", []):
+                servizi_prep[s] = servizi_prep.get(s, 0) + int(r.get("quantita", 0))
+        boxes_prep = box_by_prep.get(p["id"], [])
+        costi = []
+        for s, qta in servizi_prep.items():
+            costi.append({"codice": s, "descrizione": _SERV_LABEL.get(s, s), "quantita": qta,
+                          "prezzo": prezzo(s), "importo": round(qta * prezzo(s), 2)})
+        if boxes_prep:
+            costi.append({"codice": "inscatolamento", "descrizione": "Inscatolamento box",
+                          "quantita": len(boxes_prep), "prezzo": prezzo("inscatolamento"),
+                          "importo": round(len(boxes_prep) * prezzo("inscatolamento"), 2)})
+        for codice, label, qty in [
+            ("scatola_60", "Scatola 60×40×40", sum(1 for b in boxes_prep if b.get("scatola_tipo") == "60x40x40")),
+            ("scatola_40", "Scatola 40×30×30", sum(1 for b in boxes_prep if b.get("scatola_tipo") == "40x30x30")),
+        ]:
+            if qty:
+                costi.append({"codice": codice, "descrizione": label, "quantita": qty,
+                              "prezzo": prezzo(codice), "importo": round(qty * prezzo(codice), 2)})
+        preparazioni_dettaglio.append({**_clean(p), "numero": idx, "righe": righe_prep,
+                                       "pezzi": sum(int(r.get("quantita", 0)) for r in righe_prep),
+                                       "servizi": servizi_prep, "boxes": boxes_prep, "costi": costi,
+                                       "totale": round(sum(c["importo"] for c in costi), 2)})
 
     # Entrata merce ricevuta nel periodo (pallet / scatole)
     entrate = await db.entrate.find({"cliente_id": cid}).to_list(5000)
     pallet_colli = scatola_colli = 0
+    entrate_periodo = []
     for e in entrate:
         if (e.get("data_ricezione") or "").startswith(period):
+            entrate_periodo.append(e)
             n = int(e.get("colli", 1) or 1)
             if e.get("tipo") == "pallet":
                 pallet_colli += n
             else:
                 scatola_colli += n
-    if pallet_colli > 0:
-        righe_out.append({"descrizione": "Entrata merce (pallet)", "quantita": pallet_colli,
-                          "prezzo": prezzo("entrata_pallet"), "importo": round(pallet_colli * prezzo("entrata_pallet"), 2)})
-    if scatola_colli > 0:
-        righe_out.append({"descrizione": "Entrata merce (scatole)", "quantita": scatola_colli,
-                          "prezzo": prezzo("entrata_scatola"), "importo": round(scatola_colli * prezzo("entrata_scatola"), 2)})
+    add_riga("entrata_pallet", "Entrata merce (pallet)", pallet_colli, prezzo("entrata_pallet"))
+    add_riga("entrata_scatola", "Entrata merce (scatole)", scatola_colli, prezzo("entrata_scatola"))
+
+    entrata_ids = [e["id"] for e in entrate_periodo]
+    erighe = await db.entrate_righe.find({"entrata_id": {"$in": entrata_ids}}).to_list(50000) if entrata_ids else []
+    erighe_by_entrata = {}
+    for r in erighe:
+        erighe_by_entrata.setdefault(r["entrata_id"], []).append(_clean(r))
+    entrate_dettaglio = []
+    for e in entrate_periodo:
+        codice = "entrata_pallet" if e.get("tipo") == "pallet" else "entrata_scatola"
+        righe_e = erighe_by_entrata.get(e["id"], [])
+        for r in righe_e:
+            ref = ref_by_ean.get(r.get("ean")) or {}
+            r["titolo"] = ref.get("titolo") or r.get("ean")
+            r["fnsku"] = r.get("fnsku") or ref.get("fnsku")
+        colli = int(e.get("colli", 1) or 1)
+        entrate_dettaglio.append({**_clean(e), "righe": righe_e,
+                                  "pezzi": sum(int(r.get("quantita", 0)) for r in righe_e),
+                                  "costo": {"codice": codice, "descrizione": "Entrata pallet" if codice == "entrata_pallet" else "Entrata scatola",
+                                            "quantita": colli, "prezzo": prezzo(codice),
+                                            "importo": round(colli * prezzo(codice), 2)}})
 
     # Stoccaggio: numero pallet (input admin) × prezzo pallet/mese
-    if pallet and pallet > 0 and prezzo("stoccaggio_pallet") > 0:
-        righe_out.append({"descrizione": "Stoccaggio (pallet/mese)", "quantita": pallet,
-                          "prezzo": prezzo("stoccaggio_pallet"), "importo": round(pallet * prezzo("stoccaggio_pallet"), 2)})
+    add_riga("stoccaggio_pallet", "Stoccaggio (pallet/mese)", pallet, prezzo("stoccaggio_pallet"))
 
     subtotale = round(sum(r["importo"] for r in righe_out), 2)
     iva_perc = float(listino.get("iva", 22) or 0)
@@ -1013,21 +1074,30 @@ async def _calcola_fattura(cid: str, anno: int, mese: int, pallet: int):
     return {"cliente_id": cid, "ragione_sociale": cli.get("ragione_sociale"),
             "periodo": f"{mese:02d}/{anno}", "righe": righe_out,
             "subtotale": subtotale, "iva_perc": iva_perc,
-            "iva_importo": iva_importo, "totale": totale}
+            "iva_importo": iva_importo, "totale": totale,
+            "metriche": {"entrata_pallet": pallet_colli, "entrata_scatola": scatola_colli,
+                         "preparazioni": len(preparazioni_dettaglio), "box": len(box_periodo),
+                         "servizi": serv_qty},
+            "dettaglio": {"entrate": entrate_dettaglio,
+                          "preparazioni": preparazioni_dettaglio,
+                          "stoccaggio": {"pallet": pallet, "prezzo": prezzo("stoccaggio_pallet"),
+                                         "importo": round((pallet or 0) * prezzo("stoccaggio_pallet"), 2)}}}
 
 
 @router.get("/fatturazione")
-async def fatturazione(cliente_id: str = Query(...), anno: int = Query(...),
+async def fatturazione(cliente_id: Optional[str] = Query(None), anno: int = Query(...),
                        mese: int = Query(...), pallet: int = Query(0),
-                       user: dict = Depends(require_admin)):
-    return await _calcola_fattura(cliente_id, anno, mese, pallet)
+                       user: dict = Depends(get_current_user)):
+    cid = _resolve_cliente_id(user, cliente_id)
+    return await _calcola_fattura(cid, anno, mese, pallet)
 
 
 @router.get("/fatturazione/pdf")
-async def fatturazione_pdf(cliente_id: str = Query(...), anno: int = Query(...),
+async def fatturazione_pdf(cliente_id: Optional[str] = Query(None), anno: int = Query(...),
                            mese: int = Query(...), pallet: int = Query(0),
-                           user: dict = Depends(require_admin)):
-    f = await _calcola_fattura(cliente_id, anno, mese, pallet)
+                           user: dict = Depends(get_current_user)):
+    cid = _resolve_cliente_id(user, cliente_id)
+    f = await _calcola_fattura(cid, anno, mese, pallet)
     pdf = invoice_gen.genera_fattura_pdf(
         f["ragione_sociale"], f["periodo"], f["righe"],
         f["subtotale"], f["iva_perc"], f["iva_importo"], f["totale"])
