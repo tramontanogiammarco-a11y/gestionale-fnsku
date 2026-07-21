@@ -861,7 +861,20 @@ async def _prep_con_righe(prep: dict) -> dict:
         r["referenza_id"] = ref.get("id") if ref else None
         out.append(r)
     prep["righe"] = out
+    boxes = await db.box.find({"preparazione_id": prep["id"]}).to_list(5000)
+    prep.update(_effective_prep_status(prep, boxes))
+    prep["box_stati"] = [_clean(b) for b in boxes]
     return prep
+
+
+def _effective_prep_status(prep: dict, boxes: list) -> dict:
+    if not boxes or prep.get("stato") == "spedito":
+        return {"stato": prep.get("stato")}
+    if all(b.get("stato") == "spedito" for b in boxes):
+        shipped_dates = sorted([b.get("data_spedito") for b in boxes if b.get("data_spedito")])
+        return {"stato": "spedito", "stato_db": prep.get("stato"),
+                "data_spedito": shipped_dates[-1] if shipped_dates else None}
+    return {"stato": prep.get("stato")}
 
 
 @router.get("/preparazioni")
@@ -881,6 +894,11 @@ async def lista_preparazioni(cliente_id: Optional[str] = Query(None),
         all_righe = await db.preparazioni_righe.find({"preparazione_id": {"$in": prep_ids}}).to_list(50000)
         for r in all_righe:
             righe_map.setdefault(r["preparazione_id"], []).append(_clean(r))
+    boxes_map = {}
+    if prep_ids:
+        all_boxes = await db.box.find({"preparazione_id": {"$in": prep_ids}}).to_list(50000)
+        for b in all_boxes:
+            boxes_map.setdefault(b["preparazione_id"], []).append(_clean(b))
     clienti_map = {}
     if cliente_ids:
         all_cli = await db.clienti.find({"id": {"$in": cliente_ids}}).to_list(50000)
@@ -888,7 +906,10 @@ async def lista_preparazioni(cliente_id: Optional[str] = Query(None),
     result = []
     for d in docs:
         d = _clean(d)
+        boxes = boxes_map.get(d["id"], [])
+        d.update(_effective_prep_status(d, boxes))
         d["righe"] = righe_map.get(d["id"], [])
+        d["box_stati"] = boxes
         cli = clienti_map.get(d["cliente_id"])
         d["cliente_ragione_sociale"] = cli["ragione_sociale"] if cli else None
         result.append(d)

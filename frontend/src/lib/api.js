@@ -976,7 +976,40 @@ async function updateBox(id, payload) {
 }
 
 async function updateBoxStato(id, stato) {
-  return updateBox(id, { stato, data_spedito: stato === "spedito" ? nowIso() : null });
+  const response = await updateBox(id, { stato, data_spedito: stato === "spedito" ? nowIso() : null });
+  if (response.data?.preparazione_id) await syncPreparazioneFromBoxes(response.data.preparazione_id);
+  return response;
+}
+
+async function syncPreparazioneFromBoxes(preparazioneId) {
+  if (!preparazioneId) return null;
+  const { data: boxes, error: boxesError } = await requireSupabase()
+    .from("box")
+    .select("stato,data_spedito")
+    .eq("preparazione_id", preparazioneId);
+  if (boxesError) fail(boxesError.message);
+  if (!boxes?.length) return null;
+
+  let stato = "in_lavorazione";
+  if (boxes.every((box) => box.stato === "spedito")) stato = "spedito";
+  else if (boxes.every((box) => ["pronto", "spedito"].includes(box.stato))) stato = "pronto";
+
+  const updates = { stato };
+  if (stato === "pronto" || stato === "spedito") {
+    const { data: prep } = await supabase
+      .from("preparazioni")
+      .select("data_pronto")
+      .eq("id", preparazioneId)
+      .single();
+    if (!prep?.data_pronto) updates.data_pronto = nowIso();
+  }
+
+  const { error } = await requireSupabase()
+    .from("preparazioni")
+    .update(updates)
+    .eq("id", preparazioneId);
+  if (error) fail(error.message);
+  return updates;
 }
 
 async function uploadBoxLabel(id, tipo, formData) {
@@ -1052,10 +1085,14 @@ async function listPreparazioni(params) {
 
 async function enrichPreparazioni(preps) {
   const ids = preps.map((p) => p.id);
-  const { data: righe, error: righeError } = ids.length
-    ? await supabase.from("preparazioni_righe").select("*").in("preparazione_id", ids)
-    : { data: [], error: null };
-  if (righeError) fail(righeError.message);
+  const [{ data: righe, error: righeError }, { data: boxes, error: boxesError }] = ids.length
+    ? await Promise.all([
+      supabase.from("preparazioni_righe").select("*").in("preparazione_id", ids),
+      supabase.from("box").select("id,preparazione_id,numero_box,stato,data_spedito").in("preparazione_id", ids),
+    ])
+    : [{ data: [], error: null }, { data: [], error: null }];
+  const enrichError = righeError || boxesError;
+  if (enrichError) fail(enrichError.message);
   const refs = await refsFor(preps.map((p) => p.cliente_id));
   const cmap = await clientiMap(preps.map((p) => p.cliente_id));
   const byPrep = {};
@@ -1064,11 +1101,27 @@ async function enrichPreparazioni(preps) {
     byPrep[r.preparazione_id] = byPrep[r.preparazione_id] || [];
     byPrep[r.preparazione_id].push({ ...r, titolo: ref?.titolo, fnsku: r.fnsku || ref?.fnsku || null, referenza_id: ref?.id });
   }
+  const boxesByPrep = groupBy(boxes || [], "preparazione_id");
   return preps.map((p) => ({
     ...p,
+    ...effectivePreparazioneStatus(p, boxesByPrep[p.id] || []),
     righe: byPrep[p.id] || [],
+    box_stati: boxesByPrep[p.id] || [],
     cliente_ragione_sociale: cmap[p.cliente_id]?.ragione_sociale || null,
   }));
+}
+
+function effectivePreparazioneStatus(prep, boxes) {
+  if (!boxes.length || prep.stato === "spedito") return { stato: prep.stato };
+  if (boxes.every((box) => box.stato === "spedito")) {
+    const shippedDates = boxes.map((box) => box.data_spedito).filter(Boolean).sort();
+    return {
+      stato: "spedito",
+      stato_db: prep.stato,
+      data_spedito: shippedDates[shippedDates.length - 1] || null,
+    };
+  }
+  return { stato: prep.stato };
 }
 
 async function refsFor(clienteIds) {
