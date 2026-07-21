@@ -6,7 +6,9 @@ import { ClientBoxDetails } from "@/components/ClientBoxDetails";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Loader2, Upload, FileText, CheckCircle2, Layers, ChevronDown, PackageCheck, CalendarDays } from "lucide-react";
 
@@ -36,8 +38,20 @@ function sortBoxes(boxes) {
 function boxDate(box) {
   const sharedUrl = sharedLabelUrl(box);
   const groupTs = labelTimestamp(sharedUrl);
+  return new Date(box.data_spedito || (groupTs ? groupTs : null) || box.created_at || Date.now());
+}
+
+function shipmentDate(boxes, labelUrl) {
+  const shippedDates = (boxes || [])
+    .map((box) => box.data_spedito ? new Date(box.data_spedito) : null)
+    .filter((date) => date && !Number.isNaN(date.getTime()));
+  if (shippedDates.length) return new Date(Math.max(...shippedDates.map((date) => date.getTime())));
+  const groupTs = labelTimestamp(labelUrl);
   if (groupTs) return new Date(groupTs);
-  return new Date(box.data_spedito || box.created_at || Date.now());
+  const createdDates = (boxes || [])
+    .map((box) => box.created_at ? new Date(box.created_at) : null)
+    .filter((date) => date && !Number.isNaN(date.getTime()));
+  return createdDates.length ? new Date(Math.max(...createdDates.map((date) => date.getTime()))) : null;
 }
 
 function monthKey(date) {
@@ -49,6 +63,11 @@ function monthLabel(key) {
   const [year, month] = String(key || "").split("-").map(Number);
   if (!year || !month) return key;
   return new Date(year, month - 1, 1).toLocaleDateString("it-IT", { month: "long", year: "numeric" });
+}
+
+function dateLabel(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("it-IT", { day: "2-digit", month: "long", year: "numeric" });
 }
 
 function availableMonths(boxes) {
@@ -89,6 +108,7 @@ function buildSpedizioni(boxes) {
       labelUrl: url,
       boxes: sortBoxes(groupBoxes),
       ts: labelTimestamp(url),
+      date: shipmentDate(groupBoxes, url),
     }))
     .sort((a, b) => a.ts - b.ts);
 
@@ -99,12 +119,14 @@ function buildSpedizioni(boxes) {
       labelUrl: null,
       boxes: sortBoxes(singles),
       ts: Number.MAX_SAFE_INTEGER,
+      date: null,
     });
   }
 
   return spedizioni.map((group, index) => ({
     ...group,
     title: group.type === "shipment" ? `Spedizione ${index + 1}` : "Box singoli / da etichettare",
+    dateLabel: group.type === "shipment" ? dateLabel(group.date) : "",
   }));
 }
 
@@ -204,20 +226,23 @@ export default function ClientBox() {
               <label className="mb-1 flex items-center gap-1 text-xs font-medium text-muted-foreground">
                 <CalendarDays className="h-3 w-3" /> Mese
               </label>
-              <Input
-                type="month"
-                value={monthFilter === "all" ? "" : monthFilter}
-                onChange={(e) => {
-                  setMonthFilter(e.target.value || "all");
+              <Select
+                value={monthFilter}
+                onValueChange={(value) => {
+                  setMonthFilter(value);
                   setSelected([]);
                 }}
-                className="h-9 w-40"
-                data-testid="box-month-filter"
-                list="box-month-options"
-              />
-              <datalist id="box-month-options">
-                {monthOptions.map((key) => <option key={key} value={key}>{monthLabel(key)}</option>)}
-              </datalist>
+              >
+                <SelectTrigger className="h-9 w-44" data-testid="box-month-filter">
+                  <SelectValue placeholder="Tutti i mesi" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tutti i mesi</SelectItem>
+                  {monthOptions.map((key) => (
+                    <SelectItem key={key} value={key}>{monthLabel(key)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <Button
               size="sm"
@@ -330,7 +355,10 @@ function ShipmentGroup({ group, titoli, onDone, selected, toggleBox, sharedPdfCo
                 <PackageCheck className="h-4 w-4" />
               </div>
               <div>
-                <div className="font-heading text-base font-semibold">{group.title}</div>
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                  <span className="font-heading text-base font-semibold">{group.title}</span>
+                  {group.dateLabel && <span className="text-xs font-medium text-muted-foreground">{group.dateLabel}</span>}
+                </div>
                 <div className="mt-1 text-xs text-muted-foreground">
                   {group.boxes.length} box · {totalPieces(group.boxes)} pezzi · {readyCount} pronti · {shippedCount} spediti
                 </div>
