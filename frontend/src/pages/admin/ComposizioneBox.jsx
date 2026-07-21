@@ -17,7 +17,8 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, FileText, Trash2, Boxes as BoxesIcon, ClipboardList, Copy, Pencil, Truck } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Loader2, Plus, FileText, Trash2, Boxes as BoxesIcon, ClipboardList, Copy, Pencil, Truck, ChevronDown, PackageCheck } from "lucide-react";
 
 function azioneErrore(e) {
   if (e?.response?.status === 403)
@@ -41,6 +42,80 @@ function quantitaBox(box, ean) {
     .reduce((sum, c) => sum + Number(c.quantita || 0), 0);
 }
 
+function sharedLabelUrl(box) {
+  return box?.etichetta_amazon_pdf_url && box.etichetta_amazon_pdf_url === box.etichetta_ups_pdf_url
+    ? box.etichetta_amazon_pdf_url
+    : null;
+}
+
+function numeroBoxValue(value) {
+  const match = String(value || "").match(/\d+/);
+  return match ? Number(match[0]) : Number.MAX_SAFE_INTEGER;
+}
+
+function sortBoxes(boxes) {
+  return [...boxes].sort((a, b) => {
+    const numDiff = numeroBoxValue(a.numero_box) - numeroBoxValue(b.numero_box);
+    return numDiff || String(a.numero_box || "").localeCompare(String(b.numero_box || ""), "it", { numeric: true });
+  });
+}
+
+function labelTimestamp(url) {
+  const match = String(url || "").match(/gruppo-(\d+)/);
+  return match ? Number(match[1]) : 0;
+}
+
+function totalPieces(boxes) {
+  return boxes.reduce((sum, box) => (
+    sum + (box.contenuto || []).reduce((lineSum, item) => lineSum + Number(item.quantita || 0), 0)
+  ), 0);
+}
+
+function buildSpedizioni(boxes) {
+  const labelCounts = boxes.reduce((acc, box) => {
+    const url = sharedLabelUrl(box);
+    if (url) acc[url] = (acc[url] || 0) + 1;
+    return acc;
+  }, {});
+  const groups = new Map();
+  const singles = [];
+
+  for (const box of boxes) {
+    const url = sharedLabelUrl(box);
+    if (url && labelCounts[url] > 1) {
+      if (!groups.has(url)) groups.set(url, []);
+      groups.get(url).push(box);
+    } else {
+      singles.push(box);
+    }
+  }
+
+  const spedizioni = Array.from(groups.entries())
+    .map(([url, groupBoxes]) => ({
+      key: `shipment:${url}`,
+      type: "shipment",
+      labelUrl: url,
+      boxes: sortBoxes(groupBoxes),
+      ts: labelTimestamp(url),
+    }))
+    .sort((a, b) => a.ts - b.ts);
+
+  if (singles.length) {
+    spedizioni.push({
+      key: "singles",
+      type: "singles",
+      labelUrl: null,
+      boxes: sortBoxes(singles),
+      ts: Number.MAX_SAFE_INTEGER,
+    });
+  }
+
+  return spedizioni.map((group, index) => ({
+    ...group,
+    title: group.type === "shipment" ? `Spedizione ${index + 1}` : "Box singoli / da etichettare",
+  }));
+}
+
 // Componi box a livello di CLIENTE pescando SOLO dalla merce in preparazione
 // (richiesta nelle Preparazioni). Un box può mescolare SKU di richieste diverse.
 export default function AdminComposizioneBox() {
@@ -51,6 +126,7 @@ export default function AdminComposizioneBox() {
   const [loading, setLoading] = useState(false);
   const [selectedBoxIds, setSelectedBoxIds] = useState(new Set());
   const [bulkSaving, setBulkSaving] = useState(false);
+  const [openShipmentKeys, setOpenShipmentKeys] = useState(new Set());
 
   useEffect(() => { api.get("/clienti").then((r) => setClienti(r.data)); }, []);
 
@@ -65,6 +141,7 @@ export default function AdminComposizioneBox() {
         setPreparato(p.data);
         setBoxes(b.data);
         setSelectedBoxIds(new Set());
+        setOpenShipmentKeys(new Set(buildSpedizioni(b.data || []).map((group) => group.key)));
       })
       .catch((e) => toast.error(azioneErrore(e)))
       .finally(() => setLoading(false));
@@ -73,6 +150,7 @@ export default function AdminComposizioneBox() {
   const onSelectCliente = (cid) => {
     setClienteId(cid);
     setSelectedBoxIds(new Set());
+    setOpenShipmentKeys(new Set());
     load(cid);
   };
 
@@ -92,6 +170,7 @@ export default function AdminComposizioneBox() {
   const imballabili = preparato.filter((m) => m.disponibile > 0);
   const boxPronti = boxes.filter((b) => b.stato === "pronto");
   const selectedPronti = boxPronti.filter((b) => selectedBoxIds.has(b.id));
+  const spedizioni = useMemo(() => buildSpedizioni(boxes), [boxes]);
   const toggleBox = (id, checked) => {
     setSelectedBoxIds((prev) => {
       const next = new Set(prev);
@@ -102,6 +181,14 @@ export default function AdminComposizioneBox() {
   };
   const selezionaPronti = () => setSelectedBoxIds(new Set(boxPronti.map((b) => b.id)));
   const deselezionaBox = () => setSelectedBoxIds(new Set());
+  const toggleShipmentOpen = (key) => {
+    setOpenShipmentKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
   const segnaSelezionatiSpediti = async () => {
     if (selectedPronti.length === 0) {
       toast.error("Seleziona almeno un box pronto");
@@ -214,93 +301,162 @@ export default function AdminComposizioneBox() {
                 Nessun box. Clicca <b>"Nuovo box"</b> per comporre un collo dalla merce in preparazione.
               </div>
             ) : (
-              <div className="grid gap-3 md:grid-cols-2">
-                {boxes.map((b) => (
-                  <Card className="p-4" key={b.id} data-testid={`comp-box-${b.id}`}>
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="flex items-start gap-3">
-                        {b.stato === "pronto" && (
-                          <Checkbox
-                            checked={selectedBoxIds.has(b.id)}
-                            onCheckedChange={(checked) => toggleBox(b.id, !!checked)}
-                            data-testid={`comp-box-select-${b.id}`}
-                            className="mt-1"
-                          />
-                        )}
-                        <div>
-                          <div className="font-heading font-semibold font-mono">{b.numero_box}</div>
-                          <div className="mt-1"><StatusBadge stato={b.stato} tipo="box" /></div>
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <BoxFormDialog
-                          mode="edit"
-                          clienteId={clienteId}
-                          imballabili={imballabili}
-                          box={b}
-                          onDone={() => load(clienteId)}
-                          trigger={(
-                            <Button size="sm" variant="outline" data-testid={`comp-box-edit-${b.id}`}>
-                              <Pencil className="h-4 w-4 mr-1" /> Modifica
-                            </Button>
-                          )}
-                        />
-                        <BoxFormDialog
-                          mode="duplicate"
-                          clienteId={clienteId}
-                          imballabili={imballabili}
-                          box={b}
-                          onDone={() => load(clienteId)}
-                          trigger={(
-                            <Button size="sm" variant="outline" data-testid={`comp-box-duplicate-${b.id}`}>
-                              <Copy className="h-4 w-4 mr-1" /> Duplica
-                            </Button>
-                          )}
-                        />
-                      </div>
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-1">
-                      {b.peso_kg ? `${b.peso_kg} kg · ` : ""}
-                      {b.lunghezza_cm && b.larghezza_cm && b.altezza_cm
-                        ? `${b.lunghezza_cm}×${b.larghezza_cm}×${b.altezza_cm} cm` : "dimensioni n/d"}
-                      {b.scatola_tipo && b.scatola_tipo !== "cliente" ? ` · Scatola nostra ${b.scatola_tipo}` : " · Scatola cliente"}
-                    </div>
-                    {b.contenuto?.length > 0 && (
-                      <div className="mt-2 rounded bg-slate-50 p-2 text-xs">
-                        {b.contenuto.map((c, i) => (
-                          <div key={i} className="flex justify-between py-0.5">
-                            <span className="font-mono">{c.ean}{c.sku ? ` · ${c.sku}` : ""}</span>
-                            <span>×{c.quantita}</span>
+              <div className="space-y-3">
+                {spedizioni.map((group) => {
+                  const readyCount = group.boxes.filter((box) => box.stato === "pronto").length;
+                  const shippedCount = group.boxes.filter((box) => box.stato === "spedito").length;
+                  const isOpen = openShipmentKeys.has(group.key);
+                  return (
+                    <Collapsible
+                      key={group.key}
+                      open={isOpen}
+                      onOpenChange={() => toggleShipmentOpen(group.key)}
+                      data-testid={`comp-spedizione-${group.key}`}
+                    >
+                      <Card className="overflow-hidden">
+                        <CollapsibleTrigger asChild>
+                          <button
+                            type="button"
+                            className="flex w-full flex-wrap items-center justify-between gap-3 p-4 text-left transition hover:bg-slate-50"
+                            data-testid={`comp-spedizione-trigger-${group.key}`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className="mt-0.5 rounded-md bg-primary/10 p-2 text-primary">
+                                <PackageCheck className="h-4 w-4" />
+                              </div>
+                              <div>
+                                <div className="font-heading text-base font-semibold">{group.title}</div>
+                                <div className="mt-1 text-xs text-muted-foreground">
+                                  {group.boxes.length} box · {totalPieces(group.boxes)} pezzi · {readyCount} pronti · {shippedCount} spediti
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              {group.labelUrl && (
+                                <a
+                                  href={fileUrl(group.labelUrl)}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700"
+                                  onClick={(e) => e.stopPropagation()}
+                                  data-testid={`comp-spedizione-labels-${group.key}`}
+                                >
+                                  <FileText className="h-3 w-3" /> PDF etichette gruppo
+                                </a>
+                              )}
+                              <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                            </div>
+                          </button>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <div className="grid gap-3 border-t bg-slate-50/60 p-3 md:grid-cols-2">
+                            {group.boxes.map((b) => (
+                              <ComposizioneBoxCard
+                                key={b.id}
+                                box={b}
+                                clienteId={clienteId}
+                                imballabili={imballabili}
+                                selected={selectedBoxIds.has(b.id)}
+                                onToggle={(checked) => toggleBox(b.id, checked)}
+                                onChangeStatus={cambiaStatoBox}
+                                onDone={() => load(clienteId)}
+                              />
+                            ))}
                           </div>
-                        ))}
-                      </div>
-                    )}
-                    <div className="flex flex-wrap gap-2 mt-2 text-xs">
-                      {b.etichetta_amazon_pdf_url && b.etichetta_amazon_pdf_url === b.etichetta_ups_pdf_url ? (
-                        <a href={fileUrl(b.etichetta_amazon_pdf_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-emerald-600"><FileText className="h-3 w-3" /> Etichette</a>
-                      ) : (
-                        <>
-                          {b.etichetta_amazon_pdf_url && <a href={fileUrl(b.etichetta_amazon_pdf_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600"><FileText className="h-3 w-3" /> Amazon</a>}
-                          {b.etichetta_ups_pdf_url && <a href={fileUrl(b.etichetta_ups_pdf_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-emerald-600"><FileText className="h-3 w-3" /> UPS</a>}
-                        </>
-                      )}
-                    </div>
-                    <div className="mt-2">
-                      <Select value={b.stato} onValueChange={(v) => cambiaStatoBox(b.id, v)}>
-                        <SelectTrigger className="w-full h-8" data-testid={`comp-box-stato-${b.id}`}><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {Object.keys(STATI_BOX).map((s) => <SelectItem key={s} value={s}>{STATI_BOX[s].label}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </Card>
-                ))}
+                        </CollapsibleContent>
+                      </Card>
+                    </Collapsible>
+                  );
+                })}
               </div>
             )}
           </div>
         </>
       )}
     </div>
+  );
+}
+
+function ComposizioneBoxCard({ box: b, clienteId, imballabili, selected, onToggle, onChangeStatus, onDone }) {
+  return (
+    <Card className="p-4" data-testid={`comp-box-${b.id}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          {b.stato === "pronto" && (
+            <Checkbox
+              checked={selected}
+              onCheckedChange={(checked) => onToggle(!!checked)}
+              data-testid={`comp-box-select-${b.id}`}
+              className="mt-1"
+            />
+          )}
+          <div>
+            <div className="font-heading font-semibold font-mono">{b.numero_box}</div>
+            <div className="mt-1"><StatusBadge stato={b.stato} tipo="box" /></div>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <BoxFormDialog
+            mode="edit"
+            clienteId={clienteId}
+            imballabili={imballabili}
+            box={b}
+            onDone={onDone}
+            trigger={(
+              <Button size="sm" variant="outline" data-testid={`comp-box-edit-${b.id}`}>
+                <Pencil className="h-4 w-4 mr-1" /> Modifica
+              </Button>
+            )}
+          />
+          <BoxFormDialog
+            mode="duplicate"
+            clienteId={clienteId}
+            imballabili={imballabili}
+            box={b}
+            onDone={onDone}
+            trigger={(
+              <Button size="sm" variant="outline" data-testid={`comp-box-duplicate-${b.id}`}>
+                <Copy className="h-4 w-4 mr-1" /> Duplica
+              </Button>
+            )}
+          />
+        </div>
+      </div>
+      <div className="text-xs text-muted-foreground mt-1">
+        {b.peso_kg ? `${b.peso_kg} kg · ` : ""}
+        {b.lunghezza_cm && b.larghezza_cm && b.altezza_cm
+          ? `${b.lunghezza_cm}×${b.larghezza_cm}×${b.altezza_cm} cm` : "dimensioni n/d"}
+        {b.scatola_tipo && b.scatola_tipo !== "cliente" ? ` · Scatola nostra ${b.scatola_tipo}` : " · Scatola cliente"}
+      </div>
+      {b.contenuto?.length > 0 && (
+        <div className="mt-2 rounded bg-white p-2 text-xs">
+          {b.contenuto.map((c, i) => (
+            <div key={i} className="flex justify-between py-0.5">
+              <span className="font-mono">{c.ean}{c.sku ? ` · ${c.sku}` : ""}</span>
+              <span>×{c.quantita}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex flex-wrap gap-2 mt-2 text-xs">
+        {b.etichetta_amazon_pdf_url && b.etichetta_amazon_pdf_url === b.etichetta_ups_pdf_url ? (
+          <a href={fileUrl(b.etichetta_amazon_pdf_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-emerald-600"><FileText className="h-3 w-3" /> Etichette</a>
+        ) : (
+          <>
+            {b.etichetta_amazon_pdf_url && <a href={fileUrl(b.etichetta_amazon_pdf_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600"><FileText className="h-3 w-3" /> Amazon</a>}
+            {b.etichetta_ups_pdf_url && <a href={fileUrl(b.etichetta_ups_pdf_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-emerald-600"><FileText className="h-3 w-3" /> UPS</a>}
+          </>
+        )}
+      </div>
+      <div className="mt-2">
+        <Select value={b.stato} onValueChange={(v) => onChangeStatus(b.id, v)}>
+          <SelectTrigger className="w-full h-8" data-testid={`comp-box-stato-${b.id}`}><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {Object.keys(STATI_BOX).map((s) => <SelectItem key={s} value={s}>{STATI_BOX[s].label}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+    </Card>
   );
 }
 
