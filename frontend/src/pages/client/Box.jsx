@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api, fileUrl } from "@/lib/api";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -6,12 +6,113 @@ import { ClientBoxDetails } from "@/components/ClientBoxDetails";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Upload, FileText, CheckCircle2, Layers } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Loader2, Upload, FileText, CheckCircle2, Layers, ChevronDown, PackageCheck, CalendarDays } from "lucide-react";
+
+function sharedLabelUrl(box) {
+  return box?.etichetta_amazon_pdf_url && box.etichetta_amazon_pdf_url === box.etichetta_ups_pdf_url
+    ? box.etichetta_amazon_pdf_url
+    : null;
+}
+
+function labelTimestamp(url) {
+  const match = String(url || "").match(/gruppo-(\d+)/);
+  return match ? Number(match[1]) : 0;
+}
+
+function numeroBoxValue(value) {
+  const match = String(value || "").match(/\d+/);
+  return match ? Number(match[0]) : Number.MAX_SAFE_INTEGER;
+}
+
+function sortBoxes(boxes) {
+  return [...boxes].sort((a, b) => {
+    const diff = numeroBoxValue(a.numero_box) - numeroBoxValue(b.numero_box);
+    return diff || String(a.numero_box || "").localeCompare(String(b.numero_box || ""), "it", { numeric: true });
+  });
+}
+
+function boxDate(box) {
+  const sharedUrl = sharedLabelUrl(box);
+  const groupTs = labelTimestamp(sharedUrl);
+  if (groupTs) return new Date(groupTs);
+  return new Date(box.data_spedito || box.created_at || Date.now());
+}
+
+function monthKey(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthLabel(key) {
+  const [year, month] = String(key || "").split("-").map(Number);
+  if (!year || !month) return key;
+  return new Date(year, month - 1, 1).toLocaleDateString("it-IT", { month: "long", year: "numeric" });
+}
+
+function availableMonths(boxes) {
+  return [...new Set((boxes || []).map((box) => monthKey(boxDate(box))).filter(Boolean))]
+    .sort()
+    .reverse();
+}
+
+function totalPieces(boxes) {
+  return boxes.reduce((sum, box) => (
+    sum + (box.contenuto || []).reduce((lineSum, item) => lineSum + Number(item.quantita || 0), 0)
+  ), 0);
+}
+
+function buildSpedizioni(boxes) {
+  const labelCounts = boxes.reduce((acc, box) => {
+    const url = sharedLabelUrl(box);
+    if (url) acc[url] = (acc[url] || 0) + 1;
+    return acc;
+  }, {});
+  const groups = new Map();
+  const singles = [];
+
+  for (const box of boxes || []) {
+    const url = sharedLabelUrl(box);
+    if (url && labelCounts[url] > 1) {
+      if (!groups.has(url)) groups.set(url, []);
+      groups.get(url).push(box);
+    } else {
+      singles.push(box);
+    }
+  }
+
+  const spedizioni = Array.from(groups.entries())
+    .map(([url, groupBoxes]) => ({
+      key: `shipment:${url}`,
+      type: "shipment",
+      labelUrl: url,
+      boxes: sortBoxes(groupBoxes),
+      ts: labelTimestamp(url),
+    }))
+    .sort((a, b) => a.ts - b.ts);
+
+  if (singles.length) {
+    spedizioni.push({
+      key: "singles",
+      type: "singles",
+      labelUrl: null,
+      boxes: sortBoxes(singles),
+      ts: Number.MAX_SAFE_INTEGER,
+    });
+  }
+
+  return spedizioni.map((group, index) => ({
+    ...group,
+    title: group.type === "shipment" ? `Spedizione ${index + 1}` : "Box singoli / da etichettare",
+  }));
+}
 
 export default function ClientBox() {
   const [boxes, setBoxes] = useState(null);
   const [titoli, setTitoli] = useState({});
   const [view, setView] = useState("attivi");
+  const [monthFilter, setMonthFilter] = useState("all");
   const [selected, setSelected] = useState([]);
   const [groupUploading, setGroupUploading] = useState(false);
   const groupLabelsRef = useRef();
@@ -27,9 +128,14 @@ export default function ClientBox() {
     });
   }, []);
 
-  const visibleBoxes = (boxes || []).filter((b) => view === "archivio" ? b.stato === "spedito" : b.stato !== "spedito");
+  const monthOptions = useMemo(() => availableMonths(boxes || []), [boxes]);
+  const visibleByState = (boxes || []).filter((b) => view === "archivio" ? b.stato === "spedito" : b.stato !== "spedito");
+  const visibleBoxes = visibleByState.filter((box) => (
+    monthFilter === "all" || monthKey(boxDate(box)) === monthFilter
+  ));
+  const spedizioni = useMemo(() => buildSpedizioni(visibleBoxes), [visibleBoxes]);
   const groupableBoxes = visibleBoxes.filter((b) => b.stato === "pronto");
-  const selectedBoxes = (boxes || []).filter((b) => selected.includes(b.id));
+  const selectedBoxes = visibleBoxes.filter((b) => selected.includes(b.id));
   const sharedPdfCounts = countSharedLabelUrls(boxes || []);
 
   const toggleBox = (boxId) => {
@@ -73,15 +179,59 @@ export default function ClientBox() {
       </div>
 
       {boxes && (
-        <div className="flex flex-wrap gap-2">
-          {[
-            ["attivi", "Attivi", boxes.filter((b) => b.stato !== "spedito").length],
-            ["archivio", "Archivio", boxes.filter((b) => b.stato === "spedito").length],
-          ].map(([key, label, count]) => (
-            <Button key={key} size="sm" variant={view === key ? "default" : "outline"} onClick={() => setView(key)} data-testid={`box-view-${key}`}>
-              {label} <span className="ml-2 rounded-full bg-white/20 px-2 text-xs">{count}</span>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="flex flex-wrap gap-2">
+            {[
+              ["attivi", "Attivi", boxes.filter((b) => b.stato !== "spedito").length],
+              ["archivio", "Archivio", boxes.filter((b) => b.stato === "spedito").length],
+            ].map(([key, label, count]) => (
+              <Button
+                key={key}
+                size="sm"
+                variant={view === key ? "default" : "outline"}
+                onClick={() => {
+                  setView(key);
+                  setSelected([]);
+                }}
+                data-testid={`box-view-${key}`}
+              >
+                {label} <span className="ml-2 rounded-full bg-white/20 px-2 text-xs">{count}</span>
+              </Button>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-end gap-2">
+            <div>
+              <label className="mb-1 flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                <CalendarDays className="h-3 w-3" /> Mese
+              </label>
+              <Input
+                type="month"
+                value={monthFilter === "all" ? "" : monthFilter}
+                onChange={(e) => {
+                  setMonthFilter(e.target.value || "all");
+                  setSelected([]);
+                }}
+                className="h-9 w-40"
+                data-testid="box-month-filter"
+                list="box-month-options"
+              />
+              <datalist id="box-month-options">
+                {monthOptions.map((key) => <option key={key} value={key}>{monthLabel(key)}</option>)}
+              </datalist>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setMonthFilter("all");
+                setSelected([]);
+              }}
+              disabled={monthFilter === "all"}
+              data-testid="box-month-all"
+            >
+              Tutti i mesi
             </Button>
-          ))}
+          </div>
         </div>
       )}
 
@@ -138,25 +288,89 @@ export default function ClientBox() {
         <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
       ) : visibleBoxes.length === 0 ? (
         <Card className="p-10 text-center text-muted-foreground">
-          {view === "archivio" ? "Nessun box archiviato." : "Nessun box attivo."}
+          {monthFilter !== "all"
+            ? `Nessun box per ${monthLabel(monthFilter)}.`
+            : (view === "archivio" ? "Nessun box archiviato." : "Nessun box attivo.")}
         </Card>
       ) : (
-        <div className="grid gap-3 md:grid-cols-2">
-          {visibleBoxes.map((b) => (
-            <BoxItem
-              key={b.id}
-              box={b}
+        <div className="space-y-3">
+          {spedizioni.map((group) => (
+            <ShipmentGroup
+              key={group.key}
+              group={group}
               titoli={titoli}
               onDone={load}
-              selected={selected.includes(b.id)}
-              onToggle={() => toggleBox(b.id)}
-              selectable={b.stato === "pronto"}
-              sharedCount={sharedPdfCounts[b.etichetta_amazon_pdf_url] || 0}
+              selected={selected}
+              toggleBox={toggleBox}
+              sharedPdfCounts={sharedPdfCounts}
             />
           ))}
         </div>
       )}
     </div>
+  );
+}
+
+function ShipmentGroup({ group, titoli, onDone, selected, toggleBox, sharedPdfCounts }) {
+  const [open, setOpen] = useState(true);
+  const readyCount = group.boxes.filter((box) => box.stato === "pronto").length;
+  const shippedCount = group.boxes.filter((box) => box.stato === "spedito").length;
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} data-testid={`cbox-spedizione-${group.key}`}>
+      <Card className="overflow-hidden">
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="flex w-full flex-wrap items-center justify-between gap-3 p-4 text-left transition hover:bg-slate-50"
+            data-testid={`cbox-spedizione-trigger-${group.key}`}
+          >
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 rounded-md bg-primary/10 p-2 text-primary">
+                <PackageCheck className="h-4 w-4" />
+              </div>
+              <div>
+                <div className="font-heading text-base font-semibold">{group.title}</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {group.boxes.length} box · {totalPieces(group.boxes)} pezzi · {readyCount} pronti · {shippedCount} spediti
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              {group.labelUrl && (
+                <a
+                  href={fileUrl(group.labelUrl)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700"
+                  onClick={(e) => e.stopPropagation()}
+                  data-testid={`cbox-spedizione-labels-${group.key}`}
+                >
+                  <FileText className="h-3 w-3" /> PDF etichette gruppo
+                </a>
+              )}
+              <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
+            </div>
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="grid gap-3 border-t bg-slate-50/60 p-3 md:grid-cols-2">
+            {group.boxes.map((b) => (
+              <BoxItem
+                key={b.id}
+                box={b}
+                titoli={titoli}
+                onDone={onDone}
+                selected={selected.includes(b.id)}
+                onToggle={() => toggleBox(b.id)}
+                selectable={b.stato === "pronto"}
+                sharedCount={sharedPdfCounts[b.etichetta_amazon_pdf_url] || 0}
+              />
+            ))}
+          </div>
+        </CollapsibleContent>
+      </Card>
+    </Collapsible>
   );
 }
 
