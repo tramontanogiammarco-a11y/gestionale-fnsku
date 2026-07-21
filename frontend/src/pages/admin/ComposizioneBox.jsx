@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -16,7 +17,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, FileText, Trash2, Boxes as BoxesIcon, ClipboardList, Copy, Pencil } from "lucide-react";
+import { Loader2, Plus, FileText, Trash2, Boxes as BoxesIcon, ClipboardList, Copy, Pencil, Truck } from "lucide-react";
 
 function azioneErrore(e) {
   if (e?.response?.status === 403)
@@ -48,6 +49,8 @@ export default function AdminComposizioneBox() {
   const [preparato, setPreparato] = useState([]);
   const [boxes, setBoxes] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [selectedBoxIds, setSelectedBoxIds] = useState(new Set());
+  const [bulkSaving, setBulkSaving] = useState(false);
 
   useEffect(() => { api.get("/clienti").then((r) => setClienti(r.data)); }, []);
 
@@ -58,22 +61,64 @@ export default function AdminComposizioneBox() {
       api.get(`/preparato?cliente_id=${cid}`),
       api.get(`/box?cliente_id=${cid}`),
     ])
-      .then(([p, b]) => { setPreparato(p.data); setBoxes(b.data); })
+      .then(([p, b]) => {
+        setPreparato(p.data);
+        setBoxes(b.data);
+        setSelectedBoxIds(new Set());
+      })
       .catch((e) => toast.error(azioneErrore(e)))
       .finally(() => setLoading(false));
   };
 
-  const onSelectCliente = (cid) => { setClienteId(cid); load(cid); };
+  const onSelectCliente = (cid) => {
+    setClienteId(cid);
+    setSelectedBoxIds(new Set());
+    load(cid);
+  };
 
   const cambiaStatoBox = async (id, stato) => {
     try {
       await api.put(`/box/${id}/stato`, { stato });
+      setSelectedBoxIds((prev) => {
+        const next = new Set(prev);
+        if (stato !== "pronto") next.delete(id);
+        return next;
+      });
       toast.success("Stato box aggiornato");
       load(clienteId);
     } catch (e) { toast.error(azioneErrore(e)); }
   };
 
   const imballabili = preparato.filter((m) => m.disponibile > 0);
+  const boxPronti = boxes.filter((b) => b.stato === "pronto");
+  const selectedPronti = boxPronti.filter((b) => selectedBoxIds.has(b.id));
+  const toggleBox = (id, checked) => {
+    setSelectedBoxIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+  const selezionaPronti = () => setSelectedBoxIds(new Set(boxPronti.map((b) => b.id)));
+  const deselezionaBox = () => setSelectedBoxIds(new Set());
+  const segnaSelezionatiSpediti = async () => {
+    if (selectedPronti.length === 0) {
+      toast.error("Seleziona almeno un box pronto");
+      return;
+    }
+    setBulkSaving(true);
+    try {
+      await Promise.all(selectedPronti.map((box) => api.put(`/box/${box.id}/stato`, { stato: "spedito" })));
+      toast.success(`${selectedPronti.length} box segnati come spediti`);
+      setSelectedBoxIds(new Set());
+      load(clienteId);
+    } catch (e) {
+      toast.error(azioneErrore(e));
+    } finally {
+      setBulkSaving(false);
+    }
+  };
 
   return (
     <div className="space-y-6" data-testid="admin-composizione-box">
@@ -147,7 +192,23 @@ export default function AdminComposizioneBox() {
 
           {/* Box del cliente */}
           <div>
-            <h2 className="font-heading text-lg font-semibold mb-3">Box del cliente ({boxes.length})</h2>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <h2 className="font-heading text-lg font-semibold">Box del cliente ({boxes.length})</h2>
+              {boxPronti.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <span data-testid="comp-box-selected-count">{selectedPronti.length} selezionati</span>
+                  <Button size="sm" variant="outline" onClick={selezionaPronti} disabled={bulkSaving} data-testid="comp-box-select-ready">
+                    Seleziona pronti
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={deselezionaBox} disabled={bulkSaving || selectedPronti.length === 0} data-testid="comp-box-clear-selection">
+                    Deseleziona
+                  </Button>
+                  <Button size="sm" onClick={segnaSelezionatiSpediti} disabled={bulkSaving || selectedPronti.length === 0} data-testid="comp-box-ship-selected">
+                    {bulkSaving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Truck className="h-4 w-4 mr-1" />} Segna spediti
+                  </Button>
+                </div>
+              )}
+            </div>
             {boxes.length === 0 ? (
               <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800" data-testid="comp-no-box">
                 Nessun box. Clicca <b>"Nuovo box"</b> per comporre un collo dalla merce in preparazione.
@@ -157,9 +218,19 @@ export default function AdminComposizioneBox() {
                 {boxes.map((b) => (
                   <Card className="p-4" key={b.id} data-testid={`comp-box-${b.id}`}>
                     <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <div className="font-heading font-semibold font-mono">{b.numero_box}</div>
-                        <div className="mt-1"><StatusBadge stato={b.stato} tipo="box" /></div>
+                      <div className="flex items-start gap-3">
+                        {b.stato === "pronto" && (
+                          <Checkbox
+                            checked={selectedBoxIds.has(b.id)}
+                            onCheckedChange={(checked) => toggleBox(b.id, !!checked)}
+                            data-testid={`comp-box-select-${b.id}`}
+                            className="mt-1"
+                          />
+                        )}
+                        <div>
+                          <div className="font-heading font-semibold font-mono">{b.numero_box}</div>
+                          <div className="mt-1"><StatusBadge stato={b.stato} tipo="box" /></div>
+                        </div>
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <BoxFormDialog
@@ -354,9 +425,10 @@ function BoxFormDialog({ mode, clienteId, imballabili, box, onDone, trigger }) {
         scatola_tipo: scatolaTipo,
         contenuto: cont,
       };
-      if (isEdit) await api.put(`/box/${box.id}`, payload);
-      else await api.post("/box", payload);
-      toast.success(isEdit ? "Box aggiornato" : "Box creato");
+      const nextPayload = { ...payload, stato: box?.stato === "spedito" ? "spedito" : "pronto" };
+      if (isEdit) await api.put(`/box/${box.id}`, nextPayload);
+      else await api.post("/box", nextPayload);
+      toast.success(isEdit ? "Box aggiornato e pronto" : "Box creato pronto");
       setOpen(false);
       onDone();
     } catch (e) {
