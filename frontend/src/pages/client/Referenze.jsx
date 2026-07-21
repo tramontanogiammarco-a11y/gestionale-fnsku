@@ -19,8 +19,6 @@ export default function ClientReferenze() {
   const [referenze, setReferenze] = useState(null);
   const [titoloEdit, setTitoloEdit] = useState({});
   const [eanEdit, setEanEdit] = useState({});
-  const [skuEdit, setSkuEdit] = useState({});
-  const [asinEdit, setAsinEdit] = useState({});
   const [fnskuEdit, setFnskuEdit] = useState({});
   const [savingAll, setSavingAll] = useState(false);
 
@@ -29,20 +27,14 @@ export default function ClientReferenze() {
       setReferenze(r.data);
       const te = {};
       const ee = {};
-      const se = {};
-      const ae = {};
       const fe = {};
       r.data.forEach((x) => {
         te[x.id] = x.titolo || "";
         ee[x.id] = x.ean || "";
-        se[x.id] = x.sku || "";
-        ae[x.id] = x.asin || "";
         fe[x.id] = x.fnsku || "";
       });
       setTitoloEdit(te);
       setEanEdit(ee);
-      setSkuEdit(se);
-      setAsinEdit(ae);
       setFnskuEdit(fe);
     }).catch((e) => {
       toast.error(formatApiError(e.response?.data?.detail) || "Impossibile caricare le referenze");
@@ -61,8 +53,6 @@ export default function ClientReferenze() {
     const modificate = referenze.filter((r) => (
       optionalText(titoloEdit[r.id]) !== optionalText(r.titolo)
       || optionalText(eanEdit[r.id]) !== optionalText(r.ean)
-      || optionalText(skuEdit[r.id]) !== optionalText(r.sku)
-      || optionalText(asinEdit[r.id]) !== optionalText(r.asin)
       || optionalText(fnskuEdit[r.id]) !== optionalText(r.fnsku)
     ));
 
@@ -77,8 +67,6 @@ export default function ClientReferenze() {
         titolo: optionalText(titoloEdit[r.id]),
         ean: optionalText(eanEdit[r.id]) || r._pseudo_ean || null,
         _pseudo_ean: r._pseudo_ean,
-        sku: optionalText(skuEdit[r.id]),
-        asin: optionalText(asinEdit[r.id]),
         fnsku: optionalText(fnskuEdit[r.id]),
       })));
       toast.success(`${modificate.length} referenze salvate`);
@@ -135,15 +123,13 @@ export default function ClientReferenze() {
                 <TableHead className="w-16">Foto</TableHead>
                 <TableHead>Titolo</TableHead>
                 <TableHead>EAN</TableHead>
-                <TableHead>SKU</TableHead>
-                <TableHead>ASIN</TableHead>
                 <TableHead>FNSKU</TableHead>
                 <TableHead className="text-right">Azioni</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {referenze.length === 0 && (
-                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-10">Nessuna referenza. Aggiungine una o importa un file.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-10">Nessuna referenza. Aggiungine una o importa un file.</TableCell></TableRow>
               )}
               {referenze.map((r) => (
                 <TableRow key={r.id} data-testid={`cref-row-${r.id}`}>
@@ -178,24 +164,6 @@ export default function ClientReferenze() {
                       onChange={(e) => setEanEdit({ ...eanEdit, [r.id]: e.target.value })}
                       placeholder="da aggiungere"
                       className="h-8 w-40 font-mono text-xs"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      data-testid={`cref-sku-${r.id}`}
-                      value={skuEdit[r.id] ?? ""}
-                      onChange={(e) => setSkuEdit({ ...skuEdit, [r.id]: e.target.value })}
-                      placeholder="SKU"
-                      className="h-8 w-36 font-mono text-xs"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      data-testid={`cref-asin-${r.id}`}
-                      value={asinEdit[r.id] ?? ""}
-                      onChange={(e) => setAsinEdit({ ...asinEdit, [r.id]: e.target.value })}
-                      placeholder="da aggiungere"
-                      className="h-8 w-36 font-mono text-xs"
                     />
                   </TableCell>
                   <TableCell>
@@ -380,7 +348,7 @@ function ImportDialog({ onDone }) {
         <DialogHeader><DialogTitle>Importa referenze (CSV / Excel)</DialogTitle></DialogHeader>
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Colonne riconosciute automaticamente: <b>EAN</b>, SKU, ASIN, Titolo. Le righe senza EAN vengono scartate.
+            Colonne riconosciute automaticamente: <b>EAN</b>, Titolo, FNSKU. Le righe senza EAN vengono scartate.
           </p>
           <Input data-testid="import-file" type="file" accept=".csv,.xlsx,.xls" onChange={(e) => setFile(e.target.files[0])} />
           {result && (
