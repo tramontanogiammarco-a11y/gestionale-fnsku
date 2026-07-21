@@ -113,6 +113,53 @@ function boxScatolaCodice(box = {}) {
   return dims.some((value) => value >= 55) ? "scatola_60" : "scatola_40";
 }
 
+function contenutoTotals(contenuto = []) {
+  return (contenuto || []).reduce((acc, item) => {
+    if (!item?.ean) return acc;
+    acc[item.ean] = (acc[item.ean] || 0) + Number(item.quantita || 0);
+    return acc;
+  }, {});
+}
+
+function canFitTotals(current, addition, target) {
+  return Object.entries(addition).every(([ean, qty]) => (
+    Object.prototype.hasOwnProperty.call(target, ean)
+    && Number(current[ean] || 0) + Number(qty || 0) <= Number(target[ean] || 0)
+  ));
+}
+
+function addTotals(current, addition) {
+  for (const [ean, qty] of Object.entries(addition)) current[ean] = Number(current[ean] || 0) + Number(qty || 0);
+}
+
+function boxesByPreparazioneWithFallback(preps, prepRighe, boxes) {
+  const prepIds = (preps || []).map((p) => p.id);
+  const boxesByPrep = groupBy((boxes || []).filter((b) => prepIds.includes(b.preparazione_id)), "preparazione_id");
+  const righeByPrep = groupBy(prepRighe || [], "preparazione_id");
+  const targets = {};
+  const allocated = {};
+
+  for (const prep of preps || []) {
+    targets[prep.id] = contenutoTotals(righeByPrep[prep.id] || []);
+    allocated[prep.id] = contenutoTotals((boxesByPrep[prep.id] || []).flatMap((box) => box.contenuto || []));
+  }
+
+  const unlinkedBoxes = (boxes || [])
+    .filter((box) => !box.preparazione_id && (box.contenuto || []).length > 0)
+    .sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
+
+  for (const box of unlinkedBoxes) {
+    const boxTotals = contenutoTotals(box.contenuto || []);
+    const prep = (preps || []).find((candidate) => canFitTotals(allocated[candidate.id], boxTotals, targets[candidate.id]));
+    if (!prep) continue;
+    boxesByPrep[prep.id] = boxesByPrep[prep.id] || [];
+    boxesByPrep[prep.id].push({ ...box, abbinata_da_contenuto: true });
+    addTotals(allocated[prep.id], boxTotals);
+  }
+
+  return boxesByPrep;
+}
+
 function isRealEan(ean, titolo) {
   const cleanEan = optionalText(ean);
   if (!cleanEan) return false;
@@ -1746,10 +1793,7 @@ async function fatturazione(params) {
   const refByEan = Object.fromEntries((refs || []).map((r) => [r.ean, r]));
   const righeByPrep = groupBy(prepRighe || [], "preparazione_id");
   const righeByEntrata = groupBy(entrateRighe || [], "entrata_id");
-  const boxesByPrep = groupBy(
-    (boxes || []).filter((b) => prepIds.includes(b.preparazione_id)),
-    "preparazione_id"
-  );
+  const boxesByPrep = boxesByPreparazioneWithFallback(preps || [], prepRighe || [], boxes || []);
 
   const entrataPallet = (entrate || []).filter((e) => e.tipo === "pallet").reduce((sum, e) => sum + Number(e.colli || 1), 0);
   const entrataScatola = (entrate || []).filter((e) => e.tipo === "scatola").reduce((sum, e) => sum + Number(e.colli || 1), 0);

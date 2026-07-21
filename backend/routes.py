@@ -972,6 +972,58 @@ def _box_scatola_codice(box: dict) -> Optional[str]:
     return "scatola_60" if any(v >= 55 for v in dims) else "scatola_40"
 
 
+def _contenuto_totals(contenuto: list) -> dict:
+    totals = {}
+    for item in contenuto or []:
+        ean = item.get("ean") if isinstance(item, dict) else getattr(item, "ean", None)
+        if not ean:
+            continue
+        qta = item.get("quantita") if isinstance(item, dict) else getattr(item, "quantita", 0)
+        totals[ean] = totals.get(ean, 0) + int(qta or 0)
+    return totals
+
+
+def _can_fit_totals(current: dict, addition: dict, target: dict) -> bool:
+    return all(ean in target and int(current.get(ean, 0)) + int(qty or 0) <= int(target.get(ean, 0))
+               for ean, qty in addition.items())
+
+
+def _add_totals(current: dict, addition: dict):
+    for ean, qty in addition.items():
+        current[ean] = int(current.get(ean, 0)) + int(qty or 0)
+
+
+def _boxes_by_preparazione_with_fallback(preps: list, righe_by_prep: dict, boxes: list) -> dict:
+    prep_ids = [p.get("id") for p in preps]
+    boxes_by_prep = {}
+    for box in boxes or []:
+        pid = box.get("preparazione_id")
+        if pid in prep_ids:
+            boxes_by_prep.setdefault(pid, []).append(box)
+
+    targets, allocated = {}, {}
+    for prep in preps or []:
+        pid = prep.get("id")
+        targets[pid] = _contenuto_totals(righe_by_prep.get(pid, []))
+        linked_content = []
+        for box in boxes_by_prep.get(pid, []):
+            linked_content.extend(box.get("contenuto") or [])
+        allocated[pid] = _contenuto_totals(linked_content)
+
+    unlinked = [b for b in boxes or [] if not b.get("preparazione_id") and b.get("contenuto")]
+    unlinked.sort(key=lambda b: b.get("created_at") or "")
+    for box in unlinked:
+        box_totals = _contenuto_totals(box.get("contenuto") or [])
+        for prep in preps or []:
+            pid = prep.get("id")
+            if _can_fit_totals(allocated[pid], box_totals, targets[pid]):
+                enriched = {**box, "abbinata_da_contenuto": True}
+                boxes_by_prep.setdefault(pid, []).append(enriched)
+                _add_totals(allocated[pid], box_totals)
+                break
+    return boxes_by_prep
+
+
 async def _calcola_fattura(cid: str, anno: int, mese: int, pallet: int):
     cli = await db.clienti.find_one({"id": cid})
     if not cli:
@@ -1017,9 +1069,9 @@ async def _calcola_fattura(cid: str, anno: int, mese: int, pallet: int):
         add_riga(s, _SERV_LABEL[s], serv_qty[s], prezzo(s))
 
     # Inscatolamento + costo scatole nostre legati alle preparazioni pronte nel periodo
-    box_periodo = []
-    if prep_ids:
-        box_periodo = await db.box.find({"cliente_id": cid, "preparazione_id": {"$in": prep_ids}}).to_list(5000)
+    all_boxes_cliente = await db.box.find({"cliente_id": cid}).to_list(5000)
+    box_by_prep = _boxes_by_preparazione_with_fallback(preps_periodo, righe_by_prep, all_boxes_cliente)
+    box_periodo = [box for boxes in box_by_prep.values() for box in boxes]
     nbox = len(box_periodo)
     add_riga("inscatolamento", "Inscatolamento box", nbox, prezzo("inscatolamento"))
     n60 = sum(1 for b in box_periodo if _box_scatola_codice(b) == "scatola_60")
@@ -1027,9 +1079,6 @@ async def _calcola_fattura(cid: str, anno: int, mese: int, pallet: int):
     add_riga("scatola_60", "Scatola 60×40×40", n60, prezzo("scatola_60"))
     add_riga("scatola_40", "Scatola 40×30×30", n40, prezzo("scatola_40"))
 
-    box_by_prep = {}
-    for b in box_periodo:
-        box_by_prep.setdefault(b.get("preparazione_id"), []).append(_clean(b))
     for idx, p in enumerate(preps_periodo, start=1):
         righe_prep = righe_by_prep.get(p["id"], [])
         servizi_prep = {}
