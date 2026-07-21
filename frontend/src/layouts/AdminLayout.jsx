@@ -86,15 +86,36 @@ export default function AdminLayout() {
         </div>
       </aside>
 
-      <div className="md:hidden fixed top-0 inset-x-0 z-20 nav-glass text-slate-900 flex items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-2">
-          <img src={logo} alt="Logo" className="h-8 w-auto object-contain" />
-          <span className="font-heading font-black text-sm">Aimago Staff</span>
+      <div className="md:hidden fixed top-0 inset-x-0 z-20 nav-glass text-slate-900">
+        <div className="flex items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-2">
+            <img src={logo} alt="Logo" className="h-8 w-auto object-contain" />
+            <span className="font-heading font-black text-sm">Aimago Staff</span>
+          </div>
+          <button className="rounded-md p-2 text-slate-600" onClick={handleLogout} data-testid="logout-btn-mobile" aria-label="Esci">
+            <LogOut className="h-5 w-5" />
+          </button>
         </div>
-        <button onClick={handleLogout} data-testid="logout-btn-mobile"><LogOut className="h-5 w-5" /></button>
+        <nav className="flex gap-1 overflow-x-auto border-t border-slate-200/70 px-2">
+          {NAV.map((item) => (
+            <NavLink
+              key={`mobile-${item.id}`}
+              to={item.to}
+              end={item.end}
+              data-testid={`nav-mobile-${item.id}`}
+              className={({ isActive }) => cn(
+                "flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2.5 text-xs font-semibold",
+                isActive ? "border-teal-700 text-teal-800" : "border-transparent text-slate-500"
+              )}
+            >
+              <item.icon className="h-4 w-4" />
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
       </div>
 
-      <main className="flex-1 md:ml-72 pt-16 md:pt-0">
+      <main className="flex-1 md:ml-72 pt-28 md:pt-0">
         <div className="p-4 sm:p-6 lg:p-8 max-w-[1460px] animate-fade-up">
           <div className="mb-5 grid gap-3 lg:grid-cols-[minmax(320px,560px)_1fr]">
             <GlobalSearch />

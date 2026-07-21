@@ -1016,9 +1016,22 @@ async function createBox(payload) {
     cliente_id = data?.cliente_id;
   }
   cliente_id = await resolveClienteId(cliente_id);
+  const numeroBox = optionalText(payload.numero_box);
+  if (!numeroBox) fail("Il numero box e obbligatorio");
+  const { data: duplicateNumber, error: duplicateError } = await requireSupabase()
+    .from("box")
+    .select("id")
+    .eq("cliente_id", cliente_id)
+    .ilike("numero_box", numeroBox)
+    .limit(1)
+    .maybeSingle();
+  if (duplicateError) fail(duplicateError.message);
+  if (duplicateNumber) fail(`Esiste gia un box con numero ${numeroBox}`);
+
+  if (["pronto", "spedito"].includes(payload.stato)) validateBoxOperational(payload);
   const { data, error } = await requireSupabase()
     .from("box")
-    .insert({ ...payload, cliente_id, contenuto: payload.contenuto || [] })
+    .insert({ ...payload, numero_box: numeroBox, cliente_id, contenuto: payload.contenuto || [] })
     .select()
     .single();
   if (error) fail(error.message);
@@ -1026,15 +1039,59 @@ async function createBox(payload) {
 }
 
 async function updateBox(id, payload) {
+  const { data: current, error: currentError } = await requireSupabase()
+    .from("box")
+    .select("*")
+    .eq("id", id)
+    .single();
+  if (currentError || !current) fail(currentError?.message || "Box non trovato", 404);
+  const next = { ...current, ...payload };
+
+  if (Object.prototype.hasOwnProperty.call(payload, "numero_box")) {
+    const numeroBox = optionalText(payload.numero_box);
+    if (!numeroBox) fail("Il numero box e obbligatorio");
+    const { data: duplicateNumber, error: duplicateError } = await requireSupabase()
+      .from("box")
+      .select("id")
+      .eq("cliente_id", current.cliente_id)
+      .ilike("numero_box", numeroBox)
+      .neq("id", id)
+      .limit(1)
+      .maybeSingle();
+    if (duplicateError) fail(duplicateError.message);
+    if (duplicateNumber) fail(`Esiste gia un box con numero ${numeroBox}`);
+    payload = { ...payload, numero_box: numeroBox };
+  }
+
+  const affectsReadiness = ["stato", "contenuto", "peso_kg", "lunghezza_cm", "larghezza_cm", "altezza_cm"]
+    .some((key) => Object.prototype.hasOwnProperty.call(payload, key));
+  if (current.stato !== "spedito" && affectsReadiness && ["pronto", "spedito"].includes(next.stato)) validateBoxOperational(next);
   const { data, error } = await requireSupabase().from("box").update(payload).eq("id", id).select().single();
   if (error) fail(error.message);
   return ok(data);
 }
 
 async function updateBoxStato(id, stato) {
+  const { data: current, error } = await requireSupabase().from("box").select("*").eq("id", id).single();
+  if (error || !current) fail(error?.message || "Box non trovato", 404);
+  if (stato === "spedito" && (!current.etichetta_amazon_pdf_url || !current.etichetta_ups_pdf_url)) {
+    fail("Carica prima le etichette Amazon e UPS del box");
+  }
   const response = await updateBox(id, { stato, data_spedito: stato === "spedito" ? nowIso() : null });
   if (response.data?.preparazione_id) await syncPreparazioneFromBoxes(response.data.preparazione_id);
   return response;
+}
+
+function validateBoxOperational(box = {}) {
+  const contenuto = (box.contenuto || []).filter((item) => item?.ean && Number(item.quantita || 0) > 0);
+  if (!contenuto.length) fail("Aggiungi almeno un prodotto al box");
+  if (!contenuto.every((item) => optionalText(item.fnsku))) {
+    fail("Completa l'FNSKU di tutti i prodotti prima di chiudere il box");
+  }
+  const misure = [box.peso_kg, box.lunghezza_cm, box.larghezza_cm, box.altezza_cm].map(Number);
+  if (misure.some((value) => !Number.isFinite(value) || value <= 0)) {
+    fail("Inserisci peso e tutte le dimensioni del box");
+  }
 }
 
 async function syncPreparazioneFromBoxes(preparazioneId) {
@@ -1641,12 +1698,9 @@ async function preparato(params) {
     : { data: [] };
   if (righeError) fail(righeError.message);
 
-  const richiesto = {};
-  for (const r of righe || []) richiesto[r.ean] = (richiesto[r.ean] || 0) + Number(r.quantita || 0);
-  const inBox = {};
-  for (const b of boxes || []) {
-    for (const c of b.contenuto || []) inBox[c.ean] = (inBox[c.ean] || 0) + Number(c.quantita || 0);
-  }
+  const orderedPreps = [...(preps || [])].sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
+  const righeByPrep = groupBy(righe || [], "preparazione_id");
+  const boxesByPrep = boxesByPreparazioneWithFallback(orderedPreps, righe || [], boxes || []);
   const refByEan = {};
   const skusByEan = {};
   for (const ref of refs || []) {
@@ -1658,28 +1712,38 @@ async function preparato(params) {
     }
   }
 
-  return ok(Object.keys(richiesto).map((ean) => {
-    const ref = refByEan[ean] || {};
-    return {
-      ean,
-      titolo: ref.titolo,
-      fnsku: ref.fnsku,
-      sku: ref.sku,
-      skus: skusByEan[ean] || (ref.sku ? [ref.sku] : []),
-      richiesto: richiesto[ean],
-      in_box: inBox[ean] || 0,
-      disponibile: Math.max(0, richiesto[ean] - (inBox[ean] || 0)),
-    };
-  }));
+  const rows = [];
+  orderedPreps.forEach((prep, prepIndex) => {
+    const richiesto = contenutoTotals(righeByPrep[prep.id] || []);
+    const inBox = contenutoTotals((boxesByPrep[prep.id] || []).flatMap((box) => box.contenuto || []));
+    Object.keys(richiesto).forEach((ean) => {
+      const ref = refByEan[ean] || {};
+      rows.push({
+        preparazione_id: prep.id,
+        preparazione_numero: prepIndex + 1,
+        preparazione_data: prep.data_pronto || prep.created_at,
+        ean,
+        titolo: ref.titolo,
+        fnsku: (righeByPrep[prep.id] || []).find((riga) => riga.ean === ean)?.fnsku || ref.fnsku,
+        sku: ref.sku,
+        skus: skusByEan[ean] || (ref.sku ? [ref.sku] : []),
+        richiesto: richiesto[ean],
+        in_box: inBox[ean] || 0,
+        disponibile: Math.max(0, richiesto[ean] - (inBox[ean] || 0)),
+      });
+    });
+  });
+
+  return ok(rows);
 }
 
 async function dashboardStats() {
   const [entrateRes, preparazioniRes, prepRigheRes, boxListRes, referenzeRes, clientiRes] = await Promise.all([
     supabase.from("entrate").select("stato,data_annuncio,cliente_id"),
-    supabase.from("preparazioni").select("id,stato,created_at,cliente_id"),
-    supabase.from("preparazioni_righe").select("preparazione_id,quantita,servizi"),
-    supabase.from("box").select("id,stato,created_at,contenuto"),
-    supabase.from("referenze").select("id", { count: "exact", head: true }),
+    supabase.from("preparazioni").select("id,stato,created_at,data_pronto,cliente_id"),
+    supabase.from("preparazioni_righe").select("preparazione_id,ean,quantita,servizi"),
+    supabase.from("box").select("id,cliente_id,preparazione_id,numero_box,stato,created_at,peso_kg,lunghezza_cm,larghezza_cm,altezza_cm,etichetta_amazon_pdf_url,etichetta_ups_pdf_url,contenuto"),
+    supabase.from("referenze").select("id,cliente_id,ean,fnsku"),
     supabase.from("clienti").select("id,ragione_sociale,listino"),
   ]);
   const firstError = entrateRes.error || preparazioniRes.error || prepRigheRes.error || boxListRes.error || referenzeRes.error || clientiRes.error;
@@ -1723,6 +1787,20 @@ async function dashboardStats() {
     .sort((a, b) => b.preparazioni - a.preparazioni)
     .slice(0, 5);
 
+  const allBoxes = boxListRes.data || [];
+  const allPreps = preparazioniRes.data || [];
+  const boxesByPrep = boxesByPreparazioneWithFallback(allPreps, prepRigheRes.data || [], allBoxes);
+  const riferimenti = referenzeRes.data || [];
+  const controlli = {
+    referenze_senza_ean: riferimenti.filter((ref) => !optionalText(ref.ean)).length,
+    referenze_senza_fnsku: riferimenti.filter((ref) => !optionalText(ref.fnsku)).length,
+    box_senza_preparazione: allBoxes.filter((box) => box.stato !== "spedito" && !box.preparazione_id).length,
+    box_dati_incompleti: allBoxes.filter((box) => box.stato !== "spedito" && [box.peso_kg, box.lunghezza_cm, box.larghezza_cm, box.altezza_cm].some((value) => Number(value || 0) <= 0)).length,
+    box_pronti_senza_etichette: allBoxes.filter((box) => box.stato === "pronto" && (!box.etichetta_amazon_pdf_url || !box.etichetta_ups_pdf_url)).length,
+    preparazioni_pronte_senza_box: allPreps.filter((prep) => prep.stato === "pronto" && !(boxesByPrep[prep.id] || []).length).length,
+  };
+  controlli.totale = Object.values(controlli).reduce((sum, value) => sum + Number(value || 0), 0);
+
   return ok({
     entrate_per_stato: countBy(entrateRes.data || [], "stato"),
     preparazioni_per_stato: countBy(preparazioniRes.data || [], "stato"),
@@ -1730,12 +1808,13 @@ async function dashboardStats() {
     trend_operativo,
     totale_entrate: (entrateRes.data || []).length,
     totale_preparazioni: (preparazioniRes.data || []).length,
-    totale_referenze: referenzeRes.count || 0,
+    totale_referenze: riferimenti.length,
     totale_box: (boxListRes.data || []).length,
     pezzi_nei_box,
     servizio_usage,
     top_clienti,
     totale_clienti: (clientiRes.data || []).length,
+    controlli,
   });
 }
 

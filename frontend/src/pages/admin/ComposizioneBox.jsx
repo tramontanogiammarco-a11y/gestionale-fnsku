@@ -71,6 +71,19 @@ function totalPieces(boxes) {
   ), 0);
 }
 
+function formatDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function prepLabel(item) {
+  const number = item?.preparazione_numero ? `Preparazione ${item.preparazione_numero}` : "Preparazione";
+  const date = formatDate(item?.preparazione_data);
+  return date ? `${number} · ${date}` : number;
+}
+
 function buildSpedizioni(boxes) {
   const labelCounts = boxes.reduce((acc, box) => {
     const url = sharedLabelUrl(box);
@@ -91,13 +104,17 @@ function buildSpedizioni(boxes) {
   }
 
   const spedizioni = Array.from(groups.entries())
-    .map(([url, groupBoxes]) => ({
-      key: `shipment:${url}`,
-      type: "shipment",
-      labelUrl: url,
-      boxes: sortBoxes(groupBoxes),
-      ts: labelTimestamp(url),
-    }))
+    .map(([url, groupBoxes]) => {
+      const shippedDates = groupBoxes.map((box) => box.data_spedito).filter(Boolean).sort();
+      return {
+        key: `shipment:${url}`,
+        type: "shipment",
+        labelUrl: url,
+        boxes: sortBoxes(groupBoxes),
+        ts: labelTimestamp(url),
+        dateValue: shippedDates[shippedDates.length - 1] || labelTimestamp(url),
+      };
+    })
     .sort((a, b) => a.ts - b.ts);
 
   if (singles.length) {
@@ -113,11 +130,11 @@ function buildSpedizioni(boxes) {
   return spedizioni.map((group, index) => ({
     ...group,
     title: group.type === "shipment" ? `Spedizione ${index + 1}` : "Box singoli / da etichettare",
+    dateLabel: group.type === "shipment" ? formatDate(group.dateValue) : null,
   }));
 }
 
-// Componi box a livello di CLIENTE pescando SOLO dalla merce in preparazione
-// (richiesta nelle Preparazioni). Un box può mescolare SKU di richieste diverse.
+// Componi box a livello di cliente usando solo la merce della preparazione scelta.
 export default function AdminComposizioneBox() {
   const [clienti, setClienti] = useState([]);
   const [clienteId, setClienteId] = useState("");
@@ -223,7 +240,7 @@ export default function AdminComposizioneBox() {
             <BoxesIcon className="h-7 w-7 text-blue-600" /> Composizione Box
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Componi i colli usando <b>solo la merce in preparazione</b> del cliente. Un box può contenere SKU di richieste diverse.
+            Componi i colli usando <b>solo la merce della preparazione selezionata</b>. Ogni box resta collegato alla richiesta corretta.
           </p>
         </div>
         <div className="w-72">
@@ -256,8 +273,9 @@ export default function AdminComposizioneBox() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>Preparazione</TableHead>
                   <TableHead>Prodotto / EAN</TableHead>
-                  <TableHead>SKU</TableHead>
+                  <TableHead>FNSKU</TableHead>
                   <TableHead className="text-right">Richiesto</TableHead>
                   <TableHead className="text-right">In box</TableHead>
                   <TableHead className="text-right">Da imballare</TableHead>
@@ -265,17 +283,20 @@ export default function AdminComposizioneBox() {
               </TableHeader>
               <TableBody>
                 {imballabili.length === 0 && (
-                  <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-10">
+                  <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-10">
                     Nessuna merce da imballare. Il cliente deve prima mettere una preparazione in pronto oppure la merce risulta gia boxata.
                   </TableCell></TableRow>
                 )}
                 {imballabili.map((m) => (
-                  <TableRow key={m.ean} data-testid={`comp-prep-${m.ean}`}>
+                  <TableRow key={`${m.preparazione_id}:${m.ean}`} data-testid={`comp-prep-${m.preparazione_id}-${m.ean}`}>
+                    <TableCell>
+                      <div className="text-xs font-semibold text-slate-700">{prepLabel(m)}</div>
+                    </TableCell>
                     <TableCell>
                       <div className="max-w-xs truncate text-sm font-medium">{m.titolo || "Titolo non disponibile"}</div>
                       <div className="mt-0.5 font-mono text-xs text-muted-foreground">EAN {m.ean || "—"}</div>
                     </TableCell>
-                    <TableCell className="font-mono text-xs">{skusFor(m).join(", ") || "—"}</TableCell>
+                    <TableCell className="font-mono text-xs">{m.fnsku || "Da completare"}</TableCell>
                     <TableCell className="text-right">{m.richiesto}</TableCell>
                     <TableCell className="text-right text-orange-600">{m.in_box}</TableCell>
                     <TableCell className={`text-right font-bold ${m.disponibile > 0 ? "text-emerald-700" : "text-slate-500"}`}>{m.disponibile}</TableCell>
@@ -335,7 +356,9 @@ export default function AdminComposizioneBox() {
                                 <PackageCheck className="h-4 w-4" />
                               </div>
                               <div>
-                                <div className="font-heading text-base font-semibold">{group.title}</div>
+                                <div className="font-heading text-base font-semibold">
+                                  {group.title}{group.dateLabel ? ` · ${group.dateLabel}` : ""}
+                                </div>
                                 <div className="mt-1 text-xs text-muted-foreground">
                                   {group.boxes.length} box · {totalPieces(group.boxes)} pezzi · {readyCount} pronti · {shippedCount} spediti
                                 </div>
@@ -483,7 +506,7 @@ function ComposizioneBoxCard({ box: b, clienteId, imballabili, selected, onToggl
         <div className="mt-2 rounded bg-white p-2 text-xs">
           {b.contenuto.map((c, i) => (
             <div key={i} className="flex justify-between py-0.5">
-              <span className="font-mono">{c.ean}{c.sku ? ` · ${c.sku}` : ""}</span>
+              <span className="font-mono">{c.ean}{c.fnsku ? ` · ${c.fnsku}` : ""}</span>
               <span>×{c.quantita}</span>
             </div>
           ))}
@@ -529,6 +552,7 @@ function NuovoBoxClienteDialog({ clienteId, imballabili, onCreated }) {
 
 function BoxFormDialog({ mode, clienteId, imballabili, box, onDone, trigger }) {
   const [open, setOpen] = useState(false);
+  const [preparazioneId, setPreparazioneId] = useState("");
   const [numero, setNumero] = useState("");
   const [peso, setPeso] = useState("");
   const [dim, setDim] = useState({ l: "", w: "", h: "" });
@@ -538,9 +562,18 @@ function BoxFormDialog({ mode, clienteId, imballabili, box, onDone, trigger }) {
   const isEdit = mode === "edit";
   const isDuplicate = mode === "duplicate";
   const sourceContent = useMemo(() => box?.contenuto || [], [box]);
+  const preparazioni = useMemo(() => {
+    const seen = new Map();
+    imballabili.forEach((item) => {
+      if (item.preparazione_id && !seen.has(item.preparazione_id)) seen.set(item.preparazione_id, item);
+    });
+    return Array.from(seen.values());
+  }, [imballabili]);
   const optionMap = new Map();
 
-  imballabili.forEach((m) => optionMap.set(m.ean, m));
+  imballabili
+    .filter((m) => !preparazioneId || m.preparazione_id === preparazioneId)
+    .forEach((m) => optionMap.set(m.ean, m));
   sourceContent.forEach((c) => {
     if (!optionMap.has(c.ean)) {
       optionMap.set(c.ean, {
@@ -557,6 +590,11 @@ function BoxFormDialog({ mode, clienteId, imballabili, box, onDone, trigger }) {
 
   useEffect(() => {
     if (!open) return;
+    const sourceEans = new Set(sourceContent.map((item) => item.ean).filter(Boolean));
+    const matchingPrep = preparazioni.find((prep) => (
+      [...sourceEans].every((ean) => imballabili.some((item) => item.preparazione_id === prep.preparazione_id && item.ean === ean))
+    ));
+    setPreparazioneId(box?.preparazione_id || matchingPrep?.preparazione_id || preparazioni[0]?.preparazione_id || "");
     if (box) {
       setNumero(isDuplicate ? "" : box.numero_box || "");
       setPeso(box.peso_kg ? String(box.peso_kg) : "");
@@ -581,7 +619,7 @@ function BoxFormDialog({ mode, clienteId, imballabili, box, onDone, trigger }) {
       setScatolaTipo("cliente");
       setRighe([{ ean: "", quantita: "" }]);
     }
-  }, [open, box, isDuplicate, sourceContent]);
+  }, [open, box, isDuplicate, sourceContent, preparazioni, imballabili]);
 
   const onScatola = (v) => {
     setScatolaTipo(v);
@@ -591,8 +629,8 @@ function BoxFormDialog({ mode, clienteId, imballabili, box, onDone, trigger }) {
 
   const infoEan = (ean) => optionMap.get(ean);
   const libero = (ean) => {
-    const m = imballabili.find((x) => x.ean === ean);
-    return Number(m?.disponibile || 0) + ((isEdit || isDuplicate) ? quantitaBox(box, ean) : 0);
+    const m = imballabili.find((x) => x.preparazione_id === preparazioneId && x.ean === ean);
+    return Number(m?.disponibile || 0) + (isEdit ? quantitaBox(box, ean) : 0);
   };
 
   const update = (i, k, v) => {
@@ -609,7 +647,10 @@ function BoxFormDialog({ mode, clienteId, imballabili, box, onDone, trigger }) {
   const delRow = (i) => setRighe(righe.filter((_, idx) => idx !== i));
 
   const salva = async () => {
+    if (!preparazioneId && !isEdit) { toast.error("Seleziona la preparazione da imballare"); return; }
     if (!numero) { toast.error("Inserisci il numero box"); return; }
+    const misure = [peso, dim.l, dim.w, dim.h].map(numeroOrNull);
+    if (misure.some((value) => !value || value <= 0)) { toast.error("Inserisci peso e tutte le dimensioni del box"); return; }
     const cont = righe
       .filter((r) => r.ean && Number(r.quantita) > 0)
       .map((r) => {
@@ -617,6 +658,10 @@ function BoxFormDialog({ mode, clienteId, imballabili, box, onDone, trigger }) {
         return { ean: r.ean, sku: skusFor(info)[0] || r.sku || null, fnsku: info?.fnsku || r.fnsku || "", quantita: Number(r.quantita) };
       });
     if (cont.length === 0) { toast.error("Aggiungi almeno una referenza con quantità"); return; }
+    if (!(isEdit && box?.stato === "spedito") && cont.some((item) => !item.fnsku)) {
+      toast.error("Completa l'FNSKU delle referenze prima di creare il box");
+      return;
+    }
     const totali = cont.reduce((acc, c) => ({ ...acc, [c.ean]: (acc[c.ean] || 0) + c.quantita }), {});
     const eccesso = Object.entries(totali).find(([ean, qta]) => qta > libero(ean));
     if (eccesso) { toast.error(`Quantità oltre la merce in preparazione per EAN ${eccesso[0]} (max ${libero(eccesso[0])}).`); return; }
@@ -624,6 +669,7 @@ function BoxFormDialog({ mode, clienteId, imballabili, box, onDone, trigger }) {
     try {
       const payload = {
         cliente_id: clienteId,
+        preparazione_id: preparazioneId || box?.preparazione_id || null,
         numero_box: numero,
         peso_kg: numeroOrNull(peso),
         lunghezza_cm: numeroOrNull(dim.l),
@@ -632,10 +678,10 @@ function BoxFormDialog({ mode, clienteId, imballabili, box, onDone, trigger }) {
         scatola_tipo: scatolaTipo,
         contenuto: cont,
       };
-      const nextPayload = { ...payload, stato: box?.stato === "spedito" ? "spedito" : "pronto" };
+      const nextPayload = isEdit ? payload : { ...payload, stato: "pronto" };
       if (isEdit) await api.put(`/box/${box.id}`, nextPayload);
       else await api.post("/box", nextPayload);
-      toast.success(isEdit ? "Box aggiornato e pronto" : "Box creato pronto");
+      toast.success(isEdit ? "Box aggiornato" : "Box creato pronto");
       setOpen(false);
       onDone();
     } catch (e) {
@@ -652,6 +698,29 @@ function BoxFormDialog({ mode, clienteId, imballabili, box, onDone, trigger }) {
       <DialogContent className="max-w-xl">
         <DialogHeader><DialogTitle>{titolo}</DialogTitle></DialogHeader>
         <div className="space-y-3">
+          <div>
+            <Label>Preparazione</Label>
+            <Select
+              value={preparazioneId}
+              onValueChange={(value) => {
+                setPreparazioneId(value);
+                if (!isEdit) setRighe([{ ean: "", quantita: "" }]);
+              }}
+              disabled={isEdit && Boolean(box?.preparazione_id)}
+            >
+              <SelectTrigger className="mt-1" data-testid="comp-box-preparazione">
+                <SelectValue placeholder={isEdit ? "Box storico senza preparazione" : "Seleziona preparazione"} />
+              </SelectTrigger>
+              <SelectContent>
+                {preparazioni.map((prep) => (
+                  <SelectItem key={prep.preparazione_id} value={prep.preparazione_id}>{prepLabel(prep)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {!preparazioni.length && !box?.preparazione_id && (
+              <div className="mt-1 text-xs text-amber-700">Non ci sono preparazioni pronte con quantità ancora da imballare.</div>
+            )}
+          </div>
           <div>
             <Label>Numero box</Label>
             <Input data-testid="comp-box-numero" value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="BOX-001" className="mt-1" />
@@ -681,11 +750,11 @@ function BoxFormDialog({ mode, clienteId, imballabili, box, onDone, trigger }) {
                 <div key={i} className="grid grid-cols-12 gap-2 items-center" data-testid={`comp-cont-row-${i}`}>
                   <div className="col-span-8">
                     <Select value={r.ean} onValueChange={(v) => update(i, "ean", v)}>
-                      <SelectTrigger className="h-9" data-testid={`comp-cont-ean-${i}`}><SelectValue placeholder="Scegli prodotto / EAN / SKU" /></SelectTrigger>
+                      <SelectTrigger className="h-9" data-testid={`comp-cont-ean-${i}`}><SelectValue placeholder="Scegli prodotto / EAN / FNSKU" /></SelectTrigger>
                       <SelectContent>
                         {opzioni.map((m) => (
                           <SelectItem key={m.ean} value={m.ean}>
-                            {m.titolo || "Titolo non disponibile"} — EAN {m.ean}{skusFor(m).length ? ` · SKU ${skusFor(m).join("/")}` : ""} (max {libero(m.ean)})
+                            {m.titolo || "Titolo non disponibile"} — EAN {m.ean}{m.fnsku ? ` · FNSKU ${m.fnsku}` : " · FNSKU mancante"} (max {libero(m.ean)})
                           </SelectItem>
                         ))}
                       </SelectContent>

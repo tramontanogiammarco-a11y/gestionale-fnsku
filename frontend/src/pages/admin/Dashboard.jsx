@@ -7,7 +7,10 @@ import { StatusBadge } from "@/components/StatusBadge";
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { ArrowUpRight, Boxes, ClipboardCheck, ClipboardList, Loader2, PackageOpen, Tags, TrendingUp, Users } from "lucide-react";
+import {
+  AlertTriangle, ArrowRight, ArrowUpRight, Boxes, CheckCircle2, ClipboardCheck, ClipboardList,
+  FileWarning, Link2Off, Loader2, PackageOpen, Ruler, Tags, TrendingUp, Users,
+} from "lucide-react";
 
 const CHART_COLORS = ["#0f766e", "#0284c7", "#f59e0b", "#64748b", "#10b981"];
 
@@ -62,6 +65,15 @@ export default function AdminDashboard() {
     { label: "Prep richieste", value: stats.preparazioni_per_stato?.richiesta || 0, to: "/admin/preparazioni" },
     { label: "Box pronti", value: stats.box_per_stato?.pronto || 0, to: "/admin/box" },
   ];
+  const controlli = stats.controlli || {};
+  const checks = [
+    { label: "Box pronti senza etichette", value: controlli.box_pronti_senza_etichette || 0, icon: FileWarning, to: "/admin/composizione-box", detail: "Da completare prima della spedizione" },
+    { label: "Box senza peso o dimensioni", value: controlli.box_dati_incompleti || 0, icon: Ruler, to: "/admin/composizione-box", detail: "Dati necessari per corriere e Amazon" },
+    { label: "Box attivi non collegati", value: controlli.box_senza_preparazione || 0, icon: Link2Off, to: "/admin/composizione-box", detail: "Vanno associati alla preparazione corretta" },
+    { label: "Preparazioni pronte senza box", value: controlli.preparazioni_pronte_senza_box || 0, icon: ClipboardList, to: "/admin/preparazioni", detail: "Richieste ancora da comporre" },
+    { label: "Referenze senza FNSKU", value: controlli.referenze_senza_fnsku || 0, icon: Tags, to: "/admin/referenze", detail: "Da completare prima dell'imballaggio" },
+    { label: "Referenze senza EAN", value: controlli.referenze_senza_ean || 0, icon: Tags, to: "/admin/referenze", detail: "Consentite, ma da verificare quando disponibile" },
+  ];
 
   return (
     <div className="space-y-6" data-testid="admin-dashboard">
@@ -76,7 +88,12 @@ export default function AdminDashboard() {
             <p className="text-muted-foreground text-sm mt-1">Volumi, priorità e flussi operativi in un colpo d'occhio.</p>
           </div>
           <div className="border-t border-slate-200 bg-slate-950 p-5 text-white lg:border-l lg:border-t-0">
-            <div className="text-[10px] uppercase tracking-[0.2em] text-teal-200">Oggi da guardare</div>
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-[10px] uppercase tracking-[0.2em] text-teal-200">Oggi da guardare</div>
+              <div className={`rounded-md px-2 py-1 text-xs font-bold ${controlli.totale ? "bg-amber-400 text-slate-950" : "bg-emerald-400 text-slate-950"}`}>
+                {controlli.totale ? `${controlli.totale} controlli` : "Tutto in ordine"}
+              </div>
+            </div>
             <div className="mt-4 grid gap-2">
               {urgenti.map((item) => (
                 <button key={item.label} onClick={() => navigate(item.to)} className="flex items-center justify-between rounded-md bg-white/8 px-3 py-2 text-left transition-colors hover:bg-white/14">
@@ -88,6 +105,41 @@ export default function AdminDashboard() {
           </div>
         </div>
       </div>
+
+      <Card className="overflow-hidden" data-testid="dashboard-centro-controllo">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-5">
+          <div>
+            <div className="flex items-center gap-2">
+              {controlli.totale ? <AlertTriangle className="h-5 w-5 text-amber-600" /> : <CheckCircle2 className="h-5 w-5 text-emerald-600" />}
+              <h2 className="font-heading text-lg font-bold">Centro controllo</h2>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">Dati e passaggi che richiedono attenzione prima di completare le spedizioni.</p>
+          </div>
+          <span className="text-sm font-bold text-slate-700">{controlli.totale || 0} da verificare</span>
+        </div>
+        <div className="grid md:grid-cols-2 xl:grid-cols-3">
+          {checks.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              onClick={() => navigate(item.to)}
+              className="group flex min-h-24 items-center gap-3 border-b border-slate-100 p-4 text-left transition-colors hover:bg-slate-50 md:border-r"
+            >
+              <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md ${item.value ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"}`}>
+                {item.value ? <item.icon className="h-5 w-5" /> : <CheckCircle2 className="h-5 w-5" />}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-bold text-slate-900">{item.label}</span>
+                  <span className="font-heading text-xl font-black">{item.value}</span>
+                </span>
+                <span className="mt-1 block text-xs text-muted-foreground">{item.detail}</span>
+              </span>
+              <ArrowRight className="h-4 w-4 shrink-0 text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-slate-700" />
+            </button>
+          ))}
+        </div>
+      </Card>
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         {kpis.map((k, i) => (

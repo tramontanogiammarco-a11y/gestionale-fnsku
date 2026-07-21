@@ -91,9 +91,12 @@ export default function ClientDashboard() {
     if (!data) return null;
     const pezziDisponibili = data.magazzino.reduce((sum, item) => sum + Number(item.disponibile || 0), 0);
     const pezziInPreparazione = data.preparazioni
-      .filter((prep) => ["richiesta", "in_lavorazione", "pronto"].includes(prep.stato))
+      .filter((prep) => ["richiesta", "in_lavorazione"].includes(prep.stato))
       .reduce((sum, prep) => sum + (prep.righe || []).reduce((inner, row) => inner + Number(row.quantita || 0), 0), 0);
     const boxPronti = data.box.filter((box) => box.stato === "pronto").length;
+    const pdfDaCaricare = data.box.filter((box) => (
+      box.stato === "pronto" && (!box.etichetta_amazon_pdf_url || !box.etichetta_ups_pdf_url)
+    )).length;
     const senzaFnsku = data.referenze.filter((ref) => !ref.fnsku).length;
     const entrateMap = countBy(data.entrate, "stato");
     const prepMap = countBy(data.preparazioni, "stato");
@@ -118,6 +121,7 @@ export default function ClientDashboard() {
       pezziDisponibili,
       pezziInPreparazione,
       boxPronti,
+      pdfDaCaricare,
       senzaFnsku,
       entrateMap,
       prepMap,
@@ -149,7 +153,7 @@ export default function ClientDashboard() {
   const alerts = [
     { label: "Referenze senza FNSKU", value: stats.senzaFnsku, to: "/app/referenze" },
     { label: "Entrate in attesa", value: stats.entrateMap.in_attesa || 0, to: "/app/entrate" },
-    { label: "PDF box da caricare", value: stats.boxPronti, to: "/app/box" },
+    { label: "PDF box da caricare", value: stats.pdfDaCaricare, to: "/app/box" },
   ];
   const notifications = [
     ...data.entrate
@@ -175,7 +179,7 @@ export default function ClientDashboard() {
         tone: "bg-teal-50 text-teal-700 border-teal-200",
       })),
     ...data.box
-      .filter((b) => b.stato === "pronto" && !b.etichetta_amazon_pdf_url && !b.etichetta_ups_pdf_url)
+      .filter((b) => b.stato === "pronto" && (!b.etichetta_amazon_pdf_url || !b.etichetta_ups_pdf_url))
       .map((b) => ({
         kind: "Etichette mancanti",
         title: `${b.numero_box} pronto: carica PDF etichette`,
