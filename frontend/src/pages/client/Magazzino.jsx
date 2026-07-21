@@ -30,7 +30,7 @@ export default function ClientMagazzino() {
               <TableRow>
                 <TableHead>EAN</TableHead>
                 <TableHead>Prodotto</TableHead>
-                <TableHead>SKU</TableHead>
+                <TableHead>FNSKU</TableHead>
                 <TableHead className="text-right">Ricevuto</TableHead>
                 <TableHead className="text-right">In preparazione</TableHead>
                 <TableHead className="text-right">Spedito</TableHead>
@@ -57,7 +57,7 @@ export default function ClientMagazzino() {
                       </div>
                     )}
                   </TableCell>
-                  <TableCell className="font-mono text-xs">{it.skus.join(", ") || "—"}</TableCell>
+                  <TableCell className="font-mono text-xs">{it.fnsku || "—"}</TableCell>
                   <TableCell className="text-right">{it.is_bundle ? "—" : it.ricevuto}</TableCell>
                   <TableCell className="text-right text-orange-600">{it.in_preparazione}</TableCell>
                   <TableCell className="text-right text-slate-500">{it.spedito}</TableCell>
