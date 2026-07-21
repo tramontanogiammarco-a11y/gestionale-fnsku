@@ -16,6 +16,10 @@ import {
 } from "@/components/ui/dialog";
 import { Loader2, Plus, Trash2, ClipboardList, ChevronRight } from "lucide-react";
 
+function isPreparazioneAttiva(prep) {
+  return prep.stato === "richiesta" || prep.stato === "in_lavorazione";
+}
+
 export default function ClientPreparazioni() {
   const [preps, setPreps] = useState(null);
   const [view, setView] = useState("attive");
@@ -37,8 +41,8 @@ export default function ClientPreparazioni() {
       {preps && (
         <div className="flex flex-wrap gap-2">
           {[
-            ["attive", "Attive", preps.filter((p) => p.stato !== "spedito").length],
-            ["archivio", "Archivio", preps.filter((p) => p.stato === "spedito").length],
+            ["attive", "Attive", preps.filter(isPreparazioneAttiva).length],
+            ["archivio", "Archivio", preps.filter((p) => !isPreparazioneAttiva(p)).length],
           ].map(([key, label, count]) => (
             <Button key={key} size="sm" variant={view === key ? "default" : "outline"} onClick={() => setView(key)} data-testid={`prep-view-${key}`}>
               {label} <span className="ml-2 rounded-full bg-white/20 px-2 text-xs">{count}</span>
@@ -49,13 +53,13 @@ export default function ClientPreparazioni() {
 
       {!preps ? (
         <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
-      ) : preps.filter((p) => view === "archivio" ? p.stato === "spedito" : p.stato !== "spedito").length === 0 ? (
+      ) : preps.filter((p) => view === "archivio" ? !isPreparazioneAttiva(p) : isPreparazioneAttiva(p)).length === 0 ? (
         <Card className="p-10 text-center text-muted-foreground">
           {view === "archivio" ? "Nessuna preparazione archiviata." : "Nessuna preparazione attiva. Creane una scegliendo EAN, FNSKU, quantità e lavorazioni."}
         </Card>
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
-          {preps.filter((p) => view === "archivio" ? p.stato === "spedito" : p.stato !== "spedito").map((p) => (
+          {preps.filter((p) => view === "archivio" ? !isPreparazioneAttiva(p) : isPreparazioneAttiva(p)).map((p) => (
             <Card key={p.id} data-testid={`cprep-${p.id}`} className="p-4 cursor-pointer hover:shadow-sm transition-shadow" onClick={() => navigate(`/app/preparazioni/${p.id}`)}>
               <div className="flex items-center justify-between">
                 <div className="font-heading font-semibold">Preparazione</div>
@@ -71,25 +75,27 @@ export default function ClientPreparazioni() {
                 })}
               </div>
               <div className="flex items-center justify-between gap-2 mt-3">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  data-testid={`delete-prep-${p.id}`}
-                  className="text-destructive hover:text-destructive"
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    if (!window.confirm("Cancellare questa preparazione e tutte le sue righe?")) return;
-                    try {
-                      await api.delete(`/preparazioni/${p.id}`);
-                      toast.success("Preparazione cancellata");
-                      load();
-                    } catch (err) {
-                      toast.error(formatApiError(err.response?.data?.detail));
-                    }
-                  }}
-                >
-                  <Trash2 className="h-4 w-4" /> Cancella
-                </Button>
+                {isPreparazioneAttiva(p) ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    data-testid={`delete-prep-${p.id}`}
+                    className="text-destructive hover:text-destructive"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (!window.confirm("Cancellare questa preparazione e tutte le sue righe?")) return;
+                      try {
+                        await api.delete(`/preparazioni/${p.id}`);
+                        toast.success("Preparazione cancellata");
+                        load();
+                      } catch (err) {
+                        toast.error(formatApiError(err.response?.data?.detail));
+                      }
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" /> Cancella
+                  </Button>
+                ) : <div />}
                 <div className="flex items-center gap-1 text-xs font-medium text-blue-600">
                   Apri dettaglio<ChevronRight className="h-4 w-4" />
                 </div>
