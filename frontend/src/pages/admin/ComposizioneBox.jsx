@@ -189,15 +189,22 @@ export default function AdminComposizioneBox() {
       return next;
     });
   };
-  const segnaSelezionatiSpediti = async () => {
-    if (selectedPronti.length === 0) {
+  const selezionaBoxPronti = (readyBoxes) => {
+    setSelectedBoxIds((prev) => {
+      const next = new Set(prev);
+      readyBoxes.forEach((box) => next.add(box.id));
+      return next;
+    });
+  };
+  const segnaBoxSpediti = async (boxesToShip) => {
+    if (boxesToShip.length === 0) {
       toast.error("Seleziona almeno un box pronto");
       return;
     }
     setBulkSaving(true);
     try {
-      await Promise.all(selectedPronti.map((box) => api.put(`/box/${box.id}/stato`, { stato: "spedito" })));
-      toast.success(`${selectedPronti.length} box segnati come spediti`);
+      await Promise.all(boxesToShip.map((box) => api.put(`/box/${box.id}/stato`, { stato: "spedito" })));
+      toast.success(`${boxesToShip.length} box segnati come spediti`);
       setSelectedBoxIds(new Set());
       load(clienteId);
     } catch (e) {
@@ -206,6 +213,7 @@ export default function AdminComposizioneBox() {
       setBulkSaving(false);
     }
   };
+  const segnaSelezionatiSpediti = () => segnaBoxSpediti(selectedPronti);
 
   return (
     <div className="space-y-6" data-testid="admin-composizione-box">
@@ -303,8 +311,10 @@ export default function AdminComposizioneBox() {
             ) : (
               <div className="space-y-3">
                 {spedizioni.map((group) => {
+                  const readyGroupBoxes = group.boxes.filter((box) => box.stato === "pronto");
                   const readyCount = group.boxes.filter((box) => box.stato === "pronto").length;
                   const shippedCount = group.boxes.filter((box) => box.stato === "spedito").length;
+                  const selectedGroupCount = readyGroupBoxes.filter((box) => selectedBoxIds.has(box.id)).length;
                   const isOpen = openShipmentKeys.has(group.key);
                   return (
                     <Collapsible
@@ -349,6 +359,32 @@ export default function AdminComposizioneBox() {
                           </button>
                         </CollapsibleTrigger>
                         <CollapsibleContent>
+                          {readyGroupBoxes.length > 0 && (
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-white p-3 text-xs text-muted-foreground">
+                              <span data-testid={`comp-spedizione-selected-${group.key}`}>
+                                {selectedGroupCount} di {readyGroupBoxes.length} box pronti selezionati
+                              </span>
+                              <div className="flex flex-wrap gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => selezionaBoxPronti(readyGroupBoxes)}
+                                  disabled={bulkSaving}
+                                  data-testid={`comp-spedizione-select-ready-${group.key}`}
+                                >
+                                  Seleziona box pronti
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  onClick={() => segnaBoxSpediti(readyGroupBoxes)}
+                                  disabled={bulkSaving}
+                                  data-testid={`comp-spedizione-ship-ready-${group.key}`}
+                                >
+                                  {bulkSaving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Truck className="h-4 w-4 mr-1" />} Segna spediti questa spedizione
+                                </Button>
+                              </div>
+                            </div>
+                          )}
                           <div className="grid gap-3 border-t bg-slate-50/60 p-3 md:grid-cols-2">
                             {group.boxes.map((b) => (
                               <ComposizioneBoxCard
@@ -368,6 +404,21 @@ export default function AdminComposizioneBox() {
                     </Collapsible>
                   );
                 })}
+                {selectedPronti.length > 0 && (
+                  <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-md border border-primary/20 bg-white p-3 shadow-lg" data-testid="comp-box-bulk-bar">
+                    <div className="text-sm font-medium">
+                      {selectedPronti.length} box pronti selezionati
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" variant="outline" onClick={deselezionaBox} disabled={bulkSaving} data-testid="comp-box-bulk-clear">
+                        Deseleziona
+                      </Button>
+                      <Button size="sm" onClick={segnaSelezionatiSpediti} disabled={bulkSaving} data-testid="comp-box-bulk-ship">
+                        {bulkSaving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Truck className="h-4 w-4 mr-1" />} Segna selezionati spediti
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
