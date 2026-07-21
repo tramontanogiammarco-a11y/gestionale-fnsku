@@ -74,7 +74,7 @@ export default function GlobalSearch() {
 
   return (
     <div className="relative">
-      <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white/85 px-3 py-2 shadow-sm">
+      <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-[#f7f7fb] px-3 py-1.5 transition-colors focus-within:border-slate-400 focus-within:bg-white">
         <Search className="h-4 w-4 text-slate-400" />
         <input
           value={query}
@@ -87,7 +87,7 @@ export default function GlobalSearch() {
         {!data && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
       </div>
       {open && query.trim() && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+        <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-md border border-slate-200 bg-white shadow-xl">
           {results.length === 0 ? (
             <div className="p-4 text-sm text-muted-foreground">Nessun risultato.</div>
           ) : (

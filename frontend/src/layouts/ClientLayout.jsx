@@ -1,6 +1,6 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { Boxes, ClipboardList, LayoutDashboard, LogOut, PackageOpen, Receipt, Tags, Truck, Warehouse } from "lucide-react";
+import { Boxes, ChevronRight, ClipboardList, LayoutDashboard, LogOut, PackageOpen, Receipt, Tags, Truck, Warehouse } from "lucide-react";
 import { cn } from "@/lib/utils";
 import logo from "@/assets/logo.png";
 
@@ -20,19 +20,24 @@ function ClientNavLink({ item, mobile = false }) {
     <NavLink
       to={item.to}
       end={item.end}
+      title={mobile ? undefined : item.label}
+      aria-label={item.label}
       data-testid={`${mobile ? "nav-mobile" : "nav"}-${item.id}`}
       className={({ isActive }) => cn(
         mobile
           ? "flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold"
-          : "group flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-semibold transition-colors",
+          : "group relative flex h-11 w-11 items-center justify-center rounded-md transition-colors",
         mobile && (isActive ? "border-teal-600 text-teal-800" : "border-transparent text-slate-500"),
-        !mobile && (isActive ? "bg-teal-50 text-teal-900" : "text-slate-600 hover:bg-slate-50 hover:text-slate-950")
+        !mobile && (isActive ? "bg-[#dff6f1] text-teal-800" : "text-slate-500 hover:bg-slate-100 hover:text-slate-950")
       )}
     >
-      <span className={cn("flex h-8 w-8 items-center justify-center rounded-md", !mobile && "bg-slate-100 text-slate-500 group-hover:text-teal-700")}>
-        <item.icon className="h-4 w-4" />
-      </span>
-      {item.label}
+      <item.icon className={cn("shrink-0", mobile ? "h-4 w-4" : "h-[19px] w-[19px]")} strokeWidth={1.8} />
+      {mobile && item.label}
+      {!mobile && (
+        <span className="pointer-events-none absolute left-[54px] z-50 hidden whitespace-nowrap rounded-md bg-slate-950 px-2.5 py-1.5 text-xs font-semibold text-white shadow-lg group-hover:block">
+          {item.label}
+        </span>
+      )}
     </NavLink>
   );
 }
@@ -40,6 +45,10 @@ function ClientNavLink({ item, mobile = false }) {
 export default function ClientLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const currentItem = [...NAV]
+    .sort((a, b) => b.to.length - a.to.length)
+    .find((item) => item.end ? location.pathname === item.to : location.pathname.startsWith(item.to)) || NAV[0];
 
   const handleLogout = async () => {
     await logout();
@@ -48,30 +57,29 @@ export default function ClientLayout() {
 
   return (
     <div className="min-h-screen bg-background">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-slate-200 bg-white md:flex">
-        <div className="border-b border-slate-200 px-5 py-5">
-          <div className="flex items-center gap-3">
-            <img src={logo} alt="Aimago" className="h-11 w-auto object-contain" />
-            <div className="min-w-0">
-              <div className="truncate font-heading text-sm font-black">{user?.name || "Area cliente"}</div>
-              <div className="mt-0.5 text-[10px] font-bold uppercase tracking-[0.16em] text-teal-700">Portale cliente</div>
-            </div>
-          </div>
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-20 flex-col border-r border-slate-200 bg-white md:flex">
+        <div className="flex h-16 items-center justify-center border-b border-slate-200">
+          <img src={logo} alt="Aimago" className="h-10 w-10 object-contain" />
         </div>
-        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-5">
-          {NAV.map((item) => <ClientNavLink key={item.id} item={item} />)}
+        <nav className="flex flex-1 flex-col items-center gap-1 overflow-y-auto px-3 py-4">
+          {NAV.map((item, index) => (
+            <div key={item.id} className={cn("flex justify-center", index === 1 && "mt-2 border-t border-slate-100 pt-2")}>
+              <ClientNavLink item={item} />
+            </div>
+          ))}
         </nav>
-        <div className="border-t border-slate-200 p-4">
-          <div className="mb-3 rounded-md bg-slate-50 px-3 py-2.5">
-            <div className="text-[10px] uppercase tracking-[0.14em] text-slate-400">Account cliente</div>
-            <div className="mt-1 truncate text-xs font-semibold text-slate-700">{user?.email}</div>
+        <div className="flex flex-col items-center gap-2 border-t border-slate-200 py-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#dff6f1] text-xs font-bold text-teal-800" title={user?.email}>
+            {(user?.name || user?.email || "C").slice(0, 1).toUpperCase()}
           </div>
           <button
             data-testid="logout-btn"
             onClick={handleLogout}
-            className="flex w-full items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-950"
+            title="Esci"
+            aria-label="Esci"
+            className="flex h-10 w-10 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-rose-50 hover:text-rose-700"
           >
-            <LogOut className="h-4 w-4" /> Esci
+            <LogOut className="h-[19px] w-[19px]" strokeWidth={1.8} />
           </button>
         </div>
       </aside>
@@ -79,10 +87,10 @@ export default function ClientLayout() {
       <header className="fixed inset-x-0 top-0 z-30 border-b border-slate-200 bg-white md:hidden">
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2.5">
-            <img src={logo} alt="Aimago" className="h-9 w-auto object-contain" />
+            <img src={logo} alt="Aimago" className="h-8 w-8 object-contain" />
             <div>
-              <div className="font-heading text-sm font-black">{user?.name || "Area cliente"}</div>
-              <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-teal-700">Portale cliente</div>
+              <div className="text-sm font-bold">{user?.name || "Area cliente"}</div>
+              <div className="text-[10px] font-medium text-slate-500">{currentItem.label}</div>
             </div>
           </div>
           <button className="rounded-md p-2 text-slate-600" onClick={handleLogout} data-testid="logout-btn-mobile" aria-label="Esci">
@@ -94,20 +102,19 @@ export default function ClientLayout() {
         </nav>
       </header>
 
-      <main className="min-h-screen pt-28 md:ml-64 md:pt-0">
-        <div className="border-b border-slate-200 bg-white px-6 py-4 lg:px-8">
-          <div className="mx-auto flex max-w-[1400px] items-center justify-between">
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Aimago Prep Center</div>
-              <div className="mt-1 text-sm font-semibold text-slate-700">Spedizioni Amazon sotto controllo</div>
-            </div>
-            <div className="hidden items-center gap-2 text-xs font-semibold text-slate-500 sm:flex">
-              <span className="h-2 w-2 rounded-full bg-emerald-500" /> Dati aggiornati
-            </div>
+      <main className="min-h-screen pt-28 md:ml-20 md:pt-0">
+        <div className="sticky top-0 z-30 hidden h-16 items-center border-b border-slate-200 bg-white/95 px-6 backdrop-blur md:flex lg:px-8">
+          <div className="flex min-w-0 items-center gap-2 text-sm">
+            <span className="max-w-52 truncate font-bold text-slate-950">{user?.name || "Area cliente"}</span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" />
+            <span className="font-medium text-slate-500">{currentItem.label}</span>
+          </div>
+          <div className="ml-auto flex items-center gap-2 text-xs font-semibold text-slate-500">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" /> Dati aggiornati
           </div>
         </div>
         <div className="px-4 py-5 sm:px-6 lg:px-8 lg:py-7">
-          <div className="mx-auto max-w-[1400px] animate-fade-up"><Outlet /></div>
+          <div className="mx-auto max-w-[1480px] animate-fade-up"><Outlet /></div>
         </div>
       </main>
     </div>

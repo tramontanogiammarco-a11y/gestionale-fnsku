@@ -8,8 +8,8 @@ import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import {
-  AlertTriangle, ArrowRight, ArrowUpRight, Boxes, CheckCircle2, ClipboardCheck, ClipboardList,
-  FileWarning, Link2Off, Loader2, PackageOpen, Ruler, Tags, TrendingUp, Users,
+  AlertTriangle, ArrowRight, Boxes, CheckCircle2, ClipboardList, FileWarning, Link2Off,
+  Loader2, PackageOpen, Ruler, Tags, TrendingUp, Truck,
 } from "lucide-react";
 
 const CHART_COLORS = ["#0f766e", "#0284c7", "#f59e0b", "#64748b", "#10b981"];
@@ -41,11 +41,38 @@ export default function AdminDashboard() {
     );
 
   const kpis = [
-    { label: "Referenze", value: stats.totale_referenze, icon: Tags, tone: "text-teal-700 bg-teal-50", to: "/admin/referenze" },
-    { label: "Entrate", value: stats.totale_entrate, icon: PackageOpen, tone: "text-sky-700 bg-sky-50", to: "/admin/entrate" },
-    { label: "Preparazioni", value: stats.totale_preparazioni ?? 0, icon: ClipboardList, tone: "text-indigo-700 bg-indigo-50", to: "/admin/preparazioni" },
-    { label: "Box", value: stats.totale_box, icon: Boxes, tone: "text-amber-700 bg-amber-50", to: "/admin/box" },
-    { label: "Clienti", value: stats.totale_clienti ?? 0, icon: Users, tone: "text-emerald-700 bg-emerald-50", to: "/admin/clienti" },
+    {
+      label: "Nuove entrate",
+      value: stats.entrate_per_stato?.in_attesa || 0,
+      icon: PackageOpen,
+      panel: "border-slate-200 bg-white",
+      badge: "bg-slate-100 text-slate-700",
+      to: "/admin/entrate?stato=in_attesa",
+    },
+    {
+      label: "In lavorazione",
+      value: stats.preparazioni_per_stato?.in_lavorazione || 0,
+      icon: ClipboardList,
+      panel: "border-sky-100 bg-[#dff3ff]",
+      badge: "bg-[#89c9ff] text-sky-950",
+      to: "/admin/preparazioni",
+    },
+    {
+      label: "Box pronti",
+      value: stats.box_per_stato?.pronto || 0,
+      icon: Boxes,
+      panel: "border-rose-100 bg-[#faeaf1]",
+      badge: "bg-[#f18bc1] text-rose-950",
+      to: "/admin/box",
+    },
+    {
+      label: "Box spediti",
+      value: stats.box_per_stato?.spedito || 0,
+      icon: Truck,
+      panel: "border-emerald-100 bg-[#e5f4e2]",
+      badge: "bg-[#87d85c] text-emerald-950",
+      to: "/admin/box",
+    },
   ];
   const entrateChart = statusRows(stats.entrate_per_stato, STATI_ENTRATA);
   const prepChart = statusRows(stats.preparazioni_per_stato, STATI_PREP);
@@ -77,33 +104,54 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-6" data-testid="admin-dashboard">
-      <div className="overflow-hidden rounded-lg border border-slate-200/70 bg-white/85 shadow-sm backdrop-blur">
-        <div className="grid gap-0 lg:grid-cols-[1fr_360px]">
-          <div className="p-6">
-            <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-teal-50 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-teal-700">
-              <ClipboardCheck className="h-3.5 w-3.5" />
-              Control tower
-            </div>
-            <h1 className="font-heading text-4xl font-black tracking-tight text-balance">Dashboard prep center</h1>
-            <p className="text-muted-foreground text-sm mt-1">Volumi, priorità e flussi operativi in un colpo d'occhio.</p>
-          </div>
-          <div className="border-t border-slate-200 bg-slate-950 p-5 text-white lg:border-l lg:border-t-0">
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-[10px] uppercase tracking-[0.2em] text-teal-200">Oggi da guardare</div>
-              <div className={`rounded-md px-2 py-1 text-xs font-bold ${controlli.totale ? "bg-amber-400 text-slate-950" : "bg-emerald-400 text-slate-950"}`}>
-                {controlli.totale ? `${controlli.totale} controlli` : "Tutto in ordine"}
-              </div>
-            </div>
-            <div className="mt-4 grid gap-2">
-              {urgenti.map((item) => (
-                <button key={item.label} onClick={() => navigate(item.to)} className="flex items-center justify-between rounded-md bg-white/8 px-3 py-2 text-left transition-colors hover:bg-white/14">
-                  <span className="text-sm text-slate-200">{item.label}</span>
-                  <span className="font-heading text-xl font-black">{item.value}</span>
-                </button>
-              ))}
-            </div>
-          </div>
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="mb-1 text-xs font-semibold text-slate-500">Centro operativo</p>
+          <h1 className="font-heading text-3xl font-bold text-slate-950 sm:text-4xl">Dashboard</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Tutto il flusso del prep center, senza rumore.</p>
         </div>
+        <div className="flex items-center gap-4 rounded-md border border-slate-200 bg-white px-4 py-3">
+          {urgenti.map((item) => (
+            <button key={item.label} onClick={() => navigate(item.to)} className="text-left">
+              <span className="block text-[11px] font-medium text-slate-500">{item.label}</span>
+              <span className="mt-0.5 block text-lg font-bold text-slate-950">{item.value}</span>
+            </button>
+          ))}
+        </div>
+      </header>
+
+      <div className={controlli.totale ? "rounded-md bg-[#fff0f6] px-5 py-4 text-[#8b285a]" : "rounded-md bg-[#e8f7ef] px-5 py-4 text-emerald-900"}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            {controlli.totale ? <AlertTriangle className="h-5 w-5" /> : <CheckCircle2 className="h-5 w-5" />}
+            <div>
+              <div className="text-sm font-bold">{controlli.totale ? "Ci sono attività da verificare" : "Flusso operativo in ordine"}</div>
+              <div className="mt-0.5 text-xs opacity-75">{controlli.totale ? `${controlli.totale} controlli richiedono attenzione prima della spedizione.` : "Non risultano blocchi nelle lavorazioni correnti."}</div>
+            </div>
+          </div>
+          <button onClick={() => document.querySelector('[data-testid="dashboard-centro-controllo"]')?.scrollIntoView({ behavior: "smooth" })} className="text-xs font-bold underline underline-offset-4">
+            Apri i controlli
+          </button>
+        </div>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {kpis.map((k) => (
+          <button
+            key={k.label}
+            type="button"
+            onClick={() => navigate(k.to)}
+            className={`min-h-32 rounded-md border p-5 text-left transition-transform hover:-translate-y-0.5 ${k.panel}`}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <span className="font-heading text-3xl font-bold text-slate-950">{k.value}</span>
+              <span className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold ${k.badge}`}>
+                <k.icon className="h-3.5 w-3.5" /> Stato
+              </span>
+            </div>
+            <div className="mt-6 text-sm font-semibold text-slate-800">{k.label}</div>
+          </button>
+        ))}
       </div>
 
       <Card className="overflow-hidden" data-testid="dashboard-centro-controllo">
@@ -140,23 +188,6 @@ export default function AdminDashboard() {
           ))}
         </div>
       </Card>
-
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        {kpis.map((k, i) => (
-          <Card key={k.label} onClick={() => navigate(k.to)} style={{ animationDelay: `${i * 60}ms` }} className="animate-fade-up p-5 flex items-start justify-between overflow-hidden cursor-pointer transition-all hover:-translate-y-1 hover:shadow-lg">
-            <div>
-              <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-bold">{k.label}</div>
-              <div className="font-heading text-4xl font-black mt-3 tracking-tight">{k.value}</div>
-              <div className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-slate-500">
-                Apri dettaglio <ArrowUpRight className="h-3.5 w-3.5" />
-              </div>
-            </div>
-            <div className={`h-12 w-12 rounded-lg flex items-center justify-center ${k.tone}`}>
-              <k.icon className="h-5 w-5" />
-            </div>
-          </Card>
-        ))}
-      </div>
 
       <div className="grid gap-4 lg:grid-cols-[1.35fr_0.65fr]">
         <Card className="p-5">

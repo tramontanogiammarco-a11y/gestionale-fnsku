@@ -1,8 +1,8 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import {
-  Barcode, Boxes, ClipboardList, LayoutDashboard, LogOut, PackageOpen, PackagePlus,
-  PlugZap, Receipt, ShoppingCart, Tags, Users,
+  Barcode, Boxes, ChevronRight, ClipboardList, LayoutDashboard, LogOut, PackageOpen,
+  PackagePlus, PlugZap, Receipt, ShoppingCart, Tags, Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import GlobalSearch from "@/components/GlobalSearch";
@@ -42,24 +42,26 @@ function AdminNavLink({ item, mobile = false }) {
     <NavLink
       to={item.to}
       end={item.end}
+      title={mobile ? undefined : item.label}
+      aria-label={item.label}
       data-testid={`${mobile ? "nav-mobile" : "nav"}-${item.id}`}
       className={({ isActive }) => cn(
         mobile
-          ? "flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-3 text-xs font-semibold"
-          : "group flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-semibold transition-colors",
-        mobile && (isActive ? "border-teal-400 text-white" : "border-transparent text-slate-400"),
+          ? "flex shrink-0 items-center gap-2 border-b-2 px-3 py-3 text-xs font-semibold"
+          : "group relative flex h-11 w-11 items-center justify-center rounded-md transition-colors",
+        mobile && (isActive ? "border-teal-600 text-teal-800" : "border-transparent text-slate-500"),
         !mobile && (isActive
-          ? "admin-nav-active bg-teal-400 text-slate-950"
-          : "text-slate-400 hover:bg-white/5 hover:text-white")
+          ? "bg-[#dff6f1] text-teal-800"
+          : "text-slate-500 hover:bg-slate-100 hover:text-slate-950")
       )}
     >
-      <span className={cn(
-        "admin-nav-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-md",
-        mobile ? "h-5 w-5" : "bg-white/5 text-slate-400 group-hover:text-white"
-      )}>
-        <item.icon className="h-4 w-4" />
-      </span>
-      {item.label}
+      <item.icon className={cn("shrink-0", mobile ? "h-4 w-4" : "h-[19px] w-[19px]")} strokeWidth={1.8} />
+      {mobile && item.label}
+      {!mobile && (
+        <span className="pointer-events-none absolute left-[54px] z-50 hidden whitespace-nowrap rounded-md bg-slate-950 px-2.5 py-1.5 text-xs font-semibold text-white shadow-lg group-hover:block">
+          {item.label}
+        </span>
+      )}
     </NavLink>
   );
 }
@@ -67,6 +69,10 @@ function AdminNavLink({ item, mobile = false }) {
 export default function AdminLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const currentItem = [...NAV]
+    .sort((a, b) => b.to.length - a.to.length)
+    .find((item) => item.end ? location.pathname === item.to : location.pathname.startsWith(item.to)) || NAV[0];
 
   const handleLogout = async () => {
     await logout();
@@ -75,79 +81,70 @@ export default function AdminLayout() {
 
   return (
     <div className="min-h-screen bg-background">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-white/10 bg-[#111820] text-white md:flex">
-        <div className="border-b border-white/10 px-5 py-5">
-          <div className="flex items-center gap-3">
-            <span className="flex h-11 w-11 items-center justify-center rounded-md bg-white">
-              <img src={logo} alt="Aimago" className="h-9 w-auto object-contain" />
-            </span>
-            <div>
-              <div className="font-heading text-base font-black">Aimago Prep</div>
-              <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-teal-300">Staff workspace</div>
-            </div>
-          </div>
-          <div className="mt-5 flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-3 py-2.5">
-            <span className="h-2 w-2 rounded-full bg-emerald-400" />
-            <div className="min-w-0">
-              <div className="text-[10px] uppercase tracking-[0.14em] text-slate-500">Sistema</div>
-              <div className="truncate text-xs font-semibold text-slate-200">Prep Center FBA operativo</div>
-            </div>
-          </div>
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-20 flex-col border-r border-slate-200 bg-white md:flex">
+        <div className="flex h-16 items-center justify-center border-b border-slate-200">
+          <img src={logo} alt="Aimago" className="h-10 w-10 object-contain" />
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-3 py-4">
-          {NAV_SECTIONS.map((section) => (
-            <div key={section.label} className="mb-5">
-              <div className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-600">{section.label}</div>
-              <div className="space-y-1">
-                {section.items.map((item) => <AdminNavLink key={item.id} item={item} />)}
-              </div>
+        <nav className="flex flex-1 flex-col items-center overflow-y-auto px-3 py-3">
+          {NAV_SECTIONS.map((section, index) => (
+            <div key={section.label} className={cn("flex w-full flex-col items-center gap-1", index > 0 && "mt-2 border-t border-slate-100 pt-2")}>
+              {section.items.map((item) => <AdminNavLink key={item.id} item={item} />)}
             </div>
           ))}
         </nav>
 
-        <div className="border-t border-white/10 p-4">
-          <div className="mb-3 px-2">
-            <div className="text-[10px] uppercase tracking-[0.14em] text-slate-600">Account amministratore</div>
-            <div className="mt-1 truncate text-xs font-semibold text-slate-300">{user?.email}</div>
+        <div className="flex flex-col items-center gap-2 border-t border-slate-200 py-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-700" title={user?.email}>
+            {(user?.email || "A").slice(0, 1).toUpperCase()}
           </div>
           <button
             data-testid="logout-btn"
             onClick={handleLogout}
-            className="flex w-full items-center justify-center gap-2 rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm font-semibold text-slate-300 transition-colors hover:bg-white/10 hover:text-white"
+            title="Esci"
+            aria-label="Esci"
+            className="flex h-10 w-10 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-rose-50 hover:text-rose-700"
           >
-            <LogOut className="h-4 w-4" /> Esci
+            <LogOut className="h-[19px] w-[19px]" strokeWidth={1.8} />
           </button>
         </div>
       </aside>
 
-      <div className="fixed inset-x-0 top-0 z-30 bg-[#111820] text-white md:hidden">
+      <header className="fixed inset-x-0 top-0 z-30 border-b border-slate-200 bg-white md:hidden">
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-white">
-              <img src={logo} alt="Aimago" className="h-7 w-auto object-contain" />
-            </span>
-            <span className="font-heading text-sm font-black">Aimago Prep</span>
+            <img src={logo} alt="Aimago" className="h-8 w-8 object-contain" />
+            <div>
+              <div className="text-sm font-bold">Aimago Prep</div>
+              <div className="text-[10px] font-medium text-slate-500">{currentItem.label}</div>
+            </div>
           </div>
-          <button className="rounded-md p-2 text-slate-300" onClick={handleLogout} data-testid="logout-btn-mobile" aria-label="Esci">
+          <button className="rounded-md p-2 text-slate-600" onClick={handleLogout} data-testid="logout-btn-mobile" aria-label="Esci">
             <LogOut className="h-5 w-5" />
           </button>
         </div>
-        <nav className="flex gap-1 overflow-x-auto border-t border-white/10 px-2">
+        <nav className="flex gap-1 overflow-x-auto border-t border-slate-100 px-2">
           {NAV.map((item) => <AdminNavLink key={`mobile-${item.id}`} item={item} mobile />)}
         </nav>
-      </div>
+      </header>
 
-      <main className="min-h-screen pt-28 md:ml-64 md:pt-0">
-        <div className="sticky top-0 z-20 hidden h-[72px] items-center border-b border-slate-200 bg-white/95 px-6 backdrop-blur md:flex lg:px-8">
-          <div className="w-full max-w-xl"><GlobalSearch /></div>
-          <div className="ml-auto flex items-center gap-2 text-xs font-semibold text-slate-500">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" /> Operativo
+      <main className="min-h-screen pt-28 md:ml-20 md:pt-0">
+        <div className="sticky top-0 z-30 hidden h-16 items-center border-b border-slate-200 bg-white/95 px-6 backdrop-blur md:flex lg:px-8">
+          <div className="flex min-w-0 items-center gap-2 text-sm">
+            <span className="font-bold text-slate-950">Aimago Prep</span>
+            <ChevronRight className="h-4 w-4 text-slate-300" />
+            <span className="font-medium text-slate-500">{currentItem.label}</span>
+          </div>
+          <div className="ml-auto flex w-full max-w-md items-center gap-5">
+            <div className="min-w-0 flex-1"><GlobalSearch /></div>
+            <div className="flex shrink-0 items-center gap-2 text-xs font-semibold text-slate-500">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" /> Live
+            </div>
           </div>
         </div>
         <div className="px-4 py-5 sm:px-6 lg:px-8 lg:py-7">
           <div className="mb-5 md:hidden"><GlobalSearch /></div>
-          <div className="mx-auto max-w-[1480px] animate-fade-up"><Outlet /></div>
+          <div className="mx-auto max-w-[1520px] animate-fade-up"><Outlet /></div>
         </div>
       </main>
     </div>
