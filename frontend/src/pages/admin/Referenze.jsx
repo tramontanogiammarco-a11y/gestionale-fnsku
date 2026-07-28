@@ -18,8 +18,8 @@ export default function AdminReferenze() {
   const [clienti, setClienti] = useState([]);
   const [filtro, setFiltro] = useState("all");
   const [eanEdit, setEanEdit] = useState({});
-  const [asinEdit, setAsinEdit] = useState({});
   const [fnskuEdit, setFnskuEdit] = useState({});
+  const [savingAll, setSavingAll] = useState(false);
 
   useEffect(() => { api.get("/clienti").then((r) => setClienti(r.data)); }, []);
   const load = useCallback(() => {
@@ -27,28 +27,41 @@ export default function AdminReferenze() {
     api.get(`/referenze${q}`).then((r) => {
       setReferenze(r.data);
       const ee = {};
-      const ae = {};
       const fe = {};
       r.data.forEach((x) => {
         ee[x.id] = x.ean || "";
-        ae[x.id] = x.asin || "";
         fe[x.id] = x.fnsku || "";
       });
       setEanEdit(ee);
-      setAsinEdit(ae);
       setFnskuEdit(fe);
     });
   }, [filtro]);
   useEffect(() => { load(); }, [load]);
 
-  const salvaReferenza = async (id) => {
-    await api.put(`/referenze/${id}`, {
-      ean: optionalText(eanEdit[id]),
-      asin: optionalText(asinEdit[id]),
-      fnsku: optionalText(fnskuEdit[id]),
-    });
-    toast.success("Referenza salvata");
-    load();
+  const salvaTutte = async () => {
+    if (!referenze?.length) return;
+    const modificate = referenze.filter((r) => (
+      optionalText(eanEdit[r.id]) !== optionalText(r.ean)
+      || optionalText(fnskuEdit[r.id]) !== optionalText(r.fnsku)
+    ));
+    if (!modificate.length) {
+      toast.info("Nessuna modifica da salvare");
+      return;
+    }
+
+    setSavingAll(true);
+    try {
+      await Promise.all(modificate.map((r) => api.put(`/referenze/${r.id}`, {
+        ean: optionalText(eanEdit[r.id]),
+        fnsku: optionalText(fnskuEdit[r.id]),
+      })));
+      toast.success(`${modificate.length} referenze salvate`);
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Impossibile salvare le referenze");
+    } finally {
+      setSavingAll(false);
+    }
   };
 
   return (
@@ -58,13 +71,19 @@ export default function AdminReferenze() {
           <h1 className="font-heading text-3xl font-bold tracking-tight">Referenze</h1>
           <p className="text-muted-foreground text-sm mt-1">Prodotti caricati dai clienti.</p>
         </div>
-        <Select value={filtro} onValueChange={setFiltro}>
-          <SelectTrigger className="w-56" data-testid="filtro-cliente"><SelectValue placeholder="Tutti i clienti" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Tutti i clienti</SelectItem>
-            {clienti.map((c) => <SelectItem key={c.id} value={c.id}>{c.ragione_sociale}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button onClick={salvaTutte} disabled={!referenze?.length || savingAll} data-testid="ref-save-all">
+            {savingAll ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+            Salva modifiche
+          </Button>
+          <Select value={filtro} onValueChange={setFiltro}>
+            <SelectTrigger className="w-56" data-testid="filtro-cliente"><SelectValue placeholder="Tutti i clienti" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tutti i clienti</SelectItem>
+              {clienti.map((c) => <SelectItem key={c.id} value={c.id}>{c.ragione_sociale}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
       <Card>
         {!referenze ? (
@@ -76,16 +95,13 @@ export default function AdminReferenze() {
                 <TableHead className="w-16">Foto</TableHead>
                 <TableHead>Titolo</TableHead>
                 <TableHead>EAN</TableHead>
-                <TableHead>SKU</TableHead>
-                <TableHead>ASIN</TableHead>
                 <TableHead>FNSKU</TableHead>
                 <TableHead>Origine</TableHead>
-                <TableHead></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {referenze.length === 0 && (
-                <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-10">Nessuna referenza.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-10">Nessuna referenza.</TableCell></TableRow>
               )}
               {referenze.map((r) => (
                 <TableRow key={r.id} data-testid={`ref-row-${r.id}`}>
@@ -118,16 +134,6 @@ export default function AdminReferenze() {
                       className="h-8 w-40 font-mono text-xs"
                     />
                   </TableCell>
-                  <TableCell className="font-mono text-xs">{r.sku || "—"}</TableCell>
-                  <TableCell>
-                    <Input
-                      data-testid={`ref-asin-${r.id}`}
-                      value={asinEdit[r.id] ?? ""}
-                      onChange={(e) => setAsinEdit({ ...asinEdit, [r.id]: e.target.value })}
-                      placeholder="da aggiungere"
-                      className="h-8 w-36 font-mono text-xs"
-                    />
-                  </TableCell>
                   <TableCell>
                     <Input
                       data-testid={`ref-fnsku-${r.id}`}
@@ -138,9 +144,6 @@ export default function AdminReferenze() {
                     />
                   </TableCell>
                   <TableCell><span className="text-xs capitalize">{r.origine}</span></TableCell>
-                  <TableCell className="text-right">
-                    <Button size="sm" variant="ghost" data-testid={`ref-save-${r.id}`} onClick={() => salvaReferenza(r.id)}><Save className="h-4 w-4" /></Button>
-                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
