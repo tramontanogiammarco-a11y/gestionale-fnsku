@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, formatApiError } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -37,6 +38,7 @@ function formatDate(value) {
 }
 
 export default function AdminMagazzino() {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [clienti, setClienti] = useState([]);
   const [stockByCliente, setStockByCliente] = useState({});
@@ -121,6 +123,15 @@ export default function AdminMagazzino() {
     } finally {
       setMovimentiLoading(false);
     }
+  };
+
+  const apriDocumentoMovimento = (mov) => {
+    if (!mov?.ref_id) return;
+    const path = mov.tipo === "entrata"
+      ? `/admin/entrate/${mov.ref_id}`
+      : `/admin/preparazioni/${mov.ref_id}`;
+    setMovimentiOpen(false);
+    navigate(path);
   };
 
   return (
@@ -281,7 +292,16 @@ export default function AdminMagazzino() {
                             </span>
                           </TableCell>
                           <TableCell>
-                            <div className="font-medium">{mov.documento}</div>
+                            <Button
+                              type="button"
+                              variant="link"
+                              className="h-auto p-0 text-left font-medium text-slate-950 underline-offset-4 hover:underline"
+                              onClick={() => apriDocumentoMovimento(mov)}
+                              disabled={!mov.ref_id}
+                              data-testid={`magazzino-movimento-link-${mov.tipo}-${mov.ref_id || mov.id}`}
+                            >
+                              {mov.documento}
+                            </Button>
                             <div className="font-mono text-[11px] text-muted-foreground">{mov.codice}</div>
                           </TableCell>
                           <TableCell>{formatDate(mov.data)}</TableCell>
