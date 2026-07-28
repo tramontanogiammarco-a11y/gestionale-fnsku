@@ -74,6 +74,10 @@ function parseGruppiAmazon(note = "") {
   };
 }
 
+function copieDaRiga(riga) {
+  return Math.max(1, Number(riga?.quantita || 0) || 1);
+}
+
 export default function AdminPreparazioneDetail() {
   const { id } = useParams();
   const [prep, setPrep] = useState(null);
@@ -88,7 +92,7 @@ export default function AdminPreparazioneDetail() {
     api.get(`/preparazioni/${id}`).then((r) => {
       setPrep(r.data);
       const fe = {}, cp = {};
-      r.data.righe.forEach((rg) => { fe[rg.id] = rg.fnsku || ""; cp[rg.id] = 1; });
+      r.data.righe.forEach((rg) => { fe[rg.id] = rg.fnsku || ""; cp[rg.id] = copieDaRiga(rg); });
       setFnskuEdit(fe); setCopie(cp);
     });
   };
@@ -128,7 +132,7 @@ export default function AdminPreparazioneDetail() {
     const items = selezionate.map((rg) => ({
       fnsku: (fnskuEdit[rg.id] || rg.fnsku).trim(),
       titolo: rg.titolo || rg.ean,
-      copie: Number(copie[rg.id]) || 1,
+      copie: Number(copie[rg.id]) || copieDaRiga(rg),
     }));
     setGenerando(true);
     try {
@@ -313,7 +317,7 @@ export default function AdminPreparazioneDetail() {
                 <TableCell>{rg.quantita}</TableCell>
                 <TableCell>
                   <Input type="number" min={1} data-testid={`copie-input-${rg.id}`}
-                    value={copie[rg.id] ?? 1}
+                    value={copie[rg.id] ?? copieDaRiga(rg)}
                     onChange={(e) => setCopie({ ...copie, [rg.id]: e.target.value })}
                     className="h-8 w-16" />
                 </TableCell>
