@@ -409,6 +409,10 @@ async def ricevi_entrata(entrata_id: str, user: dict = Depends(require_admin)):
     await db.entrate.update_one({"id": entrata_id},
                                 {"$set": {"stato": "ricevuto",
                                           "data_ricezione": M._now_iso()}})
+    await db.entrate_righe.update_many(
+        {"entrata_id": entrata_id, "quantita_ricevuta": None},
+        [{"$set": {"quantita_ricevuta": "$quantita"}}],
+    )
     return await _entrata_con_righe(await db.entrate.find_one({"id": entrata_id}))
 
 
@@ -436,7 +440,7 @@ async def aggiorna_riga_fnsku(riga_id: str, payload: M.RigaFnskuUpdate,
     entrata = await db.entrate.find_one({"id": riga["entrata_id"]})
     await _assert_owns_cliente(user, entrata["cliente_id"])
     await db.entrate_righe.update_one({"id": riga_id},
-                                      {"$set": {"fnsku": payload.fnsku}})
+                                      {"$set": payload.model_dump(exclude_unset=True)})
     return _clean(await db.entrate_righe.find_one({"id": riga_id}))
 
 

@@ -122,6 +122,16 @@ function contenutoTotals(contenuto = []) {
 }
 
 const PREP_RESERVING_STATUSES = ["richiesta", "in_lavorazione", "pronto"];
+const ENTRATA_STOCK_STATUSES = ["ricevuto", "in_lavorazione", "pronto", "spedito"];
+
+function entrataRowReceivedQuantity(row = {}, entrata = null) {
+  if (row.quantita_ricevuta !== null && row.quantita_ricevuta !== undefined) {
+    return Math.max(0, Number(row.quantita_ricevuta || 0));
+  }
+  return entrata && ENTRATA_STOCK_STATUSES.includes(entrata.stato)
+    ? Math.max(0, Number(row.quantita || 0))
+    : 0;
+}
 
 function addUsage(target, ean, quantity, bundleMap = {}, bundleTarget = null) {
   if (!ean) return;
@@ -933,6 +943,7 @@ async function updateEntrataRiga(id, payload) {
   const updates = {};
   if (Object.prototype.hasOwnProperty.call(payload, "ean")) updates.ean = optionalText(payload.ean);
   if (Object.prototype.hasOwnProperty.call(payload, "quantita")) updates.quantita = Number(payload.quantita || 0);
+  if (Object.prototype.hasOwnProperty.call(payload, "quantita_ricevuta")) updates.quantita_ricevuta = Math.max(0, Number(payload.quantita_ricevuta || 0));
   if (Object.prototype.hasOwnProperty.call(payload, "fnsku")) updates.fnsku = optionalText(payload.fnsku);
   const hasReferenzaUpdate = Object.prototype.hasOwnProperty.call(payload, "titolo")
     || Object.prototype.hasOwnProperty.call(payload, "ean")
@@ -1025,7 +1036,33 @@ async function deleteEntrata(id) {
   return ok({ ok: true });
 }
 
-async function riceviEntrata(id) {
+async function riceviEntrata(id, payload = {}) {
+  const { data: righe, error: righeError } = await requireSupabase()
+    .from("entrate_righe")
+    .select("*")
+    .eq("entrata_id", id);
+  if (righeError) fail(righeError.message);
+  const receivedById = new Map((payload.righe || []).map((row) => [row.id, Math.max(0, Number(row.quantita_ricevuta || 0))]));
+  const updates = (righe || []).map((row) => {
+    const nextQty = receivedById.has(row.id)
+      ? receivedById.get(row.id)
+      : entrataRowReceivedQuantity(row, { stato: "ricevuto" });
+    return requireSupabase()
+      .from("entrate_righe")
+      .update({ quantita_ricevuta: nextQty })
+      .eq("id", row.id);
+  });
+  const results = await Promise.all(updates);
+  const updateError = results.find((result) => result.error)?.error;
+  if (updateError) fail(updateError.message);
+  const totalReceived = (righe || []).reduce((sum, row) => {
+    const qty = receivedById.has(row.id)
+      ? receivedById.get(row.id)
+      : entrataRowReceivedQuantity(row, { stato: "ricevuto" });
+    return sum + Number(qty || 0);
+  }, 0);
+  if (totalReceived <= 0) fail("Indica almeno una quantita arrivata prima di segnare l'entrata come ricevuta.");
+
   const { data, error } = await requireSupabase()
     .from("entrate")
     .update({ stato: "ricevuto", data_ricezione: nowIso() })
@@ -1432,7 +1469,7 @@ async function stockSnapshotForCliente(clienteId, options = {}) {
     { data: refs, error: refsError },
     { data: preps, error: prepsError },
   ] = await Promise.all([
-    supabase.from("entrate").select("id").eq("cliente_id", clienteId).in("stato", ["ricevuto", "in_lavorazione", "pronto", "spedito"]),
+    supabase.from("entrate").select("id,stato").eq("cliente_id", clienteId).in("stato", ENTRATA_STOCK_STATUSES),
     supabase.from("entrate_righe").select("*"),
     supabase.from("box").select("id,preparazione_id,stato,contenuto").eq("cliente_id", clienteId),
     supabase.from("referenze").select("*").eq("cliente_id", clienteId),
@@ -1496,10 +1533,13 @@ async function stockSnapshotForCliente(clienteId, options = {}) {
     activeOperationalEans.add(ean);
   };
 
+  const entrataById = new Map((entrate || []).map((entry) => [entry.id, entry]));
   for (const row of righeEntrata || []) {
-    if (!entrate?.some((entry) => entry.id === row.entrata_id)) continue;
+    const entrata = entrataById.get(row.entrata_id);
+    if (!entrata) continue;
+    const receivedQty = entrataRowReceivedQuantity(row, entrata);
     applyOperationalMeta(row);
-    trackUsageEan(row.ean, row.quantita);
+    trackUsageEan(row.ean, receivedQty);
   }
 
   for (const box of boxes || []) {
@@ -1509,10 +1549,10 @@ async function stockSnapshotForCliente(clienteId, options = {}) {
     }
   }
 
-  const entrataIds = new Set((entrate || []).map((e) => e.id));
   const ricevuto = {};
   for (const row of righeEntrata || []) {
-    if (entrataIds.has(row.entrata_id)) addUsage(ricevuto, row.ean, row.quantita, bundleMap);
+    const entrata = entrataById.get(row.entrata_id);
+    if (entrata) addUsage(ricevuto, row.ean, entrataRowReceivedQuantity(row, entrata), bundleMap);
   }
 
   const activePrepIds = new Set((preps || [])
@@ -2065,6 +2105,7 @@ async function magazzinoMovimenti(params) {
     .filter((row) => sameProductRow(row) && entrataMap.has(row.entrata_id))
     .map((row) => {
       const entrata = entrataMap.get(row.entrata_id);
+      const receivedQty = entrataRowReceivedQuantity(row, entrata);
       return {
         id: row.id,
         tipo: "entrata",
@@ -2073,10 +2114,12 @@ async function magazzinoMovimenti(params) {
         codice: shortCode(entrata.id),
         stato: entrata.stato,
         data: entrata.data_ricezione || entrata.data_annuncio || entrata.created_at,
-        quantita: Number(row.quantita || 0),
+        quantita: receivedQty,
+        quantita_dichiarata: Number(row.quantita || 0),
         ref_id: entrata.id,
       };
-    });
+    })
+    .filter((row) => row.quantita > 0);
 
   const movimentiPreparazione = (righePrep || [])
     .filter((row) => sameProductRow(row) && prepMap.has(row.preparazione_id))
@@ -2662,7 +2705,7 @@ export const api = {
     if (path.match(/^\/entrate\/[^/]+\/documento$/)) return uploadEntrataDocumento(path.split("/")[2], payload);
     if (path === "/entrate") return createEntrata(payload);
     if (path === "/entrate-righe") return createEntrataRiga(payload);
-    if (path.match(/^\/entrate\/[^/]+\/ricevi$/)) return riceviEntrata(path.split("/")[2]);
+    if (path.match(/^\/entrate\/[^/]+\/ricevi$/)) return riceviEntrata(path.split("/")[2], payload);
     if (path === "/box") return createBox(payload);
     if (path === "/box/etichette-gruppo") return uploadBoxLabelsGroup(payload);
     if (path.match(/^\/box\/[^/]+\/etichette$/)) return uploadBoxLabel(path.split("/")[2], "combined", payload);

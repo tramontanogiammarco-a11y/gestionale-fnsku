@@ -82,6 +82,7 @@ create table public.entrate_righe (
   entrata_id uuid not null references public.entrate(id) on delete cascade,
   ean text not null,
   quantita integer not null check (quantita > 0),
+  quantita_ricevuta integer check (quantita_ricevuta is null or quantita_ricevuta >= 0),
   fnsku text
 );
 

@@ -116,6 +116,7 @@ class RigaEntrataInput(BaseModel):
     sku: Optional[str] = None
     titolo: Optional[str] = None
     quantita: int
+    quantita_ricevuta: Optional[int] = None
     fnsku: Optional[str] = None
 
 
@@ -149,10 +150,14 @@ class RigaEntrata(BaseModel):
     entrata_id: str
     ean: str
     quantita: int
+    quantita_ricevuta: Optional[int] = None
     fnsku: Optional[str] = None
 
 
 class RigaFnskuUpdate(BaseModel):
+    ean: Optional[str] = None
+    quantita: Optional[int] = None
+    quantita_ricevuta: Optional[int] = None
     fnsku: Optional[str] = None
 
 

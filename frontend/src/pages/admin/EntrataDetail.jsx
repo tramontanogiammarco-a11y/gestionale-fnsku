@@ -42,6 +42,7 @@ function editFromRow(row) {
     ean: row.ean || "",
     fnsku: row.fnsku || "",
     quantita: String(row.quantita || ""),
+    quantita_ricevuta: String(row.quantita_ricevuta ?? row.quantita ?? ""),
   };
 }
 
@@ -59,16 +60,6 @@ export default function AdminEntrataDetail() {
     setRigheEdit(Object.fromEntries((r.data.righe || []).map((row) => [row.id, editFromRow(row)])));
   });
   useEffect(() => { load(); }, [id]);
-
-  const ricevi = async () => {
-    try {
-      await api.post(`/entrate/${id}/ricevi`);
-      toast.success("Entrata segnata come ricevuta");
-      load();
-    } catch (e) {
-      toast.error(azioneErrore(e));
-    }
-  };
 
   const uploadDocumento = async (file) => {
     setUploading(true);
@@ -97,7 +88,7 @@ export default function AdminEntrataDetail() {
     }));
   };
 
-  const salvaRighe = async () => {
+  const salvaRighe = async (options = {}) => {
     if (!entrata) return;
     const righeDaSalvare = entrata.righe.map((row) => {
       const edit = righeEdit[row.id] || editFromRow(row);
@@ -108,15 +99,20 @@ export default function AdminEntrataDetail() {
         ean: cleanText(edit.ean),
         fnsku: cleanText(edit.fnsku),
         quantita: Number(edit.quantita || 0),
+        quantita_ricevuta: Math.max(0, Number(edit.quantita_ricevuta || 0)),
       };
     });
     if (righeDaSalvare.some((row) => !row.ean)) {
       toast.error("Ogni riga deve avere un EAN o codice prodotto.");
-      return;
+      return false;
     }
     if (righeDaSalvare.some((row) => !Number.isFinite(row.quantita) || row.quantita <= 0)) {
       toast.error("Le quantita devono essere maggiori di zero.");
-      return;
+      return false;
+    }
+    if (righeDaSalvare.some((row) => !Number.isFinite(row.quantita_ricevuta) || row.quantita_ricevuta < 0)) {
+      toast.error("Le quantita arrivate non possono essere negative.");
+      return false;
     }
 
     setSavingRighe(true);
@@ -124,6 +120,7 @@ export default function AdminEntrataDetail() {
       await Promise.all(righeDaSalvare
         .filter((row) => (
           row.quantita !== Number(row.originale.quantita || 0)
+          || row.quantita_ricevuta !== Number(row.originale.quantita_ricevuta || 0)
           || (row.ean || "") !== (row.originale.ean || "")
           || (row.titolo || "") !== (row.originale.titolo || "")
           || (row.fnsku || "") !== (row.originale.fnsku || "")
@@ -133,13 +130,39 @@ export default function AdminEntrataDetail() {
           ean: row.ean,
           fnsku: row.fnsku,
           quantita: row.quantita,
+          quantita_ricevuta: row.quantita_ricevuta,
         })));
-      toast.success("Righe entrata aggiornate");
+      if (!options.silent) toast.success("Righe entrata aggiornate");
+      load();
+      return true;
+    } catch (e) {
+      toast.error(azioneErrore(e));
+      return false;
+    } finally {
+      setSavingRighe(false);
+    }
+  };
+
+  const ricevi = async () => {
+    const righeRicezione = (entrata?.righe || []).map((row) => {
+      const edit = righeEdit[row.id] || editFromRow(row);
+      return {
+        id: row.id,
+        quantita_ricevuta: Math.max(0, Number(edit.quantita_ricevuta || 0)),
+      };
+    });
+    if (righeRicezione.reduce((sum, row) => sum + Number(row.quantita_ricevuta || 0), 0) <= 0) {
+      toast.error("Indica almeno una quantita arrivata.");
+      return;
+    }
+    const saved = await salvaRighe({ silent: true });
+    if (!saved) return;
+    try {
+      await api.post(`/entrate/${id}/ricevi`, { righe: righeRicezione });
+      toast.success("Entrata segnata come ricevuta");
       load();
     } catch (e) {
       toast.error(azioneErrore(e));
-    } finally {
-      setSavingRighe(false);
     }
   };
 
@@ -179,8 +202,9 @@ export default function AdminEntrataDetail() {
         </div>
         <div className="flex items-center gap-2">
           {entrata.stato === "in_attesa" ? (
-            <Button data-testid="ricevi-btn" onClick={ricevi}>
-              <PackageCheck className="h-4 w-4 mr-2" /> Segna Arrivato
+            <Button data-testid="ricevi-btn" onClick={ricevi} disabled={savingRighe}>
+              {savingRighe ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <PackageCheck className="h-4 w-4 mr-2" />}
+              Segna quantità arrivate
             </Button>
           ) : (
             <span className="inline-flex items-center gap-1 text-sm text-emerald-600 font-medium" data-testid="entrata-arrivato">
@@ -200,7 +224,7 @@ export default function AdminEntrataDetail() {
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="font-heading text-lg font-semibold">Contenuto arrivo (EAN · FNSKU · quantità)</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Se il cliente segnala dati errati dopo la ricezione, correggi qui titolo, EAN, FNSKU e pezzi ricevuti.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Correggi titolo, EAN, FNSKU e indica quanti pezzi sono arrivati davvero per ogni SKU.</p>
           </div>
           <Button variant="outline" onClick={salvaRighe} disabled={savingRighe} data-testid="admin-save-entrata-righe">
             {savingRighe ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
@@ -213,7 +237,8 @@ export default function AdminEntrataDetail() {
               <TableHead>Titolo</TableHead>
               <TableHead>EAN</TableHead>
               <TableHead>FNSKU</TableHead>
-              <TableHead className="text-right">Quantità</TableHead>
+              <TableHead className="text-right">Q.tà dichiarata</TableHead>
+              <TableHead className="text-right">Q.tà arrivata</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -254,6 +279,16 @@ export default function AdminEntrataDetail() {
                     onChange={(event) => updateRigaEdit(rg.id, "quantita", event.target.value)}
                     className="ml-auto h-8 w-24 text-right"
                     data-testid={`admin-entrata-qta-${rg.id}`}
+                  />
+                </TableCell>
+                <TableCell className="text-right">
+                  <Input
+                    type="number"
+                    min={0}
+                    value={righeEdit[rg.id]?.quantita_ricevuta ?? ""}
+                    onChange={(event) => updateRigaEdit(rg.id, "quantita_ricevuta", event.target.value)}
+                    className="ml-auto h-8 w-24 text-right"
+                    data-testid={`admin-entrata-qta-ricevuta-${rg.id}`}
                   />
                 </TableCell>
               </TableRow>
