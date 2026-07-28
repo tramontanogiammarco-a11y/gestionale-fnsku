@@ -648,14 +648,17 @@ async function ensureReferenzeForEntrata(clienteId, righe = []) {
   const byLooseTitle = new Map((existing || [])
     .filter((ref) => !ref.is_bundle && !isRealEan(ref.ean, ref.titolo))
     .map((ref) => [normalizedText(ref.titolo), ref]));
+  const byFnsku = new Map((existing || [])
+    .filter((ref) => optionalText(ref.fnsku))
+    .map((ref) => [optionalText(ref.fnsku), ref]));
   const toInsert = [];
   const updates = [];
 
   for (const row of rows) {
     const rowTitle = row.titolo || row.ean;
-    const found = isRealEan(row.ean, rowTitle)
-      ? byRealEan.get(row.ean)
-      : byLooseTitle.get(normalizedText(rowTitle));
+    const found = (isRealEan(row.ean, rowTitle) ? byRealEan.get(row.ean) : null)
+      || (row.fnsku ? byFnsku.get(row.fnsku) : null)
+      || byLooseTitle.get(normalizedText(rowTitle));
     if (!found) {
       const created = {
         cliente_id: clienteId,
@@ -668,17 +671,21 @@ async function ensureReferenzeForEntrata(clienteId, righe = []) {
       toInsert.push(created);
       if (isRealEan(row.ean, rowTitle)) byRealEan.set(row.ean, created);
       else byLooseTitle.set(normalizedText(rowTitle), created);
+      if (row.fnsku) byFnsku.set(row.fnsku, created);
       continue;
     }
 
     const patch = {};
-    if (row.titolo && (!found.titolo || found.titolo === found.ean)) patch.titolo = row.titolo;
-    if (row.ean && !isRealEan(row.ean, rowTitle) && !found.ean) patch.ean = row.ean;
-    if (row.sku && !found.sku) patch.sku = row.sku;
-    if (row.fnsku && !found.fnsku) patch.fnsku = row.fnsku;
+    if (row.titolo && row.titolo !== found.titolo) patch.titolo = row.titolo;
+    if (row.ean && row.ean !== found.ean && (!found.ean || !isRealEan(found.ean, found.titolo))) patch.ean = row.ean;
+    if (row.sku && row.sku !== found.sku) patch.sku = row.sku;
+    if (row.fnsku && row.fnsku !== found.fnsku) patch.fnsku = row.fnsku;
     if (Object.keys(patch).length) {
       if (found.id) updates.push({ id: found.id, patch });
       Object.assign(found, patch);
+      if (found.ean && isRealEan(found.ean, found.titolo)) byRealEan.set(found.ean, found);
+      if (found.fnsku) byFnsku.set(found.fnsku, found);
+      if (found.titolo && !isRealEan(found.ean, found.titolo)) byLooseTitle.set(normalizedText(found.titolo), found);
     }
   }
 
@@ -834,10 +841,25 @@ async function enrichEntrate(entrate) {
     : { data: [], error: null };
   if (righeError) fail(righeError.message);
   const cmap = await clientiMap(entrate.map((e) => e.cliente_id));
+  const refs = await refsFor(entrate.map((e) => e.cliente_id));
+  const entrataCliente = new Map(entrate.map((e) => [e.id, e.cliente_id]));
+  const refByEan = new Map();
+  const refByFnsku = new Map();
+  for (const ref of refs) {
+    if (ref.ean) refByEan.set(`${ref.cliente_id}:${ref.ean}`, ref);
+    if (ref.fnsku) refByFnsku.set(`${ref.cliente_id}:${ref.fnsku}`, ref);
+  }
   const byEntrata = {};
   for (const r of righe || []) {
+    const clienteId = entrataCliente.get(r.entrata_id);
+    const ref = refByEan.get(`${clienteId}:${r.ean}`) || refByFnsku.get(`${clienteId}:${r.fnsku}`);
     byEntrata[r.entrata_id] = byEntrata[r.entrata_id] || [];
-    byEntrata[r.entrata_id].push(r);
+    byEntrata[r.entrata_id].push({
+      ...r,
+      titolo: ref?.titolo || null,
+      fnsku: r.fnsku || ref?.fnsku || null,
+      referenza_id: ref?.id || null,
+    });
   }
   return entrate.map((e) => ({
     ...cleanRow(e),
@@ -912,28 +934,42 @@ async function updateEntrataRiga(id, payload) {
   if (Object.prototype.hasOwnProperty.call(payload, "ean")) updates.ean = optionalText(payload.ean);
   if (Object.prototype.hasOwnProperty.call(payload, "quantita")) updates.quantita = Number(payload.quantita || 0);
   if (Object.prototype.hasOwnProperty.call(payload, "fnsku")) updates.fnsku = optionalText(payload.fnsku);
-  if (!Object.keys(updates).length) fail("Nessun campo da aggiornare");
+  const hasReferenzaUpdate = Object.prototype.hasOwnProperty.call(payload, "titolo")
+    || Object.prototype.hasOwnProperty.call(payload, "ean")
+    || Object.prototype.hasOwnProperty.call(payload, "fnsku");
+  if (!Object.keys(updates).length && !hasReferenzaUpdate) fail("Nessun campo da aggiornare");
 
   const { data: current, error: readError } = await requireSupabase()
     .from("entrate_righe")
-    .select("entrata_id,ean")
+    .select("entrata_id,ean,fnsku")
     .eq("id", id)
     .single();
   if (readError) fail(readError.message);
   await assertEntrataEditableForProfile(current.entrata_id);
+  const clienteId = await clienteIdForEntrata(current.entrata_id);
 
-  if (Object.prototype.hasOwnProperty.call(payload, "ean") || Object.prototype.hasOwnProperty.call(payload, "fnsku")) {
-    const clienteId = await clienteIdForEntrata(current.entrata_id);
-    await ensureReferenzeForEntrata(clienteId, [{ ...payload, ean: updates.ean || current.ean }]);
+  if (hasReferenzaUpdate) {
+    await ensureReferenzeForEntrata(clienteId, [{
+      ...payload,
+      ean: updates.ean || current.ean,
+      fnsku: Object.prototype.hasOwnProperty.call(payload, "fnsku") ? updates.fnsku : current.fnsku,
+    }]);
   }
 
-  const { data, error } = await requireSupabase()
-    .from("entrate_righe")
-    .update(updates)
-    .eq("id", id)
-    .select()
-    .single();
-  if (error) fail(error.message);
+  let data = current;
+  if (Object.keys(updates).length) {
+    const { data: updated, error } = await requireSupabase()
+      .from("entrate_righe")
+      .update(updates)
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) fail(error.message);
+    data = updated;
+  }
+  if (updates.ean && current.ean && updates.ean !== current.ean) {
+    await cascadeReferenzaEan(clienteId, current.ean, updates.ean);
+  }
   return ok(data);
 }
 

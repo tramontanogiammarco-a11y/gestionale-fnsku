@@ -31,6 +31,20 @@ function parseDocumentiNote(note = "") {
   return { notePulita: String(note || "").replace(match[0], "").trim(), documenti };
 }
 
+function cleanText(value) {
+  const text = String(value || "").trim();
+  return text || null;
+}
+
+function editFromRow(row) {
+  return {
+    titolo: row.titolo || "",
+    ean: row.ean || "",
+    fnsku: row.fnsku || "",
+    quantita: String(row.quantita || ""),
+  };
+}
+
 export default function AdminEntrataDetail() {
   const { id } = useParams();
   const [entrata, setEntrata] = useState(null);
@@ -42,7 +56,7 @@ export default function AdminEntrataDetail() {
 
   const load = () => api.get(`/entrate/${id}`).then((r) => {
     setEntrata(r.data);
-    setRigheEdit(Object.fromEntries((r.data.righe || []).map((row) => [row.id, String(row.quantita || "")])));
+    setRigheEdit(Object.fromEntries((r.data.righe || []).map((row) => [row.id, editFromRow(row)])));
   });
   useEffect(() => { load(); }, [id]);
 
@@ -73,13 +87,33 @@ export default function AdminEntrataDetail() {
     }
   };
 
-  const salvaQuantita = async () => {
-    if (!entrata) return;
-    const righeDaSalvare = entrata.righe.map((row) => ({
-      id: row.id,
-      originale: Number(row.quantita || 0),
-      quantita: Number(righeEdit[row.id] || 0),
+  const updateRigaEdit = (rowId, field, value) => {
+    setRigheEdit((current) => ({
+      ...current,
+      [rowId]: {
+        ...(current[rowId] || {}),
+        [field]: value,
+      },
     }));
+  };
+
+  const salvaRighe = async () => {
+    if (!entrata) return;
+    const righeDaSalvare = entrata.righe.map((row) => {
+      const edit = righeEdit[row.id] || editFromRow(row);
+      return {
+        id: row.id,
+        originale: editFromRow(row),
+        titolo: cleanText(edit.titolo),
+        ean: cleanText(edit.ean),
+        fnsku: cleanText(edit.fnsku),
+        quantita: Number(edit.quantita || 0),
+      };
+    });
+    if (righeDaSalvare.some((row) => !row.ean)) {
+      toast.error("Ogni riga deve avere un EAN o codice prodotto.");
+      return;
+    }
     if (righeDaSalvare.some((row) => !Number.isFinite(row.quantita) || row.quantita <= 0)) {
       toast.error("Le quantita devono essere maggiori di zero.");
       return;
@@ -88,9 +122,19 @@ export default function AdminEntrataDetail() {
     setSavingRighe(true);
     try {
       await Promise.all(righeDaSalvare
-        .filter((row) => row.quantita !== row.originale)
-        .map((row) => api.put(`/entrate-righe/${row.id}`, { quantita: row.quantita })));
-      toast.success("Quantita entrata aggiornate");
+        .filter((row) => (
+          row.quantita !== Number(row.originale.quantita || 0)
+          || (row.ean || "") !== (row.originale.ean || "")
+          || (row.titolo || "") !== (row.originale.titolo || "")
+          || (row.fnsku || "") !== (row.originale.fnsku || "")
+        ))
+        .map((row) => api.put(`/entrate-righe/${row.id}`, {
+          titolo: row.titolo,
+          ean: row.ean,
+          fnsku: row.fnsku,
+          quantita: row.quantita,
+        })));
+      toast.success("Righe entrata aggiornate");
       load();
     } catch (e) {
       toast.error(azioneErrore(e));
@@ -155,16 +199,17 @@ export default function AdminEntrataDetail() {
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="font-heading text-lg font-semibold">Contenuto arrivo (EAN · FNSKU · quantità)</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Se il cliente segnala numeri errati dopo la ricezione, correggi qui i pezzi ricevuti.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Se il cliente segnala dati errati dopo la ricezione, correggi qui titolo, EAN, FNSKU e pezzi ricevuti.</p>
           </div>
-          <Button variant="outline" onClick={salvaQuantita} disabled={savingRighe} data-testid="admin-save-entrata-righe">
+          <Button variant="outline" onClick={salvaRighe} disabled={savingRighe} data-testid="admin-save-entrata-righe">
             {savingRighe ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-            Salva quantita
+            Salva righe
           </Button>
         </div>
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead>Titolo</TableHead>
               <TableHead>EAN</TableHead>
               <TableHead>FNSKU</TableHead>
               <TableHead className="text-right">Quantità</TableHead>
@@ -173,14 +218,39 @@ export default function AdminEntrataDetail() {
           <TableBody>
             {entrata.righe.map((rg) => (
               <TableRow key={rg.id} data-testid={`riga-${rg.id}`}>
-                <TableCell className="font-mono text-xs">{rg.ean || "—"}</TableCell>
-                <TableCell className="font-mono text-xs">{rg.fnsku || "—"}</TableCell>
+                <TableCell>
+                  <Input
+                    value={righeEdit[rg.id]?.titolo ?? ""}
+                    onChange={(event) => updateRigaEdit(rg.id, "titolo", event.target.value)}
+                    className="h-8 min-w-[260px]"
+                    placeholder="Titolo prodotto"
+                    data-testid={`admin-entrata-titolo-${rg.id}`}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Input
+                    value={righeEdit[rg.id]?.ean ?? ""}
+                    onChange={(event) => updateRigaEdit(rg.id, "ean", event.target.value)}
+                    className="h-8 min-w-[160px] font-mono text-xs"
+                    placeholder="EAN"
+                    data-testid={`admin-entrata-ean-${rg.id}`}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Input
+                    value={righeEdit[rg.id]?.fnsku ?? ""}
+                    onChange={(event) => updateRigaEdit(rg.id, "fnsku", event.target.value)}
+                    className="h-8 min-w-[150px] font-mono text-xs"
+                    placeholder="FNSKU"
+                    data-testid={`admin-entrata-fnsku-${rg.id}`}
+                  />
+                </TableCell>
                 <TableCell className="text-right">
                   <Input
                     type="number"
                     min={1}
-                    value={righeEdit[rg.id] ?? ""}
-                    onChange={(event) => setRigheEdit({ ...righeEdit, [rg.id]: event.target.value })}
+                    value={righeEdit[rg.id]?.quantita ?? ""}
+                    onChange={(event) => updateRigaEdit(rg.id, "quantita", event.target.value)}
                     className="ml-auto h-8 w-24 text-right"
                     data-testid={`admin-entrata-qta-${rg.id}`}
                   />
