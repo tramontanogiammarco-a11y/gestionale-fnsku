@@ -63,7 +63,7 @@ export default function AdminDashboard() {
       icon: Boxes,
       panel: "border-rose-100 bg-[#faeaf1]",
       badge: "bg-[#f18bc1] text-rose-950",
-      to: "/admin/box",
+      to: "/admin/composizione-box",
     },
     {
       label: "Box spediti",
@@ -71,7 +71,7 @@ export default function AdminDashboard() {
       icon: Truck,
       panel: "border-emerald-100 bg-[#e5f4e2]",
       badge: "bg-[#87d85c] text-emerald-950",
-      to: "/admin/box",
+      to: "/admin/composizione-box",
     },
   ];
   const entrateChart = statusRows(stats.entrate_per_stato, STATI_ENTRATA);
@@ -90,7 +90,7 @@ export default function AdminDashboard() {
   const urgenti = [
     { label: "Entrate in attesa", value: stats.entrate_per_stato?.in_attesa || 0, to: "/admin/entrate?stato=in_attesa" },
     { label: "Prep richieste", value: stats.preparazioni_per_stato?.richiesta || 0, to: "/admin/preparazioni" },
-    { label: "Box pronti", value: stats.box_per_stato?.pronto || 0, to: "/admin/box" },
+    { label: "Box pronti", value: stats.box_per_stato?.pronto || 0, to: "/admin/composizione-box" },
   ];
   const controlli = stats.controlli || {};
   const checks = [
@@ -251,7 +251,7 @@ export default function AdminDashboard() {
         {[
           { title: "Entrate per stato", data: entrateChart, status: STATI_ENTRATA, base: "/admin/entrate?stato=" },
           { title: "Preparazioni per stato", data: prepChart, status: STATI_PREP, base: "/admin/preparazioni" },
-          { title: "Box per stato", data: boxChart, status: STATI_BOX, base: "/admin/box" },
+          { title: "Box per stato", data: boxChart, status: STATI_BOX, base: "/admin/composizione-box" },
         ].map((chart) => (
           <Card key={chart.title} className="p-5">
             <h2 className="font-heading text-lg font-bold">{chart.title}</h2>

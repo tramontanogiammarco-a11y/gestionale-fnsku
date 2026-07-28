@@ -12,7 +12,6 @@ import ClientLayout from "@/layouts/ClientLayout";
 import AdminDashboard from "@/pages/admin/Dashboard";
 import AdminEntrate from "@/pages/admin/Entrate";
 import AdminEntrataDetail from "@/pages/admin/EntrataDetail";
-import AdminBox from "@/pages/admin/BoxList";
 import AdminReferenze from "@/pages/admin/Referenze";
 import AdminEtichette from "@/pages/admin/LabelGenerator";
 import AdminClienti from "@/pages/admin/Clienti";
@@ -71,7 +70,7 @@ function App() {
               <Route path="entrate/:id" element={<AdminEntrataDetail />} />
               <Route path="magazzino" element={<AdminMagazzino />} />
               <Route path="composizione-box" element={<AdminComposizioneBox />} />
-              <Route path="box" element={<AdminBox />} />
+              <Route path="box" element={<Navigate to="/admin/composizione-box" replace />} />
               <Route path="referenze" element={<AdminReferenze />} />
               <Route path="etichette" element={<AdminEtichette />} />
               <Route path="preparazioni" element={<AdminPreparazioni />} />

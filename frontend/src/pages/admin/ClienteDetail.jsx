@@ -89,7 +89,7 @@ export default function AdminClienteDetail() {
     { label: "Disponibili", value: stats.pezziDisponibili, icon: Warehouse, to: `/admin/referenze?cliente_id=${id}`, tone: "bg-emerald-50 text-emerald-700" },
     { label: "Entrate", value: data.entrate.length, icon: PackageOpen, to: `/admin/entrate`, tone: "bg-sky-50 text-sky-700" },
     { label: "Preparazioni", value: data.preparazioni.length, icon: ClipboardList, to: `/admin/preparazioni`, tone: "bg-indigo-50 text-indigo-700" },
-    { label: "Box", value: data.box.length, icon: Boxes, to: `/admin/box`, tone: "bg-amber-50 text-amber-700" },
+    { label: "Box", value: data.box.length, icon: Boxes, to: `/admin/composizione-box`, tone: "bg-amber-50 text-amber-700" },
   ];
 
   return (
@@ -194,7 +194,7 @@ export default function AdminClienteDetail() {
           meta: `${b.contenuto?.length || 0} referenze`,
           status: b.stato,
           tipo: "box",
-          to: "/admin/box",
+          to: "/admin/composizione-box",
         }))} />
       </div>
     </div>

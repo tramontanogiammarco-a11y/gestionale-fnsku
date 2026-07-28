@@ -60,7 +60,7 @@ export default function GlobalSearch() {
     data.box.forEach((b) => {
       const righeMatch = (b.contenuto || []).some((r) => includes(r.ean, q) || includes(r.fnsku, q) || includes(r.sku, q));
       if (includes(b.numero_box, q) || includes(b.cliente_ragione_sociale, q) || righeMatch) {
-        rows.push({ type: "Box", title: b.numero_box, meta: `${b.cliente_ragione_sociale || ""} · ${b.stato}`, to: "/admin/box" });
+        rows.push({ type: "Box", title: b.numero_box, meta: `${b.cliente_ragione_sociale || ""} · ${b.stato}`, to: "/admin/composizione-box" });
       }
     });
     return rows.slice(0, 8);

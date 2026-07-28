@@ -1098,27 +1098,57 @@ async function listBox(params) {
       .in("cliente_id", clienteIds)
     : { data: [], error: null };
   if (prepError) fail(prepError.message);
+  const prepIds = (preparazioni || []).map((prep) => prep.id);
+  const { data: righePrep, error: righePrepError } = prepIds.length
+    ? await supabase.from("preparazioni_righe").select("*").in("preparazione_id", prepIds)
+    : { data: [], error: null };
+  if (righePrepError) fail(righePrepError.message);
 
   const prepsByClient = groupBy(preparazioni || [], "cliente_id");
+  const boxesByClient = groupBy(boxes, "cliente_id");
+  const righeByClient = (righePrep || []).reduce((acc, row) => {
+    const prep = (preparazioni || []).find((p) => p.id === row.preparazione_id);
+    if (!prep?.cliente_id) return acc;
+    acc[prep.cliente_id] = acc[prep.cliente_id] || [];
+    acc[prep.cliente_id].push(row);
+    return acc;
+  }, {});
   const prepMeta = new Map();
+  const fallbackPrepByBoxId = new Map();
   for (const [clientId, rows] of Object.entries(prepsByClient)) {
-    [...rows]
-      .sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")))
-      .forEach((prep, index) => {
-        prepMeta.set(prep.id, {
-          preparazione_numero: index + 1,
-          preparazione_data: prep.data_spedito || prep.data_pronto || prep.created_at,
-          preparazione_stato: prep.stato,
-          cliente_id: clientId,
-        });
+    const orderedPreps = [...rows].sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
+    orderedPreps.forEach((prep, index) => {
+      prepMeta.set(prep.id, {
+        preparazione_numero: index + 1,
+        preparazione_data: prep.data_spedito || prep.data_pronto || prep.created_at,
+        preparazione_stato: prep.stato,
+        cliente_id: clientId,
       });
+    });
+
+    const groupedBoxes = boxesByPreparazioneWithFallback(
+      orderedPreps,
+      righeByClient[clientId] || [],
+      boxesByClient[clientId] || []
+    );
+    Object.entries(groupedBoxes).forEach(([prepId, groupBoxes]) => {
+      groupBoxes.forEach((box) => {
+        if (box.preparazione_id) return;
+        fallbackPrepByBoxId.set(box.id, prepId);
+      });
+    });
   }
 
-  return ok(boxes.map((b) => ({
-    ...b,
-    ...(prepMeta.get(b.preparazione_id) || {}),
-    cliente_ragione_sociale: cmap[b.cliente_id]?.ragione_sociale || null,
-  })));
+  return ok(boxes.map((b) => {
+    const effectivePrepId = b.preparazione_id || fallbackPrepByBoxId.get(b.id) || null;
+    return {
+      ...b,
+      preparazione_id_effettiva: effectivePrepId,
+      abbinata_da_contenuto: Boolean(!b.preparazione_id && effectivePrepId),
+      ...(prepMeta.get(effectivePrepId) || {}),
+      cliente_ragione_sociale: cmap[b.cliente_id]?.ragione_sociale || null,
+    };
+  }));
 }
 
 function applyBoxNumberScope(query, clienteId, preparazioneId) {

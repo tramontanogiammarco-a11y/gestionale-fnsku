@@ -82,7 +82,8 @@ function prepLabel(item) {
 function buildPreparazioneBoxGroups(boxes) {
   const groups = new Map();
   for (const box of boxes) {
-    const key = box.preparazione_id ? `prep:${box.preparazione_id}` : "senza-preparazione";
+    const prepId = box.preparazione_id_effettiva || box.preparazione_id;
+    const key = prepId ? `prep:${prepId}` : "senza-preparazione";
     if (!groups.has(key)) {
       const numero = Number(box.preparazione_numero || 0);
       groups.set(key, {
@@ -454,6 +455,11 @@ function ComposizioneBoxCard({ box: b, clienteId, imballabili, selected, onToggl
           <div>
             <div className="font-heading font-semibold font-mono">{b.numero_box}</div>
             <div className="mt-1"><StatusBadge stato={b.stato} tipo="box" /></div>
+            {b.abbinata_da_contenuto && (
+              <div className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                Collegata dal contenuto
+              </div>
+            )}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
