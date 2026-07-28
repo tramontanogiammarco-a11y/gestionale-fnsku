@@ -83,7 +83,6 @@ export default function AdminPreparazioneDetail() {
   const [prep, setPrep] = useState(null);
   const [fnskuEdit, setFnskuEdit] = useState({});
   const [selezione, setSelezione] = useState({});
-  const [copie, setCopie] = useState({});
   const [formato, setFormato] = useState("50x30");
   const [formati, setFormati] = useState(["50x30"]);
   const [generando, setGenerando] = useState(false);
@@ -91,9 +90,9 @@ export default function AdminPreparazioneDetail() {
   const load = () => {
     api.get(`/preparazioni/${id}`).then((r) => {
       setPrep(r.data);
-      const fe = {}, cp = {};
-      r.data.righe.forEach((rg) => { fe[rg.id] = rg.fnsku || ""; cp[rg.id] = copieDaRiga(rg); });
-      setFnskuEdit(fe); setCopie(cp);
+      const fe = {};
+      r.data.righe.forEach((rg) => { fe[rg.id] = rg.fnsku || ""; });
+      setFnskuEdit(fe);
     });
   };
   useEffect(() => {
@@ -132,7 +131,7 @@ export default function AdminPreparazioneDetail() {
     const items = selezionate.map((rg) => ({
       fnsku: (fnskuEdit[rg.id] || rg.fnsku).trim(),
       titolo: rg.titolo || rg.ean,
-      copie: Number(copie[rg.id]) || copieDaRiga(rg),
+      copie: copieDaRiga(rg),
     }));
     setGenerando(true);
     try {
@@ -277,7 +276,6 @@ export default function AdminPreparazioneDetail() {
               <TableHead>Servizi</TableHead>
               <TableHead>FNSKU</TableHead>
               <TableHead>Q.tà</TableHead>
-              <TableHead>Copie</TableHead>
               <TableHead></TableHead>
             </TableRow>
           </TableHeader>
@@ -315,12 +313,6 @@ export default function AdminPreparazioneDetail() {
                   />
                 </TableCell>
                 <TableCell>{rg.quantita}</TableCell>
-                <TableCell>
-                  <Input type="number" min={1} data-testid={`copie-input-${rg.id}`}
-                    value={copie[rg.id] ?? copieDaRiga(rg)}
-                    onChange={(e) => setCopie({ ...copie, [rg.id]: e.target.value })}
-                    className="h-8 w-16" />
-                </TableCell>
                 <TableCell className="text-right">
                   <Button size="sm" variant="ghost" data-testid={`save-fnsku-${rg.id}`} onClick={() => salvaFnsku(rg)}>
                     <Save className="h-4 w-4" />
