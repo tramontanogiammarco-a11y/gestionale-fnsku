@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import GlobalSearch from "@/components/GlobalSearch";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import logo from "@/assets/logo.png";
 
 const NAV_SECTIONS = [
@@ -38,7 +39,7 @@ const NAV_SECTIONS = [
 const NAV = NAV_SECTIONS.flatMap((section) => section.items);
 
 function AdminNavLink({ item, mobile = false }) {
-  return (
+  const link = (
     <NavLink
       to={item.to}
       end={item.end}
@@ -57,12 +58,20 @@ function AdminNavLink({ item, mobile = false }) {
     >
       <item.icon className={cn("shrink-0", mobile ? "h-4 w-4" : "h-[19px] w-[19px]")} strokeWidth={1.8} />
       {mobile && item.label}
-      {!mobile && (
-        <span className="pointer-events-none absolute left-[54px] z-50 hidden whitespace-nowrap rounded-md bg-slate-950 px-2.5 py-1.5 text-xs font-semibold text-white shadow-lg group-hover:block">
-          {item.label}
-        </span>
-      )}
     </NavLink>
+  );
+
+  if (mobile) return link;
+
+  return (
+    <TooltipProvider delayDuration={120}>
+      <Tooltip>
+        <TooltipTrigger asChild>{link}</TooltipTrigger>
+        <TooltipContent side="right" sideOffset={10} className="border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-semibold text-white shadow-xl">
+          {item.label}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 
