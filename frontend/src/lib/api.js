@@ -1897,6 +1897,86 @@ async function magazzino(params) {
   return ok(rows);
 }
 
+function shortCode(id) {
+  return String(id || "").slice(0, 8).toUpperCase();
+}
+
+async function magazzinoMovimenti(params) {
+  const cid = await resolveClienteId(params.get("cliente_id") || undefined);
+  const ean = optionalText(params.get("ean"));
+  if (!ean) fail("EAN richiesto");
+
+  const [
+    { data: entrate, error: entrateError },
+    { data: righeEntrata, error: righeEntrataError },
+    { data: preparazioni, error: prepError },
+    { data: righePrep, error: righePrepError },
+    { data: refs, error: refsError },
+  ] = await Promise.all([
+    supabase.from("entrate").select("*").eq("cliente_id", cid),
+    supabase.from("entrate_righe").select("*"),
+    supabase.from("preparazioni").select("*").eq("cliente_id", cid),
+    supabase.from("preparazioni_righe").select("*"),
+    supabase.from("referenze").select("*").eq("cliente_id", cid),
+  ]);
+  const firstError = entrateError || righeEntrataError || prepError || righePrepError || refsError;
+  if (firstError) fail(firstError.message);
+
+  const entrateCliente = [...(entrate || [])].sort((a, b) => String(a.data_annuncio || a.created_at || "").localeCompare(String(b.data_annuncio || b.created_at || "")));
+  const preparazioniCliente = [...(preparazioni || [])].sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
+  const entrataMap = new Map(entrateCliente.map((entry, index) => [entry.id, { ...entry, numero_operativo: index + 1 }]));
+  const prepMap = new Map(preparazioniCliente.map((prep, index) => [prep.id, { ...prep, numero_operativo: index + 1 }]));
+  const ref = (refs || []).find((row) => row.ean === ean) || {};
+
+  const movimentiEntrata = (righeEntrata || [])
+    .filter((row) => row.ean === ean && entrataMap.has(row.entrata_id))
+    .map((row) => {
+      const entrata = entrataMap.get(row.entrata_id);
+      return {
+        id: row.id,
+        tipo: "entrata",
+        segno: "in",
+        documento: `Entrata ${entrata.numero_operativo}`,
+        codice: shortCode(entrata.id),
+        stato: entrata.stato,
+        data: entrata.data_ricezione || entrata.data_annuncio || entrata.created_at,
+        quantita: Number(row.quantita || 0),
+        ref_id: entrata.id,
+      };
+    });
+
+  const movimentiPreparazione = (righePrep || [])
+    .filter((row) => row.ean === ean && prepMap.has(row.preparazione_id))
+    .map((row) => {
+      const prep = prepMap.get(row.preparazione_id);
+      return {
+        id: row.id,
+        tipo: "preparazione",
+        segno: "out",
+        documento: `Preparazione ${prep.numero_operativo}`,
+        codice: shortCode(prep.id),
+        stato: prep.stato,
+        data: prep.data_spedito || prep.data_pronto || prep.created_at,
+        quantita: Number(row.quantita || 0),
+        ref_id: prep.id,
+      };
+    });
+
+  const movimenti = [...movimentiEntrata, ...movimentiPreparazione]
+    .sort((a, b) => String(b.data || "").localeCompare(String(a.data || "")));
+
+  return ok({
+    ean,
+    titolo: ref.titolo || ean,
+    fnsku: ref.fnsku || null,
+    movimenti,
+    totali: {
+      entrate: movimentiEntrata.reduce((sum, row) => sum + Number(row.quantita || 0), 0),
+      uscite: movimentiPreparazione.reduce((sum, row) => sum + Number(row.quantita || 0), 0),
+    },
+  });
+}
+
 async function preparato(params) {
   const cid = await resolveClienteId(params.get("cliente_id") || undefined);
   const [{ data: preps, error: prepsError }, { data: boxes, error: boxesError }, { data: refs, error: refsError }] = await Promise.all([
@@ -2422,6 +2502,7 @@ export const api = {
     if (path === "/wms/spedizioni") return listWmsShipments(params);
     if (path.startsWith("/preparazioni/")) return getPreparazione(path.split("/")[2]);
     if (path === "/magazzino") return magazzino(params);
+    if (path === "/magazzino/movimenti") return magazzinoMovimenti(params);
     if (path === "/preparato") return preparato(params);
     if (path === "/dashboard/stats") return dashboardStats();
     if (path === "/etichette/formati") return ok({ formati: ["40x20", "50x30", "60x30", "100x50"] });

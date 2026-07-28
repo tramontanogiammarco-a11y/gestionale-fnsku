@@ -3,10 +3,14 @@ import { api, formatApiError } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Loader2, Layers, Search, Users, Warehouse } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Eye, Loader2, Layers, Search, Users, Warehouse } from "lucide-react";
 import { toast } from "sonner";
 
 function num(value) {
@@ -27,11 +31,19 @@ function clienteTotals(rows = []) {
   }, { ricevuto: 0, in_preparazione: 0, spedito: 0, disponibile: 0 });
 }
 
+function formatDate(value) {
+  if (!value) return "—";
+  return new Date(value).toLocaleDateString("it-IT");
+}
+
 export default function AdminMagazzino() {
   const [loading, setLoading] = useState(true);
   const [clienti, setClienti] = useState([]);
   const [stockByCliente, setStockByCliente] = useState({});
   const [query, setQuery] = useState("");
+  const [movimentiOpen, setMovimentiOpen] = useState(false);
+  const [movimentiLoading, setMovimentiLoading] = useState(false);
+  const [movimenti, setMovimenti] = useState(null);
 
   useEffect(() => {
     let mounted = true;
@@ -88,6 +100,28 @@ export default function AdminMagazzino() {
       return acc;
     }, { clienti: 0, referenze: 0, ricevuto: 0, disponibile: 0 });
   }, [filteredClienti]);
+
+  const apriMovimenti = async (cliente, row) => {
+    setMovimentiOpen(true);
+    setMovimentiLoading(true);
+    setMovimenti({
+      cliente,
+      ean: row.ean,
+      titolo: row.titolo,
+      fnsku: row.fnsku,
+      movimenti: [],
+      totali: { entrate: 0, uscite: 0 },
+    });
+    try {
+      const params = new URLSearchParams({ cliente_id: cliente.id, ean: row.ean || "" });
+      const res = await api.get(`/magazzino/movimenti?${params.toString()}`);
+      setMovimenti({ cliente, ...res.data });
+    } catch (error) {
+      toast.error(formatApiError(error.response?.data?.detail || error.message));
+    } finally {
+      setMovimentiLoading(false);
+    }
+  };
 
   return (
     <div className="space-y-6" data-testid="admin-magazzino">
@@ -160,11 +194,12 @@ export default function AdminMagazzino() {
                     <TableHead className="text-right">In preparazione</TableHead>
                     <TableHead className="text-right">Spedito</TableHead>
                     <TableHead className="text-right">Disponibile</TableHead>
+                    <TableHead className="text-right">Dettaglio</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {rows.length === 0 ? (
-                    <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">Nessuna referenza per questo cliente.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={8} className="py-8 text-center text-muted-foreground">Nessuna referenza per questo cliente.</TableCell></TableRow>
                   ) : rows.map((row) => (
                     <TableRow key={`${cliente.id}-${row.ean}`} className={row.is_bundle ? "bg-primary/5" : ""}>
                       <TableCell className="max-w-sm">
@@ -184,6 +219,11 @@ export default function AdminMagazzino() {
                       <TableCell className="text-right text-orange-600">{row.in_preparazione}</TableCell>
                       <TableCell className="text-right text-slate-500">{row.spedito}</TableCell>
                       <TableCell className="text-right font-bold text-emerald-700">{row.disponibile}</TableCell>
+                      <TableCell className="text-right">
+                        <Button size="sm" variant="outline" onClick={() => apriMovimenti(cliente, row)} data-testid={`magazzino-movimenti-${cliente.id}-${row.ean}`}>
+                          <Eye className="mr-1 h-4 w-4" /> Movimenti
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -192,6 +232,73 @@ export default function AdminMagazzino() {
           ))}
         </div>
       )}
+
+      <Dialog open={movimentiOpen} onOpenChange={setMovimentiOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Movimenti stock</DialogTitle>
+          </DialogHeader>
+          {!movimenti ? (
+            <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+          ) : (
+            <div className="space-y-4">
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                <div className="text-sm font-bold">{movimenti.titolo || "—"}</div>
+                <div className="mt-1 flex flex-wrap gap-3 font-mono text-xs text-muted-foreground">
+                  <span>EAN {movimenti.ean || "—"}</span>
+                  <span>FNSKU {movimenti.fnsku || "—"}</span>
+                  <span>{movimenti.cliente?.ragione_sociale}</span>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                  <Badge variant="secondary" className="bg-emerald-50 text-emerald-700">Entrate +{movimenti.totali?.entrate || 0}</Badge>
+                  <Badge variant="secondary" className="bg-orange-50 text-orange-700">Preparazioni -{movimenti.totali?.uscite || 0}</Badge>
+                </div>
+              </div>
+
+              <Card className="overflow-hidden">
+                {movimentiLoading ? (
+                  <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Movimento</TableHead>
+                        <TableHead>Numero</TableHead>
+                        <TableHead>Data</TableHead>
+                        <TableHead>Stato</TableHead>
+                        <TableHead className="text-right">Quantità</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(movimenti.movimenti || []).length === 0 ? (
+                        <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">Nessun movimento per questa referenza.</TableCell></TableRow>
+                      ) : movimenti.movimenti.map((mov) => (
+                        <TableRow key={`${mov.tipo}-${mov.id}`}>
+                          <TableCell>
+                            <span className={`inline-flex items-center gap-2 font-semibold ${mov.segno === "in" ? "text-emerald-700" : "text-orange-700"}`}>
+                              {mov.segno === "in" ? <ArrowDownRight className="h-4 w-4" /> : <ArrowUpRight className="h-4 w-4" />}
+                              {mov.segno === "in" ? "Entrata" : "Uscita preparazione"}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <div className="font-medium">{mov.documento}</div>
+                            <div className="font-mono text-[11px] text-muted-foreground">{mov.codice}</div>
+                          </TableCell>
+                          <TableCell>{formatDate(mov.data)}</TableCell>
+                          <TableCell><Badge variant="secondary">{mov.stato}</Badge></TableCell>
+                          <TableCell className={`text-right font-bold ${mov.segno === "in" ? "text-emerald-700" : "text-orange-700"}`}>
+                            {mov.segno === "in" ? "+" : "-"}{mov.quantita}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </Card>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
