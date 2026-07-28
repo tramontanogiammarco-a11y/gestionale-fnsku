@@ -11,7 +11,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Loader2, FileText } from "lucide-react";
+import { Loader2, FileText, Trash2 } from "lucide-react";
 
 export default function AdminBox() {
   const [boxes, setBoxes] = useState(null);
@@ -24,6 +24,24 @@ export default function AdminBox() {
     try {
       await api.put(`/box/${id}/stato`, { stato });
       toast.success("Stato aggiornato");
+      load();
+    } catch (e) {
+      const msg = e?.response?.status === 403
+        ? "Azione riservata all'amministratore: esci e rientra come admin."
+        : (e?.response?.data?.detail || "Operazione non riuscita.");
+      toast.error(msg);
+    }
+  };
+
+  const eliminaBox = async (box) => {
+    if (box.stato === "spedito") {
+      toast.error("Non puoi eliminare un box gia spedito");
+      return;
+    }
+    if (!window.confirm(`Eliminare il box ${box.numero_box}?`)) return;
+    try {
+      await api.delete(`/box/${box.id}`);
+      toast.success("Box eliminato");
       load();
     } catch (e) {
       const msg = e?.response?.status === 403
@@ -70,11 +88,12 @@ export default function AdminBox() {
                 <TableHead>Ref.</TableHead>
                 <TableHead>Etichette</TableHead>
                 <TableHead>Stato</TableHead>
+                <TableHead className="text-right">Azioni</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {visibleBoxes.length === 0 && (
-                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-10">{view === "archivio" ? "Nessun box archiviato." : "Nessun box attivo."}</TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-10">{view === "archivio" ? "Nessun box archiviato." : "Nessun box attivo."}</TableCell></TableRow>
               )}
               {visibleBoxes.map((b) => (
                 <TableRow key={b.id} data-testid={`box-row-${b.id}`}>
@@ -119,6 +138,13 @@ export default function AdminBox() {
                         </SelectContent>
                       </Select>
                     </div>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {b.stato !== "spedito" && (
+                      <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700" onClick={() => eliminaBox(b)} data-testid={`box-delete-${b.id}`}>
+                        <Trash2 className="h-4 w-4 mr-1" /> Elimina
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

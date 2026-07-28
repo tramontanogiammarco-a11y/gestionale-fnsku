@@ -1178,6 +1178,21 @@ async function updateBoxStato(id, stato) {
   return response;
 }
 
+async function deleteBox(id) {
+  const { data: current, error: readError } = await requireSupabase()
+    .from("box")
+    .select("id,stato,preparazione_id")
+    .eq("id", id)
+    .single();
+  if (readError || !current) fail(readError?.message || "Box non trovato", 404);
+  if (current.stato === "spedito") fail("Non puoi eliminare un box gia spedito");
+
+  const { error } = await requireSupabase().from("box").delete().eq("id", id);
+  if (error) fail(error.message);
+  if (current.preparazione_id) await syncPreparazioneFromBoxes(current.preparazione_id);
+  return ok({ ok: true });
+}
+
 function validateBoxOperational(box = {}) {
   const contenuto = (box.contenuto || []).filter((item) => item?.ean && Number(item.quantita || 0) > 0);
   if (!contenuto.length) fail("Aggiungi almeno un prodotto al box");
@@ -2466,6 +2481,7 @@ export const api = {
     const { path } = pathAndQuery(url);
     if (path.match(/^\/entrate\/[^/]+$/)) return deleteEntrata(path.split("/")[2]);
     if (path.match(/^\/entrate-righe\/[^/]+$/)) return deleteEntrataRiga(path.split("/")[2]);
+    if (path.match(/^\/box\/[^/]+$/)) return deleteBox(path.split("/")[2]);
     if (path.match(/^\/preparazioni\/[^/]+$/)) return deletePreparazione(path.split("/")[2]);
     if (path.match(/^\/preparazioni-righe\/[^/]+$/)) return deletePreparazioneRiga(path.split("/")[2]);
     if (path.match(/^\/referenze\/[^/]+$/)) return deleteReferenza(path.split("/")[2]);

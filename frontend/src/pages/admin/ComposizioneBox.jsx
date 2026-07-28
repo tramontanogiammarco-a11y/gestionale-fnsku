@@ -184,6 +184,19 @@ export default function AdminComposizioneBox() {
     } catch (e) { toast.error(azioneErrore(e)); }
   };
 
+  const eliminaBox = async (box) => {
+    if (box.stato === "spedito") {
+      toast.error("Non puoi eliminare un box gia spedito");
+      return;
+    }
+    if (!window.confirm(`Eliminare il box ${box.numero_box}? La merce tornera disponibile nella preparazione.`)) return;
+    try {
+      await api.delete(`/box/${box.id}`);
+      toast.success("Box eliminato");
+      load(clienteId);
+    } catch (e) { toast.error(azioneErrore(e)); }
+  };
+
   const imballabili = preparato.filter((m) => m.disponibile > 0);
   const boxPronti = boxes.filter((b) => b.stato === "pronto");
   const selectedPronti = boxPronti.filter((b) => selectedBoxIds.has(b.id));
@@ -418,6 +431,7 @@ export default function AdminComposizioneBox() {
                                 selected={selectedBoxIds.has(b.id)}
                                 onToggle={(checked) => toggleBox(b.id, checked)}
                                 onChangeStatus={cambiaStatoBox}
+                                onDelete={() => eliminaBox(b)}
                                 onDone={() => load(clienteId)}
                               />
                             ))}
@@ -451,7 +465,7 @@ export default function AdminComposizioneBox() {
   );
 }
 
-function ComposizioneBoxCard({ box: b, clienteId, imballabili, selected, onToggle, onChangeStatus, onDone }) {
+function ComposizioneBoxCard({ box: b, clienteId, imballabili, selected, onToggle, onChangeStatus, onDelete, onDone }) {
   return (
     <Card className="p-4" data-testid={`comp-box-${b.id}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -494,6 +508,11 @@ function ComposizioneBoxCard({ box: b, clienteId, imballabili, selected, onToggl
               </Button>
             )}
           />
+          {b.stato !== "spedito" && (
+            <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700" onClick={onDelete} data-testid={`comp-box-delete-${b.id}`}>
+              <Trash2 className="h-4 w-4 mr-1" /> Elimina
+            </Button>
+          )}
         </div>
       </div>
       <div className="text-xs text-muted-foreground mt-1">
