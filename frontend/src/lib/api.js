@@ -853,6 +853,22 @@ async function getEntrata(id) {
   return ok(full);
 }
 
+async function assertEntrataEditableForProfile(entrataId) {
+  const profile = await currentProfile();
+  const { data: entrata, error } = await requireSupabase()
+    .from("entrate")
+    .select("id,cliente_id,stato")
+    .eq("id", entrataId)
+    .single();
+  if (error || !entrata) fail(error?.message || "Entrata non trovata", 404);
+  if (isStaff(profile)) return { profile, entrata };
+  if (entrata.cliente_id !== profile.cliente_id) fail("Entrata non disponibile per questo cliente", 403);
+  if (entrata.stato !== "in_attesa") {
+    fail("L'entrata e gia stata ricevuta: per correggere quantita o righe contatta il prep center.", 409);
+  }
+  return { profile, entrata };
+}
+
 async function createEntrata(payload) {
   const cliente_id = await resolveClienteId(payload.cliente_id);
   const { righe = [], ...entrataPayload } = payload;
@@ -873,6 +889,7 @@ async function createEntrata(payload) {
 }
 
 async function createEntrataRiga(payload) {
+  await assertEntrataEditableForProfile(payload.entrata_id);
   const clienteId = await clienteIdForEntrata(payload.entrata_id);
   await ensureReferenzeForEntrata(clienteId, [payload]);
 
@@ -897,13 +914,15 @@ async function updateEntrataRiga(id, payload) {
   if (Object.prototype.hasOwnProperty.call(payload, "fnsku")) updates.fnsku = optionalText(payload.fnsku);
   if (!Object.keys(updates).length) fail("Nessun campo da aggiornare");
 
+  const { data: current, error: readError } = await requireSupabase()
+    .from("entrate_righe")
+    .select("entrata_id,ean")
+    .eq("id", id)
+    .single();
+  if (readError) fail(readError.message);
+  await assertEntrataEditableForProfile(current.entrata_id);
+
   if (Object.prototype.hasOwnProperty.call(payload, "ean") || Object.prototype.hasOwnProperty.call(payload, "fnsku")) {
-    const { data: current, error: readError } = await requireSupabase()
-      .from("entrate_righe")
-      .select("entrata_id,ean")
-      .eq("id", id)
-      .single();
-    if (readError) fail(readError.message);
     const clienteId = await clienteIdForEntrata(current.entrata_id);
     await ensureReferenzeForEntrata(clienteId, [{ ...payload, ean: updates.ean || current.ean }]);
   }
@@ -919,6 +938,14 @@ async function updateEntrataRiga(id, payload) {
 }
 
 async function deleteEntrataRiga(id) {
+  const { data: current, error: readError } = await requireSupabase()
+    .from("entrate_righe")
+    .select("entrata_id")
+    .eq("id", id)
+    .single();
+  if (readError) fail(readError.message);
+  await assertEntrataEditableForProfile(current.entrata_id);
+
   const { error } = await requireSupabase().from("entrate_righe").delete().eq("id", id);
   if (error) fail(error.message);
   return ok({ ok: true });
@@ -935,6 +962,7 @@ async function clienteIdForEntrata(entrataId) {
 }
 
 async function updateEntrata(id, payload) {
+  await assertEntrataEditableForProfile(id);
   const { data, error } = await requireSupabase()
     .from("entrate")
     .update(payload)
@@ -955,6 +983,7 @@ async function deleteEntrata(id) {
     return ok({ ok: true });
   }
 
+  await assertEntrataEditableForProfile(id);
   const { error } = await requireSupabase().from("entrate").delete().eq("id", id);
   if (error) fail(error.message);
   return ok({ ok: true });

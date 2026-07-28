@@ -6,10 +6,11 @@ import { StatusBadge } from "@/components/StatusBadge";
 import ProcessTimeline from "@/components/ProcessTimeline";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Loader2, PackageCheck, Upload, FileText } from "lucide-react";
+import { Loader2, PackageCheck, Upload, FileText, Save } from "lucide-react";
 
 function azioneErrore(e) {
   if (e?.response?.status === 403)
@@ -35,9 +36,14 @@ export default function AdminEntrataDetail() {
   const [entrata, setEntrata] = useState(null);
   const [docTipo, setDocTipo] = useState("DDT");
   const [uploading, setUploading] = useState(false);
+  const [righeEdit, setRigheEdit] = useState({});
+  const [savingRighe, setSavingRighe] = useState(false);
   const fileRef = useRef(null);
 
-  const load = () => api.get(`/entrate/${id}`).then((r) => setEntrata(r.data));
+  const load = () => api.get(`/entrate/${id}`).then((r) => {
+    setEntrata(r.data);
+    setRigheEdit(Object.fromEntries((r.data.righe || []).map((row) => [row.id, String(row.quantita || "")])));
+  });
   useEffect(() => { load(); }, [id]);
 
   const ricevi = async () => {
@@ -64,6 +70,32 @@ export default function AdminEntrataDetail() {
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  const salvaQuantita = async () => {
+    if (!entrata) return;
+    const righeDaSalvare = entrata.righe.map((row) => ({
+      id: row.id,
+      originale: Number(row.quantita || 0),
+      quantita: Number(righeEdit[row.id] || 0),
+    }));
+    if (righeDaSalvare.some((row) => !Number.isFinite(row.quantita) || row.quantita <= 0)) {
+      toast.error("Le quantita devono essere maggiori di zero.");
+      return;
+    }
+
+    setSavingRighe(true);
+    try {
+      await Promise.all(righeDaSalvare
+        .filter((row) => row.quantita !== row.originale)
+        .map((row) => api.put(`/entrate-righe/${row.id}`, { quantita: row.quantita })));
+      toast.success("Quantita entrata aggiornate");
+      load();
+    } catch (e) {
+      toast.error(azioneErrore(e));
+    } finally {
+      setSavingRighe(false);
     }
   };
 
@@ -120,7 +152,16 @@ export default function AdminEntrataDetail() {
       />
 
       <Card className="p-5">
-        <h2 className="font-heading text-lg font-semibold mb-4">Contenuto arrivo (EAN · FNSKU · quantità)</h2>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-heading text-lg font-semibold">Contenuto arrivo (EAN · FNSKU · quantità)</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Se il cliente segnala numeri errati dopo la ricezione, correggi qui i pezzi ricevuti.</p>
+          </div>
+          <Button variant="outline" onClick={salvaQuantita} disabled={savingRighe} data-testid="admin-save-entrata-righe">
+            {savingRighe ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+            Salva quantita
+          </Button>
+        </div>
         <Table>
           <TableHeader>
             <TableRow>
@@ -134,7 +175,16 @@ export default function AdminEntrataDetail() {
               <TableRow key={rg.id} data-testid={`riga-${rg.id}`}>
                 <TableCell className="font-mono text-xs">{rg.ean || "—"}</TableCell>
                 <TableCell className="font-mono text-xs">{rg.fnsku || "—"}</TableCell>
-                <TableCell className="text-right">{rg.quantita}</TableCell>
+                <TableCell className="text-right">
+                  <Input
+                    type="number"
+                    min={1}
+                    value={righeEdit[rg.id] ?? ""}
+                    onChange={(event) => setRigheEdit({ ...righeEdit, [rg.id]: event.target.value })}
+                    className="ml-auto h-8 w-24 text-right"
+                    data-testid={`admin-entrata-qta-${rg.id}`}
+                  />
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>

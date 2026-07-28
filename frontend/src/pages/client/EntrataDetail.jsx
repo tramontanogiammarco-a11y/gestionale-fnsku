@@ -62,6 +62,10 @@ export default function ClientEntrataDetail() {
   const addRiga = () => setRighe([...righe, { ean: "", quantita: "", fnsku: "" }]);
 
   const eliminaRiga = async (index) => {
+    if (entrata?.stato !== "in_attesa") {
+      toast.error("Entrata gia ricevuta: per correggerla contatta il prep center.");
+      return;
+    }
     const row = righe[index];
     if (!row.id) {
       setRighe(righe.filter((_, idx) => idx !== index));
@@ -78,6 +82,10 @@ export default function ClientEntrataDetail() {
   };
 
   const eliminaEntrata = async () => {
+    if (entrata?.stato !== "in_attesa") {
+      toast.error("Entrata gia ricevuta: per correggerla contatta il prep center.");
+      return;
+    }
     if (!window.confirm("Cancellare questa entrata e tutte le sue righe?")) return;
     try {
       await api.delete(`/entrate/${id}`);
@@ -90,6 +98,10 @@ export default function ClientEntrataDetail() {
 
   const salva = async () => {
     if (!entrata) return;
+    if (entrata.stato !== "in_attesa") {
+      toast.error("Entrata gia ricevuta: per correggerla contatta il prep center.");
+      return;
+    }
     const incomplete = righe.some((row) => (row.ean || row.quantita || row.fnsku) && (!row.ean || Number(row.quantita) <= 0));
     if (incomplete) {
       toast.error("Completa EAN e quantità, oppure elimina la riga.");
@@ -127,6 +139,7 @@ export default function ClientEntrataDetail() {
     return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
   }
 
+  const editable = entrata.stato === "in_attesa";
   const timeline = [
     { label: "Annunciata", date: entrata.data_annuncio, done: true, actor: "Cliente" },
     { label: "Ricevuta", date: entrata.data_ricezione, done: entrata.stato !== "in_attesa", current: entrata.stato === "in_attesa", actor: "Prep center" },
@@ -147,12 +160,20 @@ export default function ClientEntrataDetail() {
             <StatusBadge stato={entrata.stato} />
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button onClick={salva} disabled={saving} data-testid="save-entrata-btn">
+            {editable ? (
+              <>
+                <Button onClick={salva} disabled={saving} data-testid="save-entrata-btn">
               {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />} Salva entrata
-            </Button>
-            <Button variant="outline" className="text-destructive hover:text-destructive" onClick={eliminaEntrata} data-testid="delete-entrata-btn">
-              <Trash2 className="h-4 w-4 mr-2" /> Cancella entrata
-            </Button>
+                </Button>
+                <Button variant="outline" className="text-destructive hover:text-destructive" onClick={eliminaEntrata} data-testid="delete-entrata-btn">
+                  <Trash2 className="h-4 w-4 mr-2" /> Cancella entrata
+                </Button>
+              </>
+            ) : (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                Entrata gia ricevuta: le correzioni le gestisce il prep center.
+              </div>
+            )}
           </div>
         </div>
         <div className="flex flex-wrap gap-4 mt-2 text-sm text-slate-600">
@@ -175,7 +196,7 @@ export default function ClientEntrataDetail() {
         <div className="grid gap-3 md:grid-cols-5">
           <div>
             <Label className="text-xs">Tipo</Label>
-            <Select value={form.tipo} onValueChange={(v) => setForm({ ...form, tipo: v })}>
+            <Select value={form.tipo} onValueChange={(v) => setForm({ ...form, tipo: v })} disabled={!editable}>
               <SelectTrigger className="mt-1" data-testid="edit-entrata-tipo"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="pallet">Pallet</SelectItem>
@@ -185,19 +206,19 @@ export default function ClientEntrataDetail() {
           </div>
           <div>
             <Label className="text-xs">N. colli</Label>
-            <Input type="number" min={1} className="mt-1" data-testid="edit-entrata-colli" value={form.colli} onChange={(e) => setForm({ ...form, colli: e.target.value })} />
+            <Input type="number" min={1} className="mt-1" data-testid="edit-entrata-colli" value={form.colli} onChange={(e) => setForm({ ...form, colli: e.target.value })} disabled={!editable} />
           </div>
           <div>
             <Label className="text-xs">DDT</Label>
-            <Input className="mt-1 font-mono text-xs" data-testid="edit-entrata-ddt" value={form.ddt} onChange={(e) => setForm({ ...form, ddt: e.target.value })} />
+            <Input className="mt-1 font-mono text-xs" data-testid="edit-entrata-ddt" value={form.ddt} onChange={(e) => setForm({ ...form, ddt: e.target.value })} disabled={!editable} />
           </div>
           <div>
             <Label className="text-xs">Tracking</Label>
-            <Input className="mt-1 font-mono text-xs" data-testid="edit-entrata-tracking" value={form.tracking} onChange={(e) => setForm({ ...form, tracking: e.target.value })} />
+            <Input className="mt-1 font-mono text-xs" data-testid="edit-entrata-tracking" value={form.tracking} onChange={(e) => setForm({ ...form, tracking: e.target.value })} disabled={!editable} />
           </div>
           <div className="md:col-span-5">
             <Label className="text-xs">Note</Label>
-            <Textarea className="mt-1" data-testid="edit-entrata-note" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
+            <Textarea className="mt-1" data-testid="edit-entrata-note" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} disabled={!editable} />
           </div>
         </div>
       </Card>
@@ -205,7 +226,7 @@ export default function ClientEntrataDetail() {
       <Card className="p-5">
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-heading text-lg font-semibold flex items-center gap-2"><Barcode className="h-5 w-5 text-blue-600" /> Righe prodotto</h2>
-          <Button variant="outline" size="sm" onClick={addRiga} data-testid="cd-add-riga">
+          <Button variant="outline" size="sm" onClick={addRiga} disabled={!editable} data-testid="cd-add-riga">
             <Plus className="h-4 w-4 mr-1" /> Aggiungi riga
           </Button>
         </div>
@@ -222,16 +243,16 @@ export default function ClientEntrataDetail() {
             {righe.map((row, index) => (
               <TableRow key={row.id || `new-${index}`} data-testid={`cd-riga-${row.id || index}`}>
                 <TableCell>
-                  <Input className="h-8 w-44 font-mono text-xs" value={row.ean} onChange={(e) => updateRiga(index, "ean", e.target.value)} data-testid={`cd-ean-${row.id || index}`} />
+                  <Input className="h-8 w-44 font-mono text-xs" value={row.ean} onChange={(e) => updateRiga(index, "ean", e.target.value)} disabled={!editable} data-testid={`cd-ean-${row.id || index}`} />
                 </TableCell>
                 <TableCell>
-                  <Input type="number" min={1} className="h-8 w-24" value={row.quantita} onChange={(e) => updateRiga(index, "quantita", e.target.value)} data-testid={`cd-qta-${row.id || index}`} />
+                  <Input type="number" min={1} className="h-8 w-24" value={row.quantita} onChange={(e) => updateRiga(index, "quantita", e.target.value)} disabled={!editable} data-testid={`cd-qta-${row.id || index}`} />
                 </TableCell>
                 <TableCell>
-                  <Input className="h-8 w-44 font-mono text-xs" value={row.fnsku} onChange={(e) => updateRiga(index, "fnsku", e.target.value)} data-testid={`cd-fnsku-${row.id || index}`} />
+                  <Input className="h-8 w-44 font-mono text-xs" value={row.fnsku} onChange={(e) => updateRiga(index, "fnsku", e.target.value)} disabled={!editable} data-testid={`cd-fnsku-${row.id || index}`} />
                 </TableCell>
                 <TableCell className="text-right">
-                  <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => eliminaRiga(index)} data-testid={`cd-del-riga-${row.id || index}`}>
+                  <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => eliminaRiga(index)} disabled={!editable} data-testid={`cd-del-riga-${row.id || index}`}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </TableCell>
