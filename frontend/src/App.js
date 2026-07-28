@@ -17,6 +17,7 @@ import AdminReferenze from "@/pages/admin/Referenze";
 import AdminEtichette from "@/pages/admin/LabelGenerator";
 import AdminClienti from "@/pages/admin/Clienti";
 import AdminClienteDetail from "@/pages/admin/ClienteDetail";
+import AdminMagazzino from "@/pages/admin/Magazzino";
 import AdminPreparazioni from "@/pages/admin/Preparazioni";
 import AdminPreparazioneDetail from "@/pages/admin/PreparazioneDetail";
 import AdminComposizioneBox from "@/pages/admin/ComposizioneBox";
@@ -68,6 +69,7 @@ function App() {
               <Route index element={<AdminDashboard />} />
               <Route path="entrate" element={<AdminEntrate />} />
               <Route path="entrate/:id" element={<AdminEntrataDetail />} />
+              <Route path="magazzino" element={<AdminMagazzino />} />
               <Route path="composizione-box" element={<AdminComposizioneBox />} />
               <Route path="box" element={<AdminBox />} />
               <Route path="referenze" element={<AdminReferenze />} />
