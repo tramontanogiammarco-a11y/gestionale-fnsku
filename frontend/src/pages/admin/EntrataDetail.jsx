@@ -120,25 +120,27 @@ export default function AdminEntrataDetail() {
       />
 
       <Card className="p-5">
-        <h2 className="font-heading text-lg font-semibold mb-4">Contenuto arrivo (EAN · quantità)</h2>
+        <h2 className="font-heading text-lg font-semibold mb-4">Contenuto arrivo (EAN · FNSKU · quantità)</h2>
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>EAN</TableHead>
+              <TableHead>FNSKU</TableHead>
               <TableHead className="text-right">Quantità</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {entrata.righe.map((rg) => (
               <TableRow key={rg.id} data-testid={`riga-${rg.id}`}>
-                <TableCell className="font-mono text-xs">{rg.ean}</TableCell>
+                <TableCell className="font-mono text-xs">{rg.ean || "—"}</TableCell>
+                <TableCell className="font-mono text-xs">{rg.fnsku || "—"}</TableCell>
                 <TableCell className="text-right">{rg.quantita}</TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
         <p className="text-xs text-muted-foreground mt-3">
-          La generazione degli FNSKU e le lavorazioni avvengono nella sezione <b>Preparazioni</b>.
+          Gli FNSKU mancanti possono essere completati nella sezione <b>Preparazioni</b>.
         </p>
       </Card>
 
