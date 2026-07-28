@@ -268,6 +268,16 @@ function NuovaPreparazioneDialog({ onDone }) {
           <datalist id="prep-ean-richiesti-list">
             {righeRichieste.map((r) => <option key={r.ean} value={r.ean}>{`${r.titolo || r.ean} · richiesti ${richiestoPerEan[r.ean]}`}</option>)}
           </datalist>
+          <div className="rounded-md border border-teal-100 bg-teal-50/70 p-3">
+            <Label className="text-xs font-semibold text-teal-950">Note preparazione</Label>
+            <Textarea
+              data-testid="prep-note"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              className="mt-2 min-h-24 bg-white"
+              placeholder="Scrivi istruzioni per il prep center: controlli, priorita, fragilita, foto richieste..."
+            />
+          </div>
           <div>
             <Label className="text-xs">Righe (EAN · FNSKU · quantità · lavorazioni)</Label>
             <div className="mt-1 space-y-3">
@@ -399,10 +409,6 @@ function NuovaPreparazioneDialog({ onDone }) {
                 </Button>
               </div>
             )}
-          </div>
-          <div>
-            <Label>Note</Label>
-            <Textarea data-testid="prep-note" value={note} onChange={(e) => setNote(e.target.value)} className="mt-1" />
           </div>
         </div>
         <DialogFooter>

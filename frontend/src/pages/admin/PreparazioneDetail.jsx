@@ -159,6 +159,7 @@ export default function AdminPreparazioneDetail() {
     { label: "Pronta", date: prep.data_pronto, done: currentIndex >= 2, current: prep.stato === "in_lavorazione", empty: "Da completare" },
     { label: "Spedita", date: prep.data_spedito, done: currentIndex >= 3, current: prep.stato === "pronto", empty: "Da spedire" },
   ];
+  const notaCliente = (gruppiAmazon.noteCliente || "").trim();
 
   return (
     <div className="space-y-6" data-testid="admin-prep-detail">
@@ -169,7 +170,6 @@ export default function AdminPreparazioneDetail() {
             <StatusBadge stato={prep.stato} tipo="prep" />
             <span className="text-xs text-muted-foreground">Richiesta il {new Date(prep.created_at).toLocaleDateString("it-IT")}</span>
           </div>
-          {gruppiAmazon.noteCliente && <p className="text-sm text-muted-foreground mt-2">{gruppiAmazon.noteCliente}</p>}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {nextAction ? (
@@ -193,6 +193,13 @@ export default function AdminPreparazioneDetail() {
         description="Stato della pratica e prossima azione operativa."
         steps={prepTimeline}
       />
+
+      {notaCliente && (
+        <Card className="border-amber-200 bg-amber-50/80 p-5" data-testid="prep-note-cliente">
+          <h2 className="font-heading text-lg font-semibold text-amber-950">Note preparazione</h2>
+          <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-amber-900">{notaCliente}</p>
+        </Card>
+      )}
 
       {gruppiAmazon.hasGruppi && (
         <Card className="p-5 border-teal-200 bg-teal-50/70" data-testid="prep-gruppi-amazon">
