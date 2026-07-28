@@ -78,6 +78,14 @@ function copieDaRiga(riga) {
   return Math.max(1, Number(riga?.quantita || 0) || 1);
 }
 
+function hasServizioFnsku(riga) {
+  return (riga?.servizi || []).includes("fnsku");
+}
+
+function cleanText(value) {
+  return String(value || "").trim();
+}
+
 export default function AdminPreparazioneDetail() {
   const { id } = useParams();
   const [prep, setPrep] = useState(null);
@@ -86,13 +94,18 @@ export default function AdminPreparazioneDetail() {
   const [formato, setFormato] = useState("50x30");
   const [formati, setFormati] = useState(["50x30"]);
   const [generando, setGenerando] = useState(false);
+  const [savingFnsku, setSavingFnsku] = useState(false);
 
   const load = () => {
     api.get(`/preparazioni/${id}`).then((r) => {
       setPrep(r.data);
-      const fe = {};
-      r.data.righe.forEach((rg) => { fe[rg.id] = rg.fnsku || ""; });
+      const fe = {}, selected = {};
+      r.data.righe.forEach((rg) => {
+        fe[rg.id] = rg.fnsku || "";
+        if (hasServizioFnsku(rg) && cleanText(rg.fnsku)) selected[rg.id] = true;
+      });
       setFnskuEdit(fe);
+      setSelezione(selected);
     });
   };
   useEffect(() => {
@@ -108,16 +121,31 @@ export default function AdminPreparazioneDetail() {
     } catch (e) { toast.error(azioneErrore(e)); }
   };
 
-  const salvaFnsku = async (riga) => {
-    if (!riga.referenza_id) {
-      toast.error(`Nessuna referenza collegata a ${riga.ean}. Crea la referenza nella sezione Referenze.`);
+  const righeFnskuModificate = () => (prep?.righe || []).filter((riga) => cleanText(fnskuEdit[riga.id]) !== cleanText(riga.fnsku));
+
+  const salvaFnskuModificati = async () => {
+    const righeDaSalvare = righeFnskuModificate();
+    if (!righeDaSalvare.length) {
+      toast.info("Nessun FNSKU da salvare.");
       return;
     }
+    const senzaFnsku = righeDaSalvare.filter((riga) => !cleanText(fnskuEdit[riga.id]));
+    if (senzaFnsku.length) {
+      toast.error("Per cancellare un FNSKU usa la sezione Referenze: qui puoi solo completare o correggere i codici.");
+      return;
+    }
+    setSavingFnsku(true);
     try {
-      await api.put(`/referenze/${riga.referenza_id}`, { fnsku: fnskuEdit[riga.id] || null });
-      toast.success("FNSKU salvato sulla referenza");
+      await Promise.all(righeDaSalvare.map((riga) => (
+        api.put(`/preparazioni-righe/${riga.id}`, { fnsku: cleanText(fnskuEdit[riga.id]) })
+      )));
+      toast.success(righeDaSalvare.length === 1 ? "FNSKU salvato" : `${righeDaSalvare.length} FNSKU salvati`);
       load();
-    } catch (e) { toast.error(azioneErrore(e)); }
+    } catch (e) {
+      toast.error(azioneErrore(e));
+    } finally {
+      setSavingFnsku(false);
+    }
   };
 
   const generaEtichette = async () => {
@@ -163,6 +191,13 @@ export default function AdminPreparazioneDetail() {
     { label: "Spedita", date: prep.data_spedito, done: currentIndex >= 3, current: prep.stato === "pronto", empty: "Da spedire" },
   ];
   const notaCliente = (gruppiAmazon.noteCliente || "").trim();
+  const righeConServizioFnsku = prep.righe.filter(hasServizioFnsku);
+  const righeSelezionabili = righeConServizioFnsku.length ? righeConServizioFnsku : prep.righe;
+  const allSelected = righeSelezionabili.length > 0 && righeSelezionabili.every((rg) => selezione[rg.id]);
+  const changedFnskuCount = righeFnskuModificate().length;
+  const toggleAll = (checked) => {
+    setSelezione(Object.fromEntries(righeSelezionabili.map((rg) => [rg.id, Boolean(checked)])));
+  };
 
   return (
     <div className="space-y-6" data-testid="admin-prep-detail">
@@ -262,21 +297,31 @@ export default function AdminPreparazioneDetail() {
                 {formati.map((f) => <SelectItem key={f} value={f}>{f} mm</SelectItem>)}
               </SelectContent>
             </Select>
+            <Button variant="outline" onClick={salvaFnskuModificati} disabled={savingFnsku || changedFnskuCount === 0} data-testid="save-all-fnsku-btn">
+              {savingFnsku ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+              Salva FNSKU{changedFnskuCount ? ` (${changedFnskuCount})` : ""}
+            </Button>
             <Button onClick={generaEtichette} disabled={generando} data-testid="genera-fnsku-btn">
               {generando ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Barcode className="h-4 w-4 mr-2" />}
-              Scarica FNSKU
+              Scarica etichette
             </Button>
           </div>
         </div>
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-10"></TableHead>
+              <TableHead className="w-10">
+                <Checkbox
+                  data-testid="select-all-fnsku"
+                  checked={allSelected}
+                  onCheckedChange={toggleAll}
+                  aria-label="Seleziona righe FNSKU"
+                />
+              </TableHead>
               <TableHead>Prodotto</TableHead>
               <TableHead>Servizi</TableHead>
               <TableHead>FNSKU</TableHead>
               <TableHead>Q.tà</TableHead>
-              <TableHead></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -307,23 +352,21 @@ export default function AdminPreparazioneDetail() {
                   <Input
                     data-testid={`fnsku-input-${rg.id}`}
                     value={fnskuEdit[rg.id] ?? ""}
-                    onChange={(e) => setFnskuEdit({ ...fnskuEdit, [rg.id]: e.target.value })}
+                    onChange={(e) => {
+                      setFnskuEdit({ ...fnskuEdit, [rg.id]: e.target.value });
+                      if (hasServizioFnsku(rg) && cleanText(e.target.value)) setSelezione((current) => ({ ...current, [rg.id]: true }));
+                    }}
                     placeholder="es. X001ABCDE1"
                     className="h-8 w-36 font-mono text-xs"
                   />
                 </TableCell>
                 <TableCell>{rg.quantita}</TableCell>
-                <TableCell className="text-right">
-                  <Button size="sm" variant="ghost" data-testid={`save-fnsku-${rg.id}`} onClick={() => salvaFnsku(rg)}>
-                    <Save className="h-4 w-4" />
-                  </Button>
-                </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
         <p className="text-xs text-muted-foreground mt-3">
-          Seleziona le righe con FNSKU e clicca "Scarica FNSKU" per il PDF Code128. La composizione dei box avviene in <b>Composizione Box</b> quando la preparazione è <b>Pronto</b>.
+          Le righe con servizio FNSKU vengono selezionate automaticamente. Il PDF genera una etichetta per ogni pezzo in Q.tà.
         </p>
       </Card>
     </div>
