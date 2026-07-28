@@ -656,9 +656,9 @@ async function ensureReferenzeForEntrata(clienteId, righe = []) {
 
   for (const row of rows) {
     const rowTitle = row.titolo || row.ean;
-    const found = (isRealEan(row.ean, rowTitle) ? byRealEan.get(row.ean) : null)
-      || (row.fnsku ? byFnsku.get(row.fnsku) : null)
-      || byLooseTitle.get(normalizedText(rowTitle));
+    const foundByRealEan = isRealEan(row.ean, rowTitle) ? byRealEan.get(row.ean) : null;
+    const foundByFnsku = row.fnsku ? byFnsku.get(row.fnsku) : null;
+    const found = foundByRealEan || foundByFnsku || byLooseTitle.get(normalizedText(rowTitle));
     if (!found) {
       const created = {
         cliente_id: clienteId,
@@ -677,7 +677,7 @@ async function ensureReferenzeForEntrata(clienteId, righe = []) {
 
     const patch = {};
     if (row.titolo && row.titolo !== found.titolo) patch.titolo = row.titolo;
-    if (row.ean && row.ean !== found.ean && (!found.ean || !isRealEan(found.ean, found.titolo))) patch.ean = row.ean;
+    if (row.ean && row.ean !== found.ean && (!found.ean || !isRealEan(found.ean, found.titolo) || found === foundByFnsku)) patch.ean = row.ean;
     if (row.sku && row.sku !== found.sku) patch.sku = row.sku;
     if (row.fnsku && row.fnsku !== found.fnsku) patch.fnsku = row.fnsku;
     if (Object.keys(patch).length) {
@@ -1295,9 +1295,17 @@ async function enrichPreparazioni(preps) {
   if (enrichError) fail(enrichError.message);
   const refs = await refsFor(preps.map((p) => p.cliente_id));
   const cmap = await clientiMap(preps.map((p) => p.cliente_id));
+  const prepCliente = new Map(preps.map((p) => [p.id, p.cliente_id]));
+  const refByEan = new Map();
+  const refByFnsku = new Map();
+  for (const ref of refs) {
+    if (ref.ean) refByEan.set(`${ref.cliente_id}:${ref.ean}`, ref);
+    if (ref.fnsku) refByFnsku.set(`${ref.cliente_id}:${ref.fnsku}`, ref);
+  }
   const byPrep = {};
   for (const r of righe || []) {
-    const ref = refs.find((x) => x.cliente_id && x.ean === r.ean);
+    const clienteId = prepCliente.get(r.preparazione_id);
+    const ref = refByEan.get(`${clienteId}:${r.ean}`) || refByFnsku.get(`${clienteId}:${r.fnsku}`);
     byPrep[r.preparazione_id] = byPrep[r.preparazione_id] || [];
     byPrep[r.preparazione_id].push({ ...r, titolo: ref?.titolo, fnsku: r.fnsku || ref?.fnsku || null, referenza_id: ref?.id });
   }
