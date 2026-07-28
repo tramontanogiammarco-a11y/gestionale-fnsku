@@ -1092,6 +1092,11 @@ async function listBox(params) {
   return ok((data || []).map((b) => ({ ...b, cliente_ragione_sociale: cmap[b.cliente_id]?.ragione_sociale || null })));
 }
 
+function applyBoxNumberScope(query, clienteId, preparazioneId) {
+  query = query.eq("cliente_id", clienteId);
+  return preparazioneId ? query.eq("preparazione_id", preparazioneId) : query.is("preparazione_id", null);
+}
+
 async function createBox(payload) {
   let cliente_id = payload.cliente_id;
   if (!cliente_id && payload.entrata_id) {
@@ -1105,10 +1110,12 @@ async function createBox(payload) {
   cliente_id = await resolveClienteId(cliente_id);
   const numeroBox = optionalText(payload.numero_box);
   if (!numeroBox) fail("Il numero box e obbligatorio");
-  const { data: duplicateNumber, error: duplicateError } = await requireSupabase()
-    .from("box")
-    .select("id")
-    .eq("cliente_id", cliente_id)
+  const duplicateQuery = applyBoxNumberScope(
+    requireSupabase().from("box").select("id"),
+    cliente_id,
+    payload.preparazione_id || null
+  );
+  const { data: duplicateNumber, error: duplicateError } = await duplicateQuery
     .ilike("numero_box", numeroBox)
     .limit(1)
     .maybeSingle();
@@ -1137,10 +1144,12 @@ async function updateBox(id, payload) {
   if (Object.prototype.hasOwnProperty.call(payload, "numero_box")) {
     const numeroBox = optionalText(payload.numero_box);
     if (!numeroBox) fail("Il numero box e obbligatorio");
-    const { data: duplicateNumber, error: duplicateError } = await requireSupabase()
-      .from("box")
-      .select("id")
-      .eq("cliente_id", current.cliente_id)
+    const duplicateQuery = applyBoxNumberScope(
+      requireSupabase().from("box").select("id"),
+      current.cliente_id,
+      Object.prototype.hasOwnProperty.call(payload, "preparazione_id") ? payload.preparazione_id : current.preparazione_id
+    );
+    const { data: duplicateNumber, error: duplicateError } = await duplicateQuery
       .ilike("numero_box", numeroBox)
       .neq("id", id)
       .limit(1)
