@@ -22,7 +22,7 @@ export default function ClientEntrataDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [entrata, setEntrata] = useState(null);
-  const [form, setForm] = useState({ tipo: "pallet", colli: "1", ddt: "", tracking: "", note: "" });
+  const [form, setForm] = useState({ tipo: "pallet", colli: "1", ddt: "", corriere: "", tracking: "", note: "" });
   const [righe, setRighe] = useState([]);
   const [saving, setSaving] = useState(false);
 
@@ -33,6 +33,7 @@ export default function ClientEntrataDetail() {
         tipo: r.data.tipo || "pallet",
         colli: String(r.data.colli || 1),
         ddt: r.data.ddt || "",
+        corriere: r.data.corriere || "",
         tracking: r.data.tracking || "",
         note: r.data.note || "",
       });
@@ -118,6 +119,7 @@ export default function ClientEntrataDetail() {
         tipo: form.tipo,
         colli: Number(form.colli) || 1,
         ddt: optionalText(form.ddt),
+        corriere: optionalText(form.corriere),
         tracking: optionalText(form.tracking),
         note: form.note || "",
       });
@@ -179,6 +181,7 @@ export default function ClientEntrataDetail() {
         <div className="flex flex-wrap gap-4 mt-2 text-sm text-slate-600">
           <span>Annunciata il {new Date(entrata.data_annuncio).toLocaleDateString("it-IT")}</span>
           {entrata.ddt && <span className="inline-flex items-center gap-1"><FileText className="h-3.5 w-3.5" /> DDT: <span className="font-mono">{entrata.ddt}</span></span>}
+          {entrata.corriere && <span className="inline-flex items-center gap-1"><Truck className="h-3.5 w-3.5" /> Corriere: <span>{entrata.corriere}</span></span>}
           {entrata.tracking && <span className="inline-flex items-center gap-1"><Truck className="h-3.5 w-3.5" /> Tracking: <span className="font-mono">{entrata.tracking}</span></span>}
         </div>
         <div className="flex items-center gap-1 mt-3 max-w-md">
@@ -211,6 +214,10 @@ export default function ClientEntrataDetail() {
           <div>
             <Label className="text-xs">DDT</Label>
             <Input className="mt-1 font-mono text-xs" data-testid="edit-entrata-ddt" value={form.ddt} onChange={(e) => setForm({ ...form, ddt: e.target.value })} disabled={!editable} />
+          </div>
+          <div>
+            <Label className="text-xs">Corriere</Label>
+            <Input className="mt-1 text-xs" data-testid="edit-entrata-corriere" value={form.corriere} onChange={(e) => setForm({ ...form, corriere: e.target.value })} disabled={!editable} />
           </div>
           <div>
             <Label className="text-xs">Tracking</Label>

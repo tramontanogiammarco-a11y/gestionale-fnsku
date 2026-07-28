@@ -47,7 +47,7 @@ export default function GlobalSearch() {
     });
     data.entrate.forEach((e) => {
       const righeMatch = (e.righe || []).some((r) => includes(r.ean, q) || includes(r.fnsku, q));
-      if (includes(e.cliente_ragione_sociale, q) || includes(e.ddt, q) || includes(e.tracking, q) || righeMatch) {
+      if (includes(e.cliente_ragione_sociale, q) || includes(e.ddt, q) || includes(e.corriere, q) || includes(e.tracking, q) || righeMatch) {
         rows.push({ type: "Entrata", title: e.cliente_ragione_sociale || "Entrata", meta: `${e.tipo} · ${new Date(e.data_annuncio).toLocaleDateString("it-IT")}`, to: `/admin/entrate/${e.id}` });
       }
     });

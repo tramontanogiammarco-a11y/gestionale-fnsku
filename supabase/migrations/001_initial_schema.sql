@@ -67,6 +67,7 @@ create table public.entrate (
   tipo text not null check (tipo in ('pallet', 'scatola')),
   colli integer not null default 1,
   ddt text,
+  corriere text,
   tracking text,
   stato text not null default 'in_attesa' check (stato in ('in_attesa', 'ricevuto', 'in_lavorazione', 'pronto', 'spedito')),
   data_annuncio timestamptz not null default now(),

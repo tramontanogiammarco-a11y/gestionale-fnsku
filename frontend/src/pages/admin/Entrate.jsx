@@ -87,7 +87,7 @@ export default function AdminEntrate() {
               <TableRow>
                 <TableHead>Cliente</TableHead>
                 <TableHead>Tipo</TableHead>
-                <TableHead>DDT / Tracking</TableHead>
+                <TableHead>Corriere / DDT / Tracking</TableHead>
                 <TableHead>Referenze</TableHead>
                 <TableHead>Data annuncio</TableHead>
                 <TableHead>Stato</TableHead>
@@ -112,7 +112,7 @@ export default function AdminEntrate() {
                   <TableCell className="font-medium">{e.cliente_ragione_sociale}</TableCell>
                   <TableCell className="capitalize">{e.tipo}</TableCell>
                   <TableCell className="font-mono text-xs">
-                    {e.ddt ? `DDT ${e.ddt}` : ""}{e.ddt && e.tracking ? " · " : ""}{e.tracking || ""}{!e.ddt && !e.tracking ? "—" : ""}
+                    {[e.corriere, e.ddt ? `DDT ${e.ddt}` : null, e.tracking].filter(Boolean).join(" · ") || "—"}
                   </TableCell>
                   <TableCell>{e.righe?.length || 0}</TableCell>
                   <TableCell>{new Date(e.data_annuncio).toLocaleDateString("it-IT")}</TableCell>

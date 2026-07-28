@@ -168,9 +168,10 @@ export default function AdminEntrataDetail() {
               Annunciata il {new Date(entrata.data_annuncio).toLocaleDateString("it-IT")}
             </span>
           </div>
-          {(entrata.ddt || entrata.tracking) && (
+          {(entrata.ddt || entrata.corriere || entrata.tracking) && (
             <div className="flex flex-wrap gap-4 mt-2 text-sm">
               {entrata.ddt && <span className="text-slate-600">DDT: <span className="font-mono">{entrata.ddt}</span></span>}
+              {entrata.corriere && <span className="text-slate-600">Corriere: <span>{entrata.corriere}</span></span>}
               {entrata.tracking && <span className="text-slate-600">Tracking: <span className="font-mono">{entrata.tracking}</span></span>}
             </div>
           )}

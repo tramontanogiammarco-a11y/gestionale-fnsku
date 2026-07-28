@@ -124,6 +124,7 @@ class EntrataCreate(BaseModel):
     tipo: str  # "pallet" | "scatola"
     colli: int = 1  # numero di pallet o scatole in arrivo (per fatturazione entrata)
     ddt: Optional[str] = None  # numero DDT (documento di trasporto)
+    corriere: Optional[str] = None  # corriere che consegnera la merce
     tracking: Optional[str] = None  # codice tracking corriere
     note: Optional[str] = None
     righe: List[RigaEntrataInput] = []
@@ -135,6 +136,7 @@ class Entrata(BaseModel):
     tipo: str
     colli: int = 1
     ddt: Optional[str] = None
+    corriere: Optional[str] = None
     tracking: Optional[str] = None
     stato: str = "in_attesa"  # in_attesa|ricevuto|in_lavorazione|pronto|spedito
     data_annuncio: str = Field(default_factory=_now_iso)

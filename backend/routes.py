@@ -379,7 +379,8 @@ async def crea_entrata(payload: M.EntrataCreate, user: dict = Depends(get_curren
     cid = _resolve_cliente_id(user, payload.cliente_id)
     await _ensure_referenze_for_entrata(cid, payload.righe)
     entrata = M.Entrata(cliente_id=cid, tipo=payload.tipo, colli=payload.colli,
-                        ddt=payload.ddt, tracking=payload.tracking, note=payload.note)
+                        ddt=payload.ddt, corriere=payload.corriere,
+                        tracking=payload.tracking, note=payload.note)
     await db.entrate.insert_one(entrata.model_dump())
     for r in payload.righe:
         riga = M.RigaEntrata(entrata_id=entrata.id, ean=r.ean,

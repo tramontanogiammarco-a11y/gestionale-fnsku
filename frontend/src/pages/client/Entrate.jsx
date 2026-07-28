@@ -70,9 +70,10 @@ export default function ClientEntrate() {
               <div className="text-xs text-muted-foreground mt-1">
                 {new Date(e.data_annuncio).toLocaleDateString("it-IT")} · {e.righe?.length || 0} referenze · {e.righe?.reduce((a, r) => a + r.quantita, 0) || 0} pezzi
               </div>
-              {(e.ddt || e.tracking) && (
+              {(e.ddt || e.corriere || e.tracking) && (
                 <div className="flex flex-wrap gap-3 mt-2 text-xs">
                   {e.ddt && <span className="inline-flex items-center gap-1 text-slate-600"><FileText className="h-3 w-3" /> DDT: <span className="font-mono">{e.ddt}</span></span>}
+                  {e.corriere && <span className="inline-flex items-center gap-1 text-slate-600"><Truck className="h-3 w-3" /> Corriere: <span>{e.corriere}</span></span>}
                   {e.tracking && <span className="inline-flex items-center gap-1 text-slate-600"><Truck className="h-3 w-3" /> Tracking: <span className="font-mono">{e.tracking}</span></span>}
                 </div>
               )}
@@ -122,6 +123,7 @@ function NuovaEntrataDialog({ onDone }) {
   const [tipo, setTipo] = useState("pallet");
   const [colli, setColli] = useState(1);
   const [ddt, setDdt] = useState("");
+  const [corriere, setCorriere] = useState("");
   const [tracking, setTracking] = useState("");
   const [note, setNote] = useState("");
   const [righe, setRighe] = useState([{ ean: "", titolo: "", sku: "", quantita: "", fnsku: "" }]);
@@ -157,9 +159,17 @@ function NuovaEntrataDialog({ onDone }) {
     if (valide.length === 0) { toast.error("Aggiungi almeno una riga con EAN e quantità"); return; }
     setSaving(true);
     try {
-      await api.post("/entrate", { tipo, colli: Number(colli) || 1, ddt: ddt || null, tracking: tracking || null, note, righe: valide });
+      await api.post("/entrate", {
+        tipo,
+        colli: Number(colli) || 1,
+        ddt: ddt || null,
+        corriere: corriere || null,
+        tracking: tracking || null,
+        note,
+        righe: valide,
+      });
       toast.success("Entrata annunciata");
-      setOpen(false); setTipo("pallet"); setColli(1); setDdt(""); setTracking(""); setNote(""); setRighe([{ ean: "", titolo: "", sku: "", quantita: "", fnsku: "" }]);
+      setOpen(false); setTipo("pallet"); setColli(1); setDdt(""); setCorriere(""); setTracking(""); setNote(""); setRighe([{ ean: "", titolo: "", sku: "", quantita: "", fnsku: "" }]);
       onDone();
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail));
@@ -172,7 +182,7 @@ function NuovaEntrataDialog({ onDone }) {
       <DialogContent className="max-w-4xl">
         <DialogHeader><DialogTitle>Annuncia arrivo merce</DialogTitle></DialogHeader>
         <div className="space-y-4">
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
             <div>
               <Label>Tipo</Label>
               <Select value={tipo} onValueChange={setTipo}>
@@ -192,11 +202,15 @@ function NuovaEntrataDialog({ onDone }) {
               <Input data-testid="entrata-ddt" value={ddt} onChange={(e) => setDdt(e.target.value)} className="mt-1 font-mono" placeholder="es. 123/2026" />
             </div>
             <div>
+              <Label>Corriere</Label>
+              <Input data-testid="entrata-corriere" value={corriere} onChange={(e) => setCorriere(e.target.value)} className="mt-1" placeholder="es. GLS, BRT, SDA" />
+            </div>
+            <div>
               <Label>Tracking</Label>
               <Input data-testid="entrata-tracking" value={tracking} onChange={(e) => setTracking(e.target.value)} className="mt-1 font-mono" placeholder="codice corriere" />
             </div>
           </div>
-          <p className="text-xs text-muted-foreground -mt-2">Indica il DDT o il tracking per farmi riconoscere la spedizione in arrivo.</p>
+          <p className="text-xs text-muted-foreground -mt-2">Indica DDT, corriere o tracking per farmi riconoscere la spedizione in arrivo.</p>
 
           <div>
             <Label className="text-xs">Contenuto (EAN · titolo · SKU · quantità · FNSKU)</Label>
