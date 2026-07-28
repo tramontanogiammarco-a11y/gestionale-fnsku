@@ -121,6 +121,28 @@ function contenutoTotals(contenuto = []) {
   }, {});
 }
 
+const PREP_RESERVING_STATUSES = ["richiesta", "in_lavorazione", "pronto"];
+
+function addUsage(target, ean, quantity, bundleMap = {}, bundleTarget = null) {
+  if (!ean) return;
+  const qty = Number(quantity || 0);
+  if (qty <= 0) return;
+  if (bundleMap[ean]) {
+    if (bundleTarget) bundleTarget[ean] = (bundleTarget[ean] || 0) + qty;
+    for (const component of bundleMap[ean] || []) {
+      addUsage(target, component.ean, qty * Number(component.quantita || 1), bundleMap, null);
+    }
+    return;
+  }
+  target[ean] = (target[ean] || 0) + qty;
+}
+
+function expandedTotalsForInventory(totals = {}, bundleMap = {}) {
+  const out = {};
+  for (const [ean, qty] of Object.entries(totals || {})) addUsage(out, ean, qty, bundleMap);
+  return out;
+}
+
 function canFitTotals(current, addition, target) {
   return Object.entries(addition).every(([ean, qty]) => (
     Object.prototype.hasOwnProperty.call(target, ean)
@@ -1245,6 +1267,113 @@ async function refsFor(clienteIds) {
   return data || [];
 }
 
+async function stockSnapshotForCliente(clienteId, options = {}) {
+  const excludedPrepId = options.excludePreparazioneId || null;
+  const [
+    { data: entrate, error: entrateError },
+    { data: righeEntrata, error: righeEntrataError },
+    { data: boxes, error: boxesError },
+    { data: refs, error: refsError },
+    { data: preps, error: prepsError },
+  ] = await Promise.all([
+    supabase.from("entrate").select("id").eq("cliente_id", clienteId).in("stato", ["ricevuto", "in_lavorazione", "pronto", "spedito"]),
+    supabase.from("entrate_righe").select("*"),
+    supabase.from("box").select("id,preparazione_id,stato,contenuto").eq("cliente_id", clienteId),
+    supabase.from("referenze").select("*").eq("cliente_id", clienteId),
+    supabase.from("preparazioni").select("id,stato").eq("cliente_id", clienteId),
+  ]);
+  const firstError = entrateError || righeEntrataError || boxesError || refsError || prepsError;
+  if (firstError) fail(firstError.message);
+
+  const refsList = refs || [];
+  const bundleMap = {};
+  const bundleRefs = [];
+  const titoloMap = {};
+  const fnskuMap = {};
+  const skuMap = {};
+  for (const ref of refsList) {
+    if (!ref.ean) continue;
+    titoloMap[ref.ean] ??= ref.titolo;
+    fnskuMap[ref.ean] ??= ref.fnsku;
+    if (ref.sku) {
+      skuMap[ref.ean] ||= new Set();
+      skuMap[ref.ean].add(ref.sku);
+    }
+    if (ref.is_bundle && ref.componenti?.length) {
+      bundleMap[ref.ean] = ref.componenti;
+      bundleRefs.push(ref);
+    }
+  }
+
+  const entrataIds = new Set((entrate || []).map((e) => e.id));
+  const ricevuto = {};
+  for (const row of righeEntrata || []) {
+    if (entrataIds.has(row.entrata_id)) addUsage(ricevuto, row.ean, row.quantita, bundleMap);
+  }
+
+  const activePrepIds = new Set((preps || [])
+    .filter((prep) => PREP_RESERVING_STATUSES.includes(prep.stato) && prep.id !== excludedPrepId)
+    .map((prep) => prep.id));
+
+  const { data: righePrep, error: righePrepError } = activePrepIds.size
+    ? await supabase.from("preparazioni_righe").select("*").in("preparazione_id", [...activePrepIds])
+    : { data: [], error: null };
+  if (righePrepError) fail(righePrepError.message);
+
+  const inPreparazione = {};
+  const bundleInPreparazione = {};
+  for (const row of righePrep || []) {
+    addUsage(inPreparazione, row.ean, row.quantita, bundleMap, bundleInPreparazione);
+  }
+
+  const spedito = {};
+  const bundleSpedito = {};
+  for (const box of boxes || []) {
+    if (box.stato !== "spedito") continue;
+    for (const item of box.contenuto || []) addUsage(spedito, item.ean, item.quantita, bundleMap, bundleSpedito);
+  }
+
+  for (const box of boxes || []) {
+    if (box.stato === "spedito" || activePrepIds.has(box.preparazione_id)) continue;
+    for (const item of box.contenuto || []) addUsage(inPreparazione, item.ean, item.quantita, bundleMap, bundleInPreparazione);
+  }
+
+  return {
+    refs: refsList,
+    bundleMap,
+    bundleRefs,
+    titoloMap,
+    fnskuMap,
+    skuMap,
+    ricevuto,
+    inPreparazione,
+    bundleInPreparazione,
+    spedito,
+    bundleSpedito,
+  };
+}
+
+async function assertPreparazioneDisponibile(clienteId, righe = [], options = {}) {
+  const richiesto = contenutoTotals(righe);
+  if (!Object.keys(richiesto).length) return;
+
+  const snapshot = await stockSnapshotForCliente(clienteId, options);
+  const richiestoInventory = expandedTotalsForInventory(richiesto, snapshot.bundleMap);
+
+  for (const [ean, qty] of Object.entries(richiestoInventory)) {
+    const disponibile = Math.max(
+      0,
+      Number(snapshot.ricevuto[ean] || 0)
+      - Number(snapshot.spedito[ean] || 0)
+      - Number(snapshot.inPreparazione[ean] || 0)
+    );
+    if (Number(qty || 0) > disponibile) {
+      const titolo = snapshot.titoloMap[ean] || ean;
+      fail(`Disponibilita insufficiente per ${titolo}: richiesti ${qty}, disponibili ${disponibile}.`);
+    }
+  }
+}
+
 async function listShopifyOrders(params) {
   let query = requireSupabase().from("shopify_orders").select("*").order("processed_at", { ascending: false });
   if (params.get("cliente_id")) query = query.eq("cliente_id", params.get("cliente_id"));
@@ -1416,6 +1545,7 @@ async function getPreparazione(id) {
 async function createPreparazione(payload) {
   const cliente_id = await resolveClienteId(payload.cliente_id);
   const { righe = [], ...prepPayload } = payload;
+  await assertPreparazioneDisponibile(cliente_id, righe);
   const { data: prep, error } = await requireSupabase()
     .from("preparazioni")
     .insert({ ...prepPayload, cliente_id })
@@ -1476,6 +1606,20 @@ async function updatePreparazione(id, payload) {
 
 async function createPreparazioneRiga(payload) {
   const clienteId = await clienteIdForPreparazione(payload.preparazione_id);
+  const { data: prep, error: prepError } = await requireSupabase()
+    .from("preparazioni")
+    .select("id,stato")
+    .eq("id", payload.preparazione_id)
+    .single();
+  if (prepError) fail(prepError.message);
+  if (PREP_RESERVING_STATUSES.includes(prep.stato)) {
+    const { data: currentRows, error: currentRowsError } = await supabase
+      .from("preparazioni_righe")
+      .select("*")
+      .eq("preparazione_id", payload.preparazione_id);
+    if (currentRowsError) fail(currentRowsError.message);
+    await assertPreparazioneDisponibile(clienteId, [...(currentRows || []), payload], { excludePreparazioneId: payload.preparazione_id });
+  }
   await ensureReferenzeForEntrata(clienteId, [payload]);
 
   const { data, error } = await requireSupabase()
@@ -1505,14 +1649,34 @@ async function updatePreparazioneRiga(id, payload) {
   if (Object.prototype.hasOwnProperty.call(payload, "servizi")) updates.servizi = payload.servizi || [];
   if (!Object.keys(updates).length) fail("Nessun campo da aggiornare");
 
-  if (Object.prototype.hasOwnProperty.call(payload, "ean") || Object.prototype.hasOwnProperty.call(payload, "sku") || Object.prototype.hasOwnProperty.call(payload, "fnsku")) {
-    const { data: current, error: readError } = await requireSupabase()
+  const { data: current, error: readError } = await requireSupabase()
+    .from("preparazioni_righe")
+    .select("*")
+    .eq("id", id)
+    .single();
+  if (readError) fail(readError.message);
+  const clienteId = await clienteIdForPreparazione(current.preparazione_id);
+
+  const { data: prep, error: prepError } = await requireSupabase()
+    .from("preparazioni")
+    .select("id,stato")
+    .eq("id", current.preparazione_id)
+    .single();
+  if (prepError) fail(prepError.message);
+
+  if (PREP_RESERVING_STATUSES.includes(prep.stato)) {
+    const { data: currentRows, error: currentRowsError } = await supabase
       .from("preparazioni_righe")
-      .select("preparazione_id,ean")
-      .eq("id", id)
-      .single();
-    if (readError) fail(readError.message);
-    const clienteId = await clienteIdForPreparazione(current.preparazione_id);
+      .select("*")
+      .eq("preparazione_id", current.preparazione_id);
+    if (currentRowsError) fail(currentRowsError.message);
+    const nextRows = (currentRows || []).map((row) => (
+      row.id === id ? { ...row, ...updates } : row
+    ));
+    await assertPreparazioneDisponibile(clienteId, nextRows, { excludePreparazioneId: current.preparazione_id });
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "ean") || Object.prototype.hasOwnProperty.call(payload, "sku") || Object.prototype.hasOwnProperty.call(payload, "fnsku")) {
     await ensureReferenzeForEntrata(clienteId, [{ ...payload, ean: updates.ean || current.ean }]);
   }
 
@@ -1566,64 +1730,18 @@ async function deletePreparazione(id) {
 
 async function magazzino(params) {
   const cid = await resolveClienteId(params.get("cliente_id") || undefined);
-  const [{ data: entrate, error: entrateError }, { data: righe, error: righeError }, { data: boxes, error: boxesError }, { data: refs, error: refsError }] = await Promise.all([
-    supabase.from("entrate").select("*").eq("cliente_id", cid).in("stato", ["ricevuto", "in_lavorazione", "pronto", "spedito"]),
-    supabase.from("entrate_righe").select("*"),
-    supabase.from("box").select("*").eq("cliente_id", cid),
-    supabase.from("referenze").select("*").eq("cliente_id", cid),
-  ]);
-  const firstError = entrateError || righeError || boxesError || refsError;
-  if (firstError) fail(firstError.message);
-
-  const entrataIds = new Set((entrate || []).map((e) => e.id));
-  const ricevuto = {};
-  for (const r of righe || []) {
-    if (entrataIds.has(r.entrata_id)) ricevuto[r.ean] = (ricevuto[r.ean] || 0) + Number(r.quantita || 0);
-  }
-
-  const titoloMap = {};
-  const fnskuMap = {};
-  const skuMap = {};
-  const bundleMap = {};
-  const bundleRefs = [];
-  for (const ref of refs || []) {
-    if (!ref.ean) continue;
-    titoloMap[ref.ean] ??= ref.titolo;
-    fnskuMap[ref.ean] ??= ref.fnsku;
-    if (ref.sku) {
-      skuMap[ref.ean] ||= new Set();
-      skuMap[ref.ean].add(ref.sku);
-    }
-    if (ref.is_bundle && ref.componenti?.length) {
-      bundleMap[ref.ean] = ref.componenti;
-      bundleRefs.push(ref);
-    }
-  }
-
-  const spedito = {};
-  const inPreparazione = {};
-  const bundleSpedito = {};
-  const bundleInPreparazione = {};
-  for (const b of boxes || []) {
-    const isSpedito = b.stato === "spedito";
-    for (const c of b.contenuto || []) {
-      const ean = c.ean;
-      const qta = Number(c.quantita || 0);
-      if (bundleMap[ean]) {
-        const bundleTarget = isSpedito ? bundleSpedito : bundleInPreparazione;
-        bundleTarget[ean] = (bundleTarget[ean] || 0) + qta;
-        for (const comp of bundleMap[ean]) {
-          const compQty = Number(comp.quantita || 1);
-          const target = isSpedito ? spedito : inPreparazione;
-          target[comp.ean] = (target[comp.ean] || 0) + qta * compQty;
-        }
-      } else {
-        const target = isSpedito ? spedito : inPreparazione;
-        target[ean] = (target[ean] || 0) + qta;
-      }
-    }
-  }
-
+  const {
+    bundleMap,
+    bundleRefs,
+    titoloMap,
+    fnskuMap,
+    skuMap,
+    ricevuto,
+    inPreparazione,
+    bundleInPreparazione,
+    spedito,
+    bundleSpedito,
+  } = await stockSnapshotForCliente(cid);
   const bundleEans = new Set(Object.keys(bundleMap));
   const componentDisponibile = {};
   const eans = [...new Set([...Object.keys(titoloMap), ...Object.keys(ricevuto), ...Object.keys(spedito), ...Object.keys(inPreparazione)])]
@@ -1634,7 +1752,7 @@ async function magazzino(params) {
     const ric = ricevuto[ean] || 0;
     const prep = inPreparazione[ean] || 0;
     const spe = spedito[ean] || 0;
-    const disponibile = Math.max(0, ric - spe);
+    const disponibile = Math.max(0, ric - prep - spe);
     componentDisponibile[ean] = disponibile;
     return {
       ean,

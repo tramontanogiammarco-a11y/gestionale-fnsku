@@ -206,6 +206,14 @@ function NuovaPreparazioneDialog({ onDone }) {
       .filter((ean) => !richiestoPerEan[ean])
       .map((ean) => `${ean}: non presente nella preparazione`),
   ];
+  const erroriDisponibilita = Object.entries(richiestoPerEan)
+    .map(([ean, qty]) => {
+      const prodotto = prodottoPerEan(ean);
+      const disp = prodotto?.disponibile;
+      if (disp == null || Number(qty) <= Number(disp)) return null;
+      return `${prodotto?.titolo || ean}: richiesti ${qty}, disponibili ${disp}`;
+    })
+    .filter(Boolean);
 
   const buildNote = () => {
     if (tipoPrep !== "gruppi_amazon") return note;
@@ -222,6 +230,10 @@ function NuovaPreparazioneDialog({ onDone }) {
       .filter((r) => r.ean && Number(r.quantita) > 0)
       .map((r) => ({ ean: r.ean, fnsku: r.fnsku || null, quantita: Number(r.quantita), servizi: r.servizi }));
     if (valide.length === 0) { toast.error("Aggiungi almeno una riga con EAN e quantità"); return; }
+    if (erroriDisponibilita.length > 0) {
+      toast.error(`Disponibilità insufficiente: ${erroriDisponibilita[0]}`);
+      return;
+    }
     if (tipoPrep === "gruppi_amazon") {
       if (gruppiValidi.length === 0) { toast.error("Aggiungi almeno un gruppo Amazon con referenza e quantità"); return; }
       if (erroriGruppi.length > 0) {
@@ -262,18 +274,21 @@ function NuovaPreparazioneDialog({ onDone }) {
               {righe.map((r, i) => {
                 const disp = dispPerEan(r.ean);
                 const prodotto = prodottoPerEan(r.ean);
+                const richiestoTotale = richiestoPerEan[r.ean] || 0;
+                const overDisponibile = disp != null && richiestoTotale > Number(disp);
                 return (
                   <div key={i} className="rounded-md border border-border p-3" data-testid={`prep-riga-${i}`}>
                     <div className="grid grid-cols-12 gap-2 items-center">
                       <Input list="mag-ean-list" className="col-span-5 font-mono text-xs" data-testid={`prep-ean-${i}`} value={r.ean} onChange={(e) => update(i, "ean", e.target.value)} placeholder="EAN" />
                       <Input className="col-span-4 font-mono text-xs" data-testid={`prep-fnsku-${i}`} value={r.fnsku} onChange={(e) => update(i, "fnsku", e.target.value)} placeholder="FNSKU" />
-                      <Input type="number" min={1} className="col-span-2" data-testid={`prep-qta-${i}`} value={r.quantita} onChange={(e) => update(i, "quantita", e.target.value)} placeholder={disp != null ? `max ${disp}` : "Q.tà"} />
+                      <Input type="number" min={1} max={disp ?? undefined} className={`col-span-2 ${overDisponibile ? "border-red-300 bg-red-50 text-red-800" : ""}`} data-testid={`prep-qta-${i}`} value={r.quantita} onChange={(e) => update(i, "quantita", e.target.value)} placeholder={disp != null ? `max ${disp}` : "Q.tà"} />
                       <Button variant="ghost" size="icon" className="col-span-1" onClick={() => delRow(i)} disabled={righe.length === 1} data-testid={`prep-del-${i}`}><Trash2 className="h-4 w-4" /></Button>
                     </div>
                     {prodotto && (
                       <div className="mt-2 rounded-md bg-slate-50 px-2 py-1 text-xs">
                         <span className="font-semibold text-slate-900">{prodotto.titolo || "Titolo non disponibile"}</span>
                         <span className="ml-2 font-mono text-muted-foreground">EAN {prodotto.ean}</span>
+                        <span className={overDisponibile ? "ml-2 font-semibold text-red-700" : "ml-2 font-semibold text-emerald-700"}>Disponibili {disp}</span>
                       </div>
                     )}
                     <div className="flex flex-wrap gap-4 mt-2 pl-1">
@@ -288,6 +303,11 @@ function NuovaPreparazioneDialog({ onDone }) {
                 );
               })}
             </div>
+            {erroriDisponibilita.length > 0 && (
+              <div className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+                {erroriDisponibilita[0]}
+              </div>
+            )}
             <Button variant="outline" size="sm" className="mt-2" onClick={addRow} data-testid="prep-add-row"><Plus className="h-4 w-4 mr-1" /> Aggiungi riga</Button>
           </div>
           <div className="rounded-md border border-border p-3">
