@@ -1088,8 +1088,37 @@ async function listBox(params) {
   }
   const { data, error } = await query;
   if (error) fail(error.message);
-  const cmap = await clientiMap((data || []).map((b) => b.cliente_id));
-  return ok((data || []).map((b) => ({ ...b, cliente_ragione_sociale: cmap[b.cliente_id]?.ragione_sociale || null })));
+  const boxes = data || [];
+  const cmap = await clientiMap(boxes.map((b) => b.cliente_id));
+  const clienteIds = [...new Set(boxes.map((box) => box.cliente_id).filter(Boolean))];
+  const { data: preparazioni, error: prepError } = clienteIds.length
+    ? await supabase
+      .from("preparazioni")
+      .select("id,cliente_id,created_at,data_pronto,data_spedito,stato")
+      .in("cliente_id", clienteIds)
+    : { data: [], error: null };
+  if (prepError) fail(prepError.message);
+
+  const prepsByClient = groupBy(preparazioni || [], "cliente_id");
+  const prepMeta = new Map();
+  for (const [clientId, rows] of Object.entries(prepsByClient)) {
+    [...rows]
+      .sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")))
+      .forEach((prep, index) => {
+        prepMeta.set(prep.id, {
+          preparazione_numero: index + 1,
+          preparazione_data: prep.data_spedito || prep.data_pronto || prep.created_at,
+          preparazione_stato: prep.stato,
+          cliente_id: clientId,
+        });
+      });
+  }
+
+  return ok(boxes.map((b) => ({
+    ...b,
+    ...(prepMeta.get(b.preparazione_id) || {}),
+    cliente_ragione_sociale: cmap[b.cliente_id]?.ragione_sociale || null,
+  })));
 }
 
 function applyBoxNumberScope(query, clienteId, preparazioneId) {

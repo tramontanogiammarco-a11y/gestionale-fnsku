@@ -60,11 +60,6 @@ function sortBoxes(boxes) {
   });
 }
 
-function labelTimestamp(url) {
-  const match = String(url || "").match(/gruppo-(\d+)/);
-  return match ? Number(match[1]) : 0;
-}
-
 function totalPieces(boxes) {
   return boxes.reduce((sum, box) => (
     sum + (box.contenuto || []).reduce((lineSum, item) => lineSum + Number(item.quantita || 0), 0)
@@ -84,54 +79,31 @@ function prepLabel(item) {
   return date ? `${number} · ${date}` : number;
 }
 
-function buildSpedizioni(boxes) {
-  const labelCounts = boxes.reduce((acc, box) => {
-    const url = sharedLabelUrl(box);
-    if (url) acc[url] = (acc[url] || 0) + 1;
-    return acc;
-  }, {});
+function buildPreparazioneBoxGroups(boxes) {
   const groups = new Map();
-  const singles = [];
-
   for (const box of boxes) {
-    const url = sharedLabelUrl(box);
-    if (url && labelCounts[url] > 1) {
-      if (!groups.has(url)) groups.set(url, []);
-      groups.get(url).push(box);
-    } else {
-      singles.push(box);
+    const key = box.preparazione_id ? `prep:${box.preparazione_id}` : "senza-preparazione";
+    if (!groups.has(key)) {
+      const numero = Number(box.preparazione_numero || 0);
+      groups.set(key, {
+        key,
+        title: numero ? `Preparazione ${numero}` : "Box senza preparazione",
+        dateLabel: formatDate(box.preparazione_data || box.created_at),
+        sortValue: numero || Number.MAX_SAFE_INTEGER,
+        boxes: [],
+      });
     }
+    groups.get(key).boxes.push(box);
   }
 
-  const spedizioni = Array.from(groups.entries())
-    .map(([url, groupBoxes]) => {
-      const shippedDates = groupBoxes.map((box) => box.data_spedito).filter(Boolean).sort();
-      return {
-        key: `shipment:${url}`,
-        type: "shipment",
-        labelUrl: url,
-        boxes: sortBoxes(groupBoxes),
-        ts: labelTimestamp(url),
-        dateValue: shippedDates[shippedDates.length - 1] || labelTimestamp(url),
-      };
-    })
-    .sort((a, b) => a.ts - b.ts);
-
-  if (singles.length) {
-    spedizioni.push({
-      key: "singles",
-      type: "singles",
-      labelUrl: null,
-      boxes: sortBoxes(singles),
-      ts: Number.MAX_SAFE_INTEGER,
-    });
-  }
-
-  return spedizioni.map((group, index) => ({
-    ...group,
-    title: group.type === "shipment" ? `Spedizione ${index + 1}` : "Box singoli / da etichettare",
-    dateLabel: group.type === "shipment" ? formatDate(group.dateValue) : null,
-  }));
+  return Array.from(groups.values()).map((group) => {
+    const labelUrls = [...new Set(group.boxes.map(sharedLabelUrl).filter(Boolean))];
+    return {
+      ...group,
+      boxes: sortBoxes(group.boxes),
+      labelUrls,
+    };
+  }).sort((a, b) => a.sortValue - b.sortValue);
 }
 
 // Componi box a livello di cliente usando solo la merce della preparazione scelta.
@@ -143,7 +115,7 @@ export default function AdminComposizioneBox() {
   const [loading, setLoading] = useState(false);
   const [selectedBoxIds, setSelectedBoxIds] = useState(new Set());
   const [bulkSaving, setBulkSaving] = useState(false);
-  const [openShipmentKeys, setOpenShipmentKeys] = useState(new Set());
+  const [openGroupKeys, setOpenGroupKeys] = useState(new Set());
 
   useEffect(() => { api.get("/clienti").then((r) => setClienti(r.data)); }, []);
 
@@ -158,7 +130,7 @@ export default function AdminComposizioneBox() {
         setPreparato(p.data);
         setBoxes(b.data);
         setSelectedBoxIds(new Set());
-        setOpenShipmentKeys(new Set(buildSpedizioni(b.data || []).map((group) => group.key)));
+        setOpenGroupKeys(new Set(buildPreparazioneBoxGroups(b.data || []).map((group) => group.key)));
       })
       .catch((e) => toast.error(azioneErrore(e)))
       .finally(() => setLoading(false));
@@ -167,7 +139,7 @@ export default function AdminComposizioneBox() {
   const onSelectCliente = (cid) => {
     setClienteId(cid);
     setSelectedBoxIds(new Set());
-    setOpenShipmentKeys(new Set());
+    setOpenGroupKeys(new Set());
     load(cid);
   };
 
@@ -200,7 +172,7 @@ export default function AdminComposizioneBox() {
   const imballabili = preparato.filter((m) => m.disponibile > 0);
   const boxPronti = boxes.filter((b) => b.stato === "pronto");
   const selectedPronti = boxPronti.filter((b) => selectedBoxIds.has(b.id));
-  const spedizioni = useMemo(() => buildSpedizioni(boxes), [boxes]);
+  const boxGroups = useMemo(() => buildPreparazioneBoxGroups(boxes), [boxes]);
   const toggleBox = (id, checked) => {
     setSelectedBoxIds((prev) => {
       const next = new Set(prev);
@@ -211,8 +183,8 @@ export default function AdminComposizioneBox() {
   };
   const selezionaPronti = () => setSelectedBoxIds(new Set(boxPronti.map((b) => b.id)));
   const deselezionaBox = () => setSelectedBoxIds(new Set());
-  const toggleShipmentOpen = (key) => {
-    setOpenShipmentKeys((prev) => {
+  const toggleGroupOpen = (key) => {
+    setOpenGroupKeys((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
@@ -344,25 +316,25 @@ export default function AdminComposizioneBox() {
               </div>
             ) : (
               <div className="space-y-3">
-                {spedizioni.map((group) => {
+                {boxGroups.map((group) => {
                   const readyGroupBoxes = group.boxes.filter((box) => box.stato === "pronto");
                   const readyCount = group.boxes.filter((box) => box.stato === "pronto").length;
                   const shippedCount = group.boxes.filter((box) => box.stato === "spedito").length;
                   const selectedGroupCount = readyGroupBoxes.filter((box) => selectedBoxIds.has(box.id)).length;
-                  const isOpen = openShipmentKeys.has(group.key);
+                  const isOpen = openGroupKeys.has(group.key);
                   return (
                     <Collapsible
                       key={group.key}
                       open={isOpen}
-                      onOpenChange={() => toggleShipmentOpen(group.key)}
-                      data-testid={`comp-spedizione-${group.key}`}
+                      onOpenChange={() => toggleGroupOpen(group.key)}
+                      data-testid={`comp-preparazione-box-${group.key}`}
                     >
                       <Card className="overflow-hidden">
                         <CollapsibleTrigger asChild>
                           <button
                             type="button"
                             className="flex w-full flex-wrap items-center justify-between gap-3 p-4 text-left transition hover:bg-slate-50"
-                            data-testid={`comp-spedizione-trigger-${group.key}`}
+                            data-testid={`comp-preparazione-trigger-${group.key}`}
                           >
                             <div className="flex items-start gap-3">
                               <div className="mt-0.5 rounded-md bg-primary/10 p-2 text-primary">
@@ -378,18 +350,19 @@ export default function AdminComposizioneBox() {
                               </div>
                             </div>
                             <div className="flex items-center gap-3">
-                              {group.labelUrl && (
+                              {group.labelUrls.map((url, index) => (
                                 <a
-                                  href={fileUrl(group.labelUrl)}
+                                  key={url}
+                                  href={fileUrl(url)}
                                   target="_blank"
                                   rel="noreferrer"
                                   className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700"
                                   onClick={(e) => e.stopPropagation()}
-                                  data-testid={`comp-spedizione-labels-${group.key}`}
+                                  data-testid={`comp-preparazione-labels-${group.key}-${index}`}
                                 >
-                                  <FileText className="h-3 w-3" /> PDF etichette gruppo
+                                  <FileText className="h-3 w-3" /> PDF gruppo{group.labelUrls.length > 1 ? ` ${index + 1}` : ""}
                                 </a>
-                              )}
+                              ))}
                               <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : ""}`} />
                             </div>
                           </button>
@@ -397,7 +370,7 @@ export default function AdminComposizioneBox() {
                         <CollapsibleContent>
                           {readyGroupBoxes.length > 0 && (
                             <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-white p-3 text-xs text-muted-foreground">
-                              <span data-testid={`comp-spedizione-selected-${group.key}`}>
+                              <span data-testid={`comp-preparazione-selected-${group.key}`}>
                                 {selectedGroupCount} di {readyGroupBoxes.length} box pronti selezionati
                               </span>
                               <div className="flex flex-wrap gap-2">
@@ -406,7 +379,7 @@ export default function AdminComposizioneBox() {
                                   variant="outline"
                                   onClick={() => selezionaBoxPronti(readyGroupBoxes)}
                                   disabled={bulkSaving}
-                                  data-testid={`comp-spedizione-select-ready-${group.key}`}
+                                  data-testid={`comp-preparazione-select-ready-${group.key}`}
                                 >
                                   Seleziona box pronti
                                 </Button>
@@ -414,9 +387,9 @@ export default function AdminComposizioneBox() {
                                   size="sm"
                                   onClick={() => segnaBoxSpediti(readyGroupBoxes)}
                                   disabled={bulkSaving}
-                                  data-testid={`comp-spedizione-ship-ready-${group.key}`}
+                                  data-testid={`comp-preparazione-ship-ready-${group.key}`}
                                 >
-                                  {bulkSaving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Truck className="h-4 w-4 mr-1" />} Segna spediti questa spedizione
+                                  {bulkSaving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Truck className="h-4 w-4 mr-1" />} Segna spediti questa preparazione
                                 </Button>
                               </div>
                             </div>
