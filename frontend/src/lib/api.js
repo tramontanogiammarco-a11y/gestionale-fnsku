@@ -1388,17 +1388,65 @@ async function stockSnapshotForCliente(clienteId, options = {}) {
   const titoloMap = {};
   const fnskuMap = {};
   const skuMap = {};
+  const refByEan = {};
+  const refByFnsku = {};
+
+  const addSku = (ean, sku) => {
+    if (!ean || !sku) return;
+    skuMap[ean] ||= new Set();
+    skuMap[ean].add(sku);
+  };
+
+  const applyReferenceMeta = (ean, ref = {}, fallback = {}) => {
+    if (!ean) return;
+    const titolo = optionalText(fallback.titolo) || optionalText(ref.titolo);
+    const fnsku = optionalText(fallback.fnsku) || optionalText(ref.fnsku);
+    const sku = optionalText(fallback.sku) || optionalText(ref.sku);
+    if (titolo) titoloMap[ean] ??= titolo;
+    if (fnsku) fnskuMap[ean] ??= fnsku;
+    addSku(ean, sku);
+  };
+
   for (const ref of refsList) {
-    if (!ref.ean) continue;
-    titoloMap[ref.ean] ??= ref.titolo;
-    fnskuMap[ref.ean] ??= ref.fnsku;
-    if (ref.sku) {
-      skuMap[ref.ean] ||= new Set();
-      skuMap[ref.ean].add(ref.sku);
+    if (ref.ean) {
+      refByEan[ref.ean] ??= ref;
+      applyReferenceMeta(ref.ean, ref);
     }
-    if (ref.is_bundle && ref.componenti?.length) {
+    if (ref.fnsku) refByFnsku[ref.fnsku] ??= ref;
+    if (ref.ean && ref.is_bundle && ref.componenti?.length) {
       bundleMap[ref.ean] = ref.componenti;
       bundleRefs.push(ref);
+    }
+  }
+
+  const applyOperationalMeta = (row = {}) => {
+    if (!row.ean) return;
+    const ref = refByEan[row.ean] || (row.fnsku ? refByFnsku[row.fnsku] : null) || {};
+    applyReferenceMeta(row.ean, ref, row);
+  };
+
+  const applyBoxItemMeta = (item = {}) => {
+    if (!item.ean) return;
+    const ref = refByEan[item.ean] || (item.fnsku ? refByFnsku[item.fnsku] : null) || {};
+    applyReferenceMeta(item.ean, ref, item);
+  };
+
+  const activeOperationalEans = new Set();
+  const trackUsageEan = (ean, quantity) => {
+    if (!ean || Number(quantity || 0) <= 0) return;
+    activeOperationalEans.add(ean);
+  };
+
+  for (const row of righeEntrata || []) {
+    if (!entrate?.some((entry) => entry.id === row.entrata_id)) continue;
+    applyOperationalMeta(row);
+    trackUsageEan(row.ean, row.quantita);
+  }
+
+  for (const box of boxes || []) {
+    for (const item of box.contenuto || []) {
+      applyBoxItemMeta(item);
+      trackUsageEan(item.ean, item.quantita);
     }
   }
 
@@ -1420,6 +1468,8 @@ async function stockSnapshotForCliente(clienteId, options = {}) {
   const inPreparazione = {};
   const bundleInPreparazione = {};
   for (const row of righePrep || []) {
+    applyOperationalMeta(row);
+    trackUsageEan(row.ean, row.quantita);
     addUsage(inPreparazione, row.ean, row.quantita, bundleMap, bundleInPreparazione);
   }
 
@@ -1427,16 +1477,25 @@ async function stockSnapshotForCliente(clienteId, options = {}) {
   const bundleSpedito = {};
   for (const box of boxes || []) {
     if (box.stato !== "spedito") continue;
-    for (const item of box.contenuto || []) addUsage(spedito, item.ean, item.quantita, bundleMap, bundleSpedito);
+    for (const item of box.contenuto || []) {
+      applyBoxItemMeta(item);
+      trackUsageEan(item.ean, item.quantita);
+      addUsage(spedito, item.ean, item.quantita, bundleMap, bundleSpedito);
+    }
   }
 
   for (const box of boxes || []) {
     if (box.stato === "spedito" || activePrepIds.has(box.preparazione_id)) continue;
-    for (const item of box.contenuto || []) addUsage(inPreparazione, item.ean, item.quantita, bundleMap, bundleInPreparazione);
+    for (const item of box.contenuto || []) {
+      applyBoxItemMeta(item);
+      trackUsageEan(item.ean, item.quantita);
+      addUsage(inPreparazione, item.ean, item.quantita, bundleMap, bundleInPreparazione);
+    }
   }
 
   return {
     refs: refsList,
+    activeOperationalEans,
     bundleMap,
     bundleRefs,
     titoloMap,
@@ -1828,6 +1887,7 @@ async function deletePreparazione(id) {
 async function magazzino(params) {
   const cid = await resolveClienteId(params.get("cliente_id") || undefined);
   const {
+    activeOperationalEans,
     bundleMap,
     bundleRefs,
     titoloMap,
@@ -1840,9 +1900,16 @@ async function magazzino(params) {
     bundleSpedito,
   } = await stockSnapshotForCliente(cid);
   const bundleEans = new Set(Object.keys(bundleMap));
+  const usageEans = new Set([...Object.keys(ricevuto), ...Object.keys(spedito), ...Object.keys(inPreparazione)]);
+  const activeFnskus = new Set(
+    [...usageEans, ...(activeOperationalEans || [])]
+      .map((ean) => fnskuMap[ean])
+      .filter(Boolean)
+  );
   const componentDisponibile = {};
   const eans = [...new Set([...Object.keys(titoloMap), ...Object.keys(ricevuto), ...Object.keys(spedito), ...Object.keys(inPreparazione)])]
     .filter((ean) => !bundleEans.has(ean))
+    .filter((ean) => usageEans.has(ean) || !activeFnskus.has(fnskuMap[ean]))
     .sort();
 
   const rows = eans.map((ean) => {
@@ -1926,10 +1993,17 @@ async function magazzinoMovimenti(params) {
   const preparazioniCliente = [...(preparazioni || [])].sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
   const entrataMap = new Map(entrateCliente.map((entry, index) => [entry.id, { ...entry, numero_operativo: index + 1 }]));
   const prepMap = new Map(preparazioniCliente.map((prep, index) => [prep.id, { ...prep, numero_operativo: index + 1 }]));
-  const ref = (refs || []).find((row) => row.ean === ean) || {};
+  const refsByEan = new Map((refs || []).filter((row) => row.ean).map((row) => [row.ean, row]));
+  const refsByFnsku = new Map((refs || []).filter((row) => row.fnsku).map((row) => [row.fnsku, row]));
+  const selectedRefByEan = refsByEan.get(ean);
+  const selectedFnsku = optionalText(selectedRefByEan?.fnsku)
+    || optionalText((righeEntrata || []).find((row) => row.ean === ean)?.fnsku)
+    || optionalText((righePrep || []).find((row) => row.ean === ean)?.fnsku);
+  const ref = selectedRefByEan || (selectedFnsku ? refsByFnsku.get(selectedFnsku) : null) || {};
+  const sameProductRow = (row = {}) => row.ean === ean || Boolean(selectedFnsku && row.fnsku === selectedFnsku);
 
   const movimentiEntrata = (righeEntrata || [])
-    .filter((row) => row.ean === ean && entrataMap.has(row.entrata_id))
+    .filter((row) => sameProductRow(row) && entrataMap.has(row.entrata_id))
     .map((row) => {
       const entrata = entrataMap.get(row.entrata_id);
       return {
@@ -1946,7 +2020,7 @@ async function magazzinoMovimenti(params) {
     });
 
   const movimentiPreparazione = (righePrep || [])
-    .filter((row) => row.ean === ean && prepMap.has(row.preparazione_id))
+    .filter((row) => sameProductRow(row) && prepMap.has(row.preparazione_id))
     .map((row) => {
       const prep = prepMap.get(row.preparazione_id);
       return {
@@ -1968,7 +2042,7 @@ async function magazzinoMovimenti(params) {
   return ok({
     ean,
     titolo: ref.titolo || ean,
-    fnsku: ref.fnsku || null,
+    fnsku: selectedFnsku || ref.fnsku || null,
     movimenti,
     totali: {
       entrate: movimentiEntrata.reduce((sum, row) => sum + Number(row.quantita || 0), 0),
