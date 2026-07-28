@@ -1094,7 +1094,7 @@ async function listBox(params) {
   const { data: preparazioni, error: prepError } = clienteIds.length
     ? await supabase
       .from("preparazioni")
-      .select("id,cliente_id,created_at,data_pronto,data_spedito,stato")
+      .select("id,cliente_id,created_at,data_pronto,stato")
       .in("cliente_id", clienteIds)
     : { data: [], error: null };
   if (prepError) fail(prepError.message);
@@ -1120,7 +1120,7 @@ async function listBox(params) {
     orderedPreps.forEach((prep, index) => {
       prepMeta.set(prep.id, {
         preparazione_numero: index + 1,
-        preparazione_data: prep.data_spedito || prep.data_pronto || prep.created_at,
+        preparazione_data: prep.data_pronto || prep.created_at,
         preparazione_stato: prep.stato,
         cliente_id: clientId,
       });
