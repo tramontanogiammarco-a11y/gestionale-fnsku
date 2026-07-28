@@ -18,7 +18,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
 } from "@/components/ui/dialog";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Loader2, Plus, FileText, Trash2, Boxes as BoxesIcon, ClipboardList, Copy, Pencil, Truck, ChevronDown, PackageCheck } from "lucide-react";
+import { Loader2, Plus, FileText, Trash2, Boxes as BoxesIcon, ClipboardList, Copy, Pencil, Truck, ChevronDown, PackageCheck, Archive } from "lucide-react";
 
 function azioneErrore(e) {
   if (e?.response?.status === 403)
@@ -117,6 +117,7 @@ export default function AdminComposizioneBox() {
   const [selectedBoxIds, setSelectedBoxIds] = useState(new Set());
   const [bulkSaving, setBulkSaving] = useState(false);
   const [openGroupKeys, setOpenGroupKeys] = useState(new Set());
+  const [boxFolder, setBoxFolder] = useState("da_gestire");
 
   useEffect(() => { api.get("/clienti").then((r) => setClienti(r.data)); }, []);
 
@@ -128,10 +129,12 @@ export default function AdminComposizioneBox() {
       api.get(`/box?cliente_id=${cid}`),
     ])
       .then(([p, b]) => {
+        const groups = buildPreparazioneBoxGroups(b.data || []);
+        const activeGroups = groups.filter((group) => group.boxes.some((box) => box.stato !== "spedito"));
         setPreparato(p.data);
         setBoxes(b.data);
         setSelectedBoxIds(new Set());
-        setOpenGroupKeys(new Set(buildPreparazioneBoxGroups(b.data || []).map((group) => group.key)));
+        setOpenGroupKeys(new Set(activeGroups.map((group) => group.key)));
       })
       .catch((e) => toast.error(azioneErrore(e)))
       .finally(() => setLoading(false));
@@ -141,6 +144,7 @@ export default function AdminComposizioneBox() {
     setClienteId(cid);
     setSelectedBoxIds(new Set());
     setOpenGroupKeys(new Set());
+    setBoxFolder("da_gestire");
     load(cid);
   };
 
@@ -171,9 +175,19 @@ export default function AdminComposizioneBox() {
   };
 
   const imballabili = preparato.filter((m) => m.disponibile > 0);
-  const boxPronti = boxes.filter((b) => b.stato === "pronto");
-  const selectedPronti = boxPronti.filter((b) => selectedBoxIds.has(b.id));
   const boxGroups = useMemo(() => buildPreparazioneBoxGroups(boxes), [boxes]);
+  const activeBoxGroups = useMemo(
+    () => boxGroups.filter((group) => group.boxes.some((box) => box.stato !== "spedito")),
+    [boxGroups]
+  );
+  const shippedBoxGroups = useMemo(
+    () => boxGroups.filter((group) => group.boxes.length > 0 && group.boxes.every((box) => box.stato === "spedito")),
+    [boxGroups]
+  );
+  const activeBoxes = activeBoxGroups.flatMap((group) => group.boxes);
+  const visibleBoxGroups = boxFolder === "spedite" ? shippedBoxGroups : activeBoxGroups;
+  const boxPronti = activeBoxes.filter((b) => b.stato === "pronto");
+  const selectedPronti = boxPronti.filter((b) => selectedBoxIds.has(b.id));
   const toggleBox = (id, checked) => {
     setSelectedBoxIds((prev) => {
       const next = new Set(prev);
@@ -295,8 +309,13 @@ export default function AdminComposizioneBox() {
           {/* Box del cliente */}
           <div>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <h2 className="font-heading text-lg font-semibold">Box del cliente ({boxes.length})</h2>
-              {boxPronti.length > 0 && (
+              <div>
+                <h2 className="font-heading text-lg font-semibold">Composizioni box</h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Le preparazioni completamente spedite finiscono nella cartella Spedite.
+                </p>
+              </div>
+              {boxFolder === "da_gestire" && boxPronti.length > 0 && (
                 <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                   <span data-testid="comp-box-selected-count">{selectedPronti.length} selezionati</span>
                   <Button size="sm" variant="outline" onClick={selezionaPronti} disabled={bulkSaving} data-testid="comp-box-select-ready">
@@ -311,13 +330,43 @@ export default function AdminComposizioneBox() {
                 </div>
               )}
             </div>
+            <div className="mb-4 flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant={boxFolder === "da_gestire" ? "default" : "outline"}
+                onClick={() => setBoxFolder("da_gestire")}
+                data-testid="comp-folder-active"
+              >
+                <ClipboardList className="mr-1 h-4 w-4" /> Da gestire
+                <span className="ml-2 rounded-full bg-white/20 px-2 text-xs">{activeBoxGroups.length}</span>
+              </Button>
+              <Button
+                size="sm"
+                variant={boxFolder === "spedite" ? "default" : "outline"}
+                onClick={() => {
+                  setBoxFolder("spedite");
+                  setSelectedBoxIds(new Set());
+                  setOpenGroupKeys((prev) => new Set([...prev, ...shippedBoxGroups.map((group) => group.key)]));
+                }}
+                data-testid="comp-folder-shipped"
+              >
+                <Archive className="mr-1 h-4 w-4" /> Spedite
+                <span className="ml-2 rounded-full bg-white/20 px-2 text-xs">{shippedBoxGroups.length}</span>
+              </Button>
+            </div>
             {boxes.length === 0 ? (
               <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800" data-testid="comp-no-box">
                 Nessun box. Clicca <b>"Nuovo box"</b> per comporre un collo dalla merce in preparazione.
               </div>
+            ) : visibleBoxGroups.length === 0 ? (
+              <div className="rounded-md border border-slate-200 bg-white p-4 text-sm text-muted-foreground" data-testid="comp-no-folder-box">
+                {boxFolder === "spedite"
+                  ? "Nessuna preparazione completamente spedita."
+                  : "Nessuna preparazione da gestire: quelle chiuse sono nella cartella Spedite."}
+              </div>
             ) : (
               <div className="space-y-3">
-                {boxGroups.map((group) => {
+                {visibleBoxGroups.map((group) => {
                   const readyGroupBoxes = group.boxes.filter((box) => box.stato === "pronto");
                   const readyCount = group.boxes.filter((box) => box.stato === "pronto").length;
                   const shippedCount = group.boxes.filter((box) => box.stato === "spedito").length;
@@ -369,7 +418,7 @@ export default function AdminComposizioneBox() {
                           </button>
                         </CollapsibleTrigger>
                         <CollapsibleContent>
-                          {readyGroupBoxes.length > 0 && (
+                          {boxFolder === "da_gestire" && readyGroupBoxes.length > 0 && (
                             <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-white p-3 text-xs text-muted-foreground">
                               <span data-testid={`comp-preparazione-selected-${group.key}`}>
                                 {selectedGroupCount} di {readyGroupBoxes.length} box pronti selezionati
