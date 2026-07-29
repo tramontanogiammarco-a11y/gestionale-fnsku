@@ -550,11 +550,16 @@ function ComposizioneBoxCard({ box: b, clienteId, imballabili, selected, onToggl
         {b.scatola_tipo && b.scatola_tipo !== "cliente" ? ` · Scatola nostra ${b.scatola_tipo}` : " · Scatola cliente"}
       </div>
       {b.contenuto?.length > 0 && (
-        <div className="mt-2 rounded bg-white p-2 text-xs">
+        <div className="mt-2 space-y-1 rounded bg-white p-2 text-xs">
           {b.contenuto.map((c, i) => (
-            <div key={i} className="flex justify-between py-0.5">
-              <span className="font-mono">{c.ean}{c.fnsku ? ` · ${c.fnsku}` : ""}</span>
-              <span>×{c.quantita}</span>
+            <div key={i} className="flex justify-between gap-3 py-1" data-testid={`comp-box-content-title-${b.id}-${i}`}>
+              <div className="min-w-0">
+                <div className="truncate font-semibold text-slate-900">{c.titolo || "Titolo non disponibile"}</div>
+                <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">
+                  {c.ean || "EAN n/d"}{c.fnsku ? ` · ${c.fnsku}` : ""}
+                </div>
+              </div>
+              <span className="shrink-0 font-semibold">×{c.quantita}</span>
             </div>
           ))}
         </div>
@@ -628,7 +633,7 @@ function BoxFormDialog({ mode, clienteId, imballabili, box, onDone, trigger }) {
         sku: c.sku,
         skus: c.sku ? [c.sku] : [],
         fnsku: c.fnsku,
-        titolo: "gia in questo box",
+        titolo: c.titolo || "gia in questo box",
         disponibile: 0,
       });
     }
@@ -656,6 +661,7 @@ function BoxFormDialog({ mode, clienteId, imballabili, box, onDone, trigger }) {
           ean: c.ean || "",
           sku: c.sku || "",
           fnsku: c.fnsku || "",
+          titolo: c.titolo || "",
           quantita: c.quantita ? String(c.quantita) : "",
         }))
         : [{ ean: "", quantita: "" }]);
@@ -702,7 +708,7 @@ function BoxFormDialog({ mode, clienteId, imballabili, box, onDone, trigger }) {
       .filter((r) => r.ean && Number(r.quantita) > 0)
       .map((r) => {
         const info = infoEan(r.ean);
-        return { ean: r.ean, sku: skusFor(info)[0] || r.sku || null, fnsku: info?.fnsku || r.fnsku || "", quantita: Number(r.quantita) };
+        return { ean: r.ean, sku: skusFor(info)[0] || r.sku || null, fnsku: info?.fnsku || r.fnsku || "", titolo: info?.titolo || r.titolo || null, quantita: Number(r.quantita) };
       });
     if (cont.length === 0) { toast.error("Aggiungi almeno una referenza con quantità"); return; }
     if (!(isEdit && box?.stato === "spedito") && cont.some((item) => !item.fnsku)) {

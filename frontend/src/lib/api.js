@@ -1128,6 +1128,13 @@ async function listBox(params) {
   const boxes = data || [];
   const cmap = await clientiMap(boxes.map((b) => b.cliente_id));
   const clienteIds = [...new Set(boxes.map((box) => box.cliente_id).filter(Boolean))];
+  const refs = await refsFor(clienteIds);
+  const refByEan = new Map();
+  const refByFnsku = new Map();
+  for (const ref of refs) {
+    if (ref.ean) refByEan.set(`${ref.cliente_id}:${ref.ean}`, ref);
+    if (ref.fnsku) refByFnsku.set(`${ref.cliente_id}:${ref.fnsku}`, ref);
+  }
   const { data: preparazioni, error: prepError } = clienteIds.length
     ? await supabase
       .from("preparazioni")
@@ -1180,6 +1187,15 @@ async function listBox(params) {
     const effectivePrepId = b.preparazione_id || fallbackPrepByBoxId.get(b.id) || null;
     return {
       ...b,
+      contenuto: (b.contenuto || []).map((item) => {
+        const ref = refByEan.get(`${b.cliente_id}:${item.ean}`) || (item.fnsku ? refByFnsku.get(`${b.cliente_id}:${item.fnsku}`) : null);
+        return {
+          ...item,
+          titolo: item.titolo || ref?.titolo || null,
+          fnsku: item.fnsku || ref?.fnsku || null,
+          sku: item.sku || ref?.sku || null,
+        };
+      }),
       preparazione_id_effettiva: effectivePrepId,
       abbinata_da_contenuto: Boolean(!b.preparazione_id && effectivePrepId),
       ...(prepMeta.get(effectivePrepId) || {}),
