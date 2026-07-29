@@ -96,6 +96,7 @@ export default function AdminPreparazioneDetail() {
   const [generando, setGenerando] = useState(false);
   const [savingFnsku, setSavingFnsku] = useState(false);
   const [updatingRighe, setUpdatingRighe] = useState(false);
+  const [statoSelezionate, setStatoSelezionate] = useState("in_lavorazione");
 
   const load = () => {
     api.get(`/preparazioni/${id}`).then((r) => {
@@ -124,8 +125,8 @@ export default function AdminPreparazioneDetail() {
 
   const righeSelezionate = () => (prep?.righe || []).filter((rg) => selezione[rg.id]);
 
-  const cambiaStatoRighe = async (nuovo) => {
-    const righe = righeSelezionate();
+  const cambiaStatoRighe = async (nuovo, righeManuali = null) => {
+    const righe = righeManuali || righeSelezionate();
     if (!righe.length) {
       toast.error("Seleziona almeno una SKU della preparazione.");
       return;
@@ -140,7 +141,7 @@ export default function AdminPreparazioneDetail() {
     setUpdatingRighe(true);
     try {
       await api.put(`/preparazioni/${id}/righe-stato`, { stato: nuovo, righe_ids: righe.map((rg) => rg.id) });
-      toast.success(nuovo === "pronto" ? "SKU selezionate segnate pronte" : "SKU selezionate avviate in lavorazione");
+      toast.success(`${righe.length} SKU aggiornate a ${STATI_PREP[nuovo]?.label || nuovo}`);
       load();
     } catch (e) {
       toast.error(azioneErrore(e));
@@ -321,12 +322,18 @@ export default function AdminPreparazioneDetail() {
             <span className="text-xs font-medium text-muted-foreground" data-testid="prep-selected-rows-count">
               {selectedCount} selezionate
             </span>
-            <Button variant="outline" onClick={() => cambiaStatoRighe("in_lavorazione")} disabled={updatingRighe || selectedCount === 0} data-testid="prep-start-selected">
+            <Label className="text-xs">Stato selezionate</Label>
+            <Select value={statoSelezionate} onValueChange={setStatoSelezionate}>
+              <SelectTrigger className="w-40" data-testid="prep-selected-status-select"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="richiesta">Richiesta</SelectItem>
+                <SelectItem value="in_lavorazione">In lavorazione</SelectItem>
+                <SelectItem value="pronto">Pronta</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="outline" onClick={() => cambiaStatoRighe(statoSelezionate)} disabled={updatingRighe || selectedCount === 0} data-testid="prep-apply-selected-status">
               {updatingRighe ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-              Avvia selezionate
-            </Button>
-            <Button variant="outline" onClick={() => cambiaStatoRighe("pronto")} disabled={updatingRighe || selectedCount === 0} data-testid="prep-ready-selected">
-              Segna selezionate pronte
+              Applica
             </Button>
             <Label className="text-xs">Formato</Label>
             <Select value={formato} onValueChange={setFormato}>
@@ -388,15 +395,16 @@ export default function AdminPreparazioneDetail() {
                   </div>
                 </TableCell>
                 <TableCell>
-                  {(() => {
-                    const statoRiga = rg.stato || "richiesta";
-                    const config = STATI_PREP[statoRiga] || STATI_PREP.richiesta;
-                    return (
-                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${config.cls}`} data-testid={`prep-riga-stato-${rg.id}`}>
-                        {config.label}
-                      </span>
-                    );
-                  })()}
+                  <Select value={rg.stato || "richiesta"} onValueChange={(value) => cambiaStatoRighe(value, [rg])}>
+                    <SelectTrigger className="h-8 w-36" data-testid={`prep-riga-stato-${rg.id}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="richiesta">Richiesta</SelectItem>
+                      <SelectItem value="in_lavorazione">In lavorazione</SelectItem>
+                      <SelectItem value="pronto">Pronta</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </TableCell>
                 <TableCell>
                   <Input
@@ -416,7 +424,7 @@ export default function AdminPreparazioneDetail() {
           </TableBody>
         </Table>
         <p className="text-xs text-muted-foreground mt-3">
-          Le righe con servizio FNSKU vengono selezionate automaticamente. Il PDF genera una etichetta per ogni pezzo in Q.tà.
+          Seleziona una o piu SKU e applica lo stato. Puoi anche cambiare lo stato dalla tendina della singola riga.
         </p>
       </Card>
     </div>
