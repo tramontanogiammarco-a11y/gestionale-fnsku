@@ -48,6 +48,11 @@ function sharedLabelUrl(box) {
     : null;
 }
 
+function labelTimestamp(url) {
+  const match = String(url || "").match(/gruppo-(\d+)/);
+  return match ? Number(match[1]) : 0;
+}
+
 function numeroBoxValue(value) {
   const match = String(value || "").match(/\d+/);
   return match ? Number(match[0]) : Number.MAX_SAFE_INTEGER;
@@ -64,6 +69,14 @@ function totalPieces(boxes) {
   return boxes.reduce((sum, box) => (
     sum + (box.contenuto || []).reduce((lineSum, item) => lineSum + Number(item.quantita || 0), 0)
   ), 0);
+}
+
+function boxRangeLabel(boxes) {
+  const sorted = sortBoxes(boxes);
+  const names = sorted.map((box) => box.numero_box).filter(Boolean);
+  if (!names.length) return "";
+  if (names.length === 1) return names[0];
+  return `${names[0]}-${names[names.length - 1]}`;
 }
 
 function formatDate(value) {
@@ -98,11 +111,25 @@ function buildPreparazioneBoxGroups(boxes) {
   }
 
   return Array.from(groups.values()).map((group) => {
-    const labelUrls = [...new Set(group.boxes.map(sharedLabelUrl).filter(Boolean))];
+    const labelGroups = Array.from(group.boxes.reduce((acc, box) => {
+      const url = sharedLabelUrl(box);
+      if (!url) return acc;
+      if (!acc.has(url)) acc.set(url, []);
+      acc.get(url).push(box);
+      return acc;
+    }, new Map()).entries())
+      .map(([url, groupBoxes]) => ({
+        url,
+        boxes: sortBoxes(groupBoxes),
+        range: boxRangeLabel(groupBoxes),
+        pieces: totalPieces(groupBoxes),
+        ts: labelTimestamp(url),
+      }))
+      .sort((a, b) => a.ts - b.ts || numeroBoxValue(a.boxes[0]?.numero_box) - numeroBoxValue(b.boxes[0]?.numero_box));
     return {
       ...group,
       boxes: sortBoxes(group.boxes),
-      labelUrls,
+      labelGroups,
     };
   }).sort((a, b) => a.sortValue - b.sortValue);
 }
@@ -400,17 +427,17 @@ export default function AdminComposizioneBox() {
                               </div>
                             </div>
                             <div className="flex items-center gap-3">
-                              {group.labelUrls.map((url, index) => (
+                              {group.labelGroups.map((labelGroup, index) => (
                                 <a
-                                  key={url}
-                                  href={fileUrl(url)}
+                                  key={labelGroup.url}
+                                  href={fileUrl(labelGroup.url)}
                                   target="_blank"
                                   rel="noreferrer"
                                   className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700"
                                   onClick={(e) => e.stopPropagation()}
                                   data-testid={`comp-preparazione-labels-${group.key}-${index}`}
                                 >
-                                  <FileText className="h-3 w-3" /> PDF gruppo{group.labelUrls.length > 1 ? ` ${index + 1}` : ""}
+                                  <FileText className="h-3 w-3" /> Lotto {index + 1} · box {labelGroup.range}
                                 </a>
                               ))}
                               <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : ""}`} />
@@ -418,6 +445,31 @@ export default function AdminComposizioneBox() {
                           </button>
                         </CollapsibleTrigger>
                         <CollapsibleContent>
+                          {group.labelGroups.length > 0 && (
+                            <div className="border-t bg-emerald-50/50 p-3" data-testid={`comp-label-lots-${group.key}`}>
+                              <div className="mb-2 text-xs font-bold uppercase tracking-wide text-emerald-800">PDF etichette caricati</div>
+                              <div className="grid gap-2 md:grid-cols-2">
+                                {group.labelGroups.map((labelGroup, index) => (
+                                  <a
+                                    key={labelGroup.url}
+                                    href={fileUrl(labelGroup.url)}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="flex items-center justify-between gap-3 rounded-md border border-emerald-200 bg-white px-3 py-2 text-sm text-emerald-900 transition hover:bg-emerald-50"
+                                    data-testid={`comp-label-lot-${group.key}-${index}`}
+                                  >
+                                    <span>
+                                      <span className="font-semibold">Lotto etichette {index + 1}</span>
+                                      <span className="ml-2 text-xs text-emerald-700">box {labelGroup.range} · {labelGroup.boxes.length} box · {labelGroup.pieces} pezzi</span>
+                                    </span>
+                                    <span className="inline-flex items-center gap-1 text-xs font-semibold">
+                                      <FileText className="h-3 w-3" /> Scarica PDF
+                                    </span>
+                                  </a>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                           {boxFolder === "da_gestire" && readyGroupBoxes.length > 0 && (
                             <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-white p-3 text-xs text-muted-foreground">
                               <span data-testid={`comp-preparazione-selected-${group.key}`}>

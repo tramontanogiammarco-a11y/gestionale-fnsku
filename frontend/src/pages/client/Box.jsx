@@ -82,6 +82,14 @@ function totalPieces(boxes) {
   ), 0);
 }
 
+function boxRangeLabel(boxes) {
+  const sorted = sortBoxes(boxes);
+  const names = sorted.map((box) => box.numero_box).filter(Boolean);
+  if (!names.length) return "";
+  if (names.length === 1) return names[0];
+  return `${names[0]}-${names[names.length - 1]}`;
+}
+
 function buildSpedizioni(boxes) {
   const labelCounts = boxes.reduce((acc, box) => {
     const url = sharedLabelUrl(box);
@@ -107,6 +115,7 @@ function buildSpedizioni(boxes) {
       type: "shipment",
       labelUrl: url,
       boxes: sortBoxes(groupBoxes),
+      range: boxRangeLabel(groupBoxes),
       ts: labelTimestamp(url),
       date: shipmentDate(groupBoxes, url),
     }))
@@ -118,6 +127,7 @@ function buildSpedizioni(boxes) {
       type: "singles",
       labelUrl: null,
       boxes: sortBoxes(singles),
+      range: boxRangeLabel(singles),
       ts: Number.MAX_SAFE_INTEGER,
       date: null,
     });
@@ -141,7 +151,9 @@ export default function ClientBox() {
 
   const load = () => api.get("/box").then((r) => {
     setBoxes(r.data);
-    setSelected((current) => current.filter((id) => (r.data || []).some((box) => box.id === id && box.stato === "pronto")));
+    setSelected((current) => current.filter((id) => (r.data || []).some((box) => (
+      box.id === id && box.stato === "pronto" && !sharedLabelUrl(box)
+    ))));
   });
   useEffect(() => {
     load();
@@ -156,7 +168,7 @@ export default function ClientBox() {
     monthFilter === "all" || monthKey(boxDate(box)) === monthFilter
   ));
   const spedizioni = useMemo(() => buildSpedizioni(visibleBoxes), [visibleBoxes]);
-  const groupableBoxes = visibleBoxes.filter((b) => b.stato === "pronto");
+  const groupableBoxes = visibleBoxes.filter((b) => b.stato === "pronto" && !sharedLabelUrl(b));
   const selectedBoxes = visibleBoxes.filter((b) => selected.includes(b.id));
   const sharedPdfCounts = countSharedLabelUrls(boxes || []);
 
@@ -268,7 +280,7 @@ export default function ClientBox() {
                 <Layers className="h-4 w-4 text-primary" /> Etichette gruppo
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                Seleziona le box pronte e carica una sola volta il PDF con tutte le etichette Amazon e UPS.
+                Seleziona solo box pronte senza PDF: ogni caricamento resta un lotto separato.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -357,6 +369,7 @@ function ShipmentGroup({ group, titoli, onDone, selected, toggleBox, sharedPdfCo
               <div>
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                   <span className="font-heading text-base font-semibold">{group.title}</span>
+                  {group.range && <span className="text-xs font-medium text-muted-foreground">box {group.range}</span>}
                   {group.dateLabel && <span className="text-xs font-medium text-muted-foreground">{group.dateLabel}</span>}
                 </div>
                 <div className="mt-1 text-xs text-muted-foreground">
@@ -391,7 +404,7 @@ function ShipmentGroup({ group, titoli, onDone, selected, toggleBox, sharedPdfCo
                 onDone={onDone}
                 selected={selected.includes(b.id)}
                 onToggle={() => toggleBox(b.id)}
-                selectable={b.stato === "pronto"}
+                selectable={b.stato === "pronto" && !sharedLabelUrl(b)}
                 sharedCount={sharedPdfCounts[b.etichetta_amazon_pdf_url] || 0}
               />
             ))}
