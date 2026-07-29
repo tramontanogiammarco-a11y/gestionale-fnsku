@@ -123,6 +123,7 @@ function contenutoTotals(contenuto = []) {
 
 const PREP_RESERVING_STATUSES = ["richiesta", "in_lavorazione", "pronto"];
 const ENTRATA_STOCK_STATUSES = ["ricevuto", "in_lavorazione", "pronto", "spedito"];
+const PREP_RIGA_STATI = ["richiesta", "in_lavorazione", "pronto", "spedito"];
 
 function entrataRowReceivedQuantity(row = {}, entrata = null) {
   if (row.quantita_ricevuta !== null && row.quantita_ricevuta !== undefined) {
@@ -131,6 +132,41 @@ function entrataRowReceivedQuantity(row = {}, entrata = null) {
   return entrata && ENTRATA_STOCK_STATUSES.includes(entrata.stato)
     ? Math.max(0, Number(row.quantita || 0))
     : 0;
+}
+
+function normalizePrepRigaStato(stato) {
+  const value = optionalText(stato);
+  if (!PREP_RIGA_STATI.includes(value)) fail("Stato riga preparazione non valido");
+  return value;
+}
+
+async function syncPreparazioneFromRighe(preparazioneId) {
+  const [{ data: prep, error: prepError }, { data: righe, error: righeError }] = await Promise.all([
+    requireSupabase().from("preparazioni").select("*").eq("id", preparazioneId).single(),
+    supabase.from("preparazioni_righe").select("id,stato").eq("preparazione_id", preparazioneId),
+  ]);
+  const firstError = prepError || righeError;
+  if (firstError) fail(firstError.message);
+  if (!prep || prep.stato === "spedito") return prep;
+
+  const rows = righe || [];
+  let stato = "richiesta";
+  if (rows.length && rows.every((row) => ["pronto", "spedito"].includes(row.stato || "richiesta"))) {
+    stato = "pronto";
+  } else if (rows.some((row) => (row.stato || "richiesta") !== "richiesta")) {
+    stato = "in_lavorazione";
+  }
+
+  const updates = { stato };
+  if (stato === "pronto" && !prep.data_pronto) updates.data_pronto = nowIso();
+  const { data, error } = await requireSupabase()
+    .from("preparazioni")
+    .update(updates)
+    .eq("id", preparazioneId)
+    .select()
+    .single();
+  if (error) fail(error.message);
+  return data;
 }
 
 function addUsage(target, ean, quantity, bundleMap = {}, bundleTarget = null) {
@@ -1443,7 +1479,7 @@ async function enrichPreparazioni(preps) {
     const clienteId = prepCliente.get(r.preparazione_id);
     const ref = refByEan.get(`${clienteId}:${r.ean}`) || refByFnsku.get(`${clienteId}:${r.fnsku}`);
     byPrep[r.preparazione_id] = byPrep[r.preparazione_id] || [];
-    byPrep[r.preparazione_id].push({ ...r, titolo: ref?.titolo, fnsku: r.fnsku || ref?.fnsku || null, referenza_id: ref?.id });
+    byPrep[r.preparazione_id].push({ ...r, stato: r.stato || "richiesta", titolo: ref?.titolo, fnsku: r.fnsku || ref?.fnsku || null, referenza_id: ref?.id });
   }
   const boxesByPrep = groupBy(boxes || [], "preparazione_id");
   return preps.map((p) => ({
@@ -1832,6 +1868,7 @@ async function createPreparazione(payload) {
         fnsku: r.fnsku || null,
         quantita: r.quantita,
         servizi: r.servizi || [],
+        stato: "richiesta",
       }))
     );
     if (righeError) fail(righeError.message);
@@ -1857,6 +1894,17 @@ async function updatePreparazioneStato(id, stato) {
     .select()
     .single();
   if (error) fail(error.message);
+  const rowUpdates = { stato };
+  if (stato === "in_lavorazione") rowUpdates.data_in_lavorazione = nowIso();
+  if (stato === "pronto") {
+    rowUpdates.data_in_lavorazione = nowIso();
+    rowUpdates.data_pronto = updates.data_pronto || current?.data_pronto || nowIso();
+  }
+  const { error: rowStatusError } = await requireSupabase()
+    .from("preparazioni_righe")
+    .update(rowUpdates)
+    .eq("preparazione_id", id);
+  if (rowStatusError) fail(rowStatusError.message);
   return getPreparazione(data.id);
 }
 
@@ -1902,6 +1950,7 @@ async function createPreparazioneRiga(payload) {
       fnsku: optionalText(payload.fnsku),
       quantita: Number(payload.quantita || 0),
       servizi: payload.servizi || [],
+      stato: normalizePrepRigaStato(payload.stato || "richiesta"),
     })
     .select()
     .single();
@@ -1918,6 +1967,14 @@ async function updatePreparazioneRiga(id, payload) {
   }
   if (Object.prototype.hasOwnProperty.call(payload, "quantita")) updates.quantita = Number(payload.quantita || 0);
   if (Object.prototype.hasOwnProperty.call(payload, "servizi")) updates.servizi = payload.servizi || [];
+  if (Object.prototype.hasOwnProperty.call(payload, "stato")) {
+    updates.stato = normalizePrepRigaStato(payload.stato);
+    if (updates.stato === "in_lavorazione") updates.data_in_lavorazione = nowIso();
+    if (updates.stato === "pronto") {
+      updates.data_in_lavorazione = nowIso();
+      updates.data_pronto = nowIso();
+    }
+  }
   if (!Object.keys(updates).length) fail("Nessun campo da aggiornare");
 
   const { data: current, error: readError } = await requireSupabase()
@@ -1958,7 +2015,38 @@ async function updatePreparazioneRiga(id, payload) {
     .select()
     .single();
   if (error) fail(error.message);
+  if (Object.prototype.hasOwnProperty.call(payload, "stato")) await syncPreparazioneFromRighe(current.preparazione_id);
   return ok(data);
+}
+
+async function updatePreparazioneRigheStato(preparazioneId, payload) {
+  const stato = normalizePrepRigaStato(payload.stato);
+  const ids = Array.isArray(payload.righe_ids) ? payload.righe_ids.filter(Boolean) : [];
+  if (!ids.length) fail("Seleziona almeno una riga");
+  const { data: rows, error: rowsError } = await requireSupabase()
+    .from("preparazioni_righe")
+    .select("id,preparazione_id")
+    .in("id", ids);
+  if (rowsError) fail(rowsError.message);
+  if ((rows || []).length !== ids.length || (rows || []).some((row) => row.preparazione_id !== preparazioneId)) {
+    fail("Alcune righe non appartengono a questa preparazione");
+  }
+
+  const updates = { stato };
+  if (stato === "in_lavorazione") updates.data_in_lavorazione = nowIso();
+  if (stato === "pronto") {
+    updates.data_in_lavorazione = nowIso();
+    updates.data_pronto = nowIso();
+  }
+
+  const { data, error } = await requireSupabase()
+    .from("preparazioni_righe")
+    .update(updates)
+    .in("id", ids)
+    .select();
+  if (error) fail(error.message);
+  await syncPreparazioneFromRighe(preparazioneId);
+  return ok({ aggiornate: data?.length || 0 });
 }
 
 async function deletePreparazioneRiga(id) {
@@ -2172,7 +2260,7 @@ async function magazzinoMovimenti(params) {
 async function preparato(params) {
   const cid = await resolveClienteId(params.get("cliente_id") || undefined);
   const [{ data: preps, error: prepsError }, { data: boxes, error: boxesError }, { data: refs, error: refsError }] = await Promise.all([
-    supabase.from("preparazioni").select("*").eq("cliente_id", cid).eq("stato", "pronto"),
+    supabase.from("preparazioni").select("*").eq("cliente_id", cid).in("stato", ["in_lavorazione", "pronto"]),
     supabase.from("box").select("*").eq("cliente_id", cid),
     supabase.from("referenze").select("*").eq("cliente_id", cid),
   ]);
@@ -2201,17 +2289,21 @@ async function preparato(params) {
 
   const rows = [];
   orderedPreps.forEach((prep, prepIndex) => {
-    const richiesto = contenutoTotals(righeByPrep[prep.id] || []);
+    const righePronte = (righeByPrep[prep.id] || []).filter((riga) => (
+      (riga.stato || (prep.stato === "pronto" ? "pronto" : "richiesta")) === "pronto"
+    ));
+    const richiesto = contenutoTotals(righePronte);
     const inBox = contenutoTotals((boxesByPrep[prep.id] || []).flatMap((box) => box.contenuto || []));
     Object.keys(richiesto).forEach((ean) => {
       const ref = refByEan[ean] || {};
+      const prepRow = righePronte.find((riga) => riga.ean === ean);
       rows.push({
         preparazione_id: prep.id,
         preparazione_numero: prepIndex + 1,
         preparazione_data: prep.data_pronto || prep.created_at,
         ean,
         titolo: ref.titolo,
-        fnsku: (righeByPrep[prep.id] || []).find((riga) => riga.ean === ean)?.fnsku || ref.fnsku,
+        fnsku: prepRow?.fnsku || ref.fnsku,
         sku: ref.sku,
         skus: skusByEan[ean] || (ref.sku ? [ref.sku] : []),
         richiesto: richiesto[ean],
@@ -2744,6 +2836,7 @@ export const api = {
     if (path.match(/^\/box\/[^/]+\/stato$/)) return updateBoxStato(path.split("/")[2], payload.stato);
     if (path.match(/^\/box\/[^/]+$/)) return updateBox(path.split("/")[2], payload);
     if (path.match(/^\/preparazioni\/[^/]+\/stato$/)) return updatePreparazioneStato(path.split("/")[2], payload.stato);
+    if (path.match(/^\/preparazioni\/[^/]+\/righe-stato$/)) return updatePreparazioneRigheStato(path.split("/")[2], payload);
     if (path.match(/^\/preparazioni\/[^/]+$/)) return updatePreparazione(path.split("/")[2], payload);
     if (path.match(/^\/preparazioni-righe\/[^/]+$/)) return updatePreparazioneRiga(path.split("/")[2], payload);
     if (path.match(/^\/wms\/spedizioni\/[^/]+$/)) return updateWmsShipment(path.split("/")[3], payload);

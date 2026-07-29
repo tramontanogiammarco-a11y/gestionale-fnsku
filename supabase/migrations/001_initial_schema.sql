@@ -106,10 +106,14 @@ create table public.preparazioni_righe (
   sku text,
   fnsku text,
   quantita integer not null check (quantita > 0),
-  servizi jsonb not null default '[]'::jsonb
+  servizi jsonb not null default '[]'::jsonb,
+  stato text not null default 'richiesta' check (stato in ('richiesta', 'in_lavorazione', 'pronto', 'spedito')),
+  data_in_lavorazione timestamptz,
+  data_pronto timestamptz
 );
 
 create index preparazioni_righe_preparazione_id_idx on public.preparazioni_righe(preparazione_id);
+create index preparazioni_righe_stato_idx on public.preparazioni_righe(stato);
 
 create table public.box (
   id uuid primary key default gen_random_uuid(),

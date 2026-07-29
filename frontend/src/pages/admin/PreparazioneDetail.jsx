@@ -95,6 +95,7 @@ export default function AdminPreparazioneDetail() {
   const [formati, setFormati] = useState(["50x30"]);
   const [generando, setGenerando] = useState(false);
   const [savingFnsku, setSavingFnsku] = useState(false);
+  const [updatingRighe, setUpdatingRighe] = useState(false);
 
   const load = () => {
     api.get(`/preparazioni/${id}`).then((r) => {
@@ -119,6 +120,33 @@ export default function AdminPreparazioneDetail() {
       toast.success("Stato aggiornato");
       load();
     } catch (e) { toast.error(azioneErrore(e)); }
+  };
+
+  const righeSelezionate = () => (prep?.righe || []).filter((rg) => selezione[rg.id]);
+
+  const cambiaStatoRighe = async (nuovo) => {
+    const righe = righeSelezionate();
+    if (!righe.length) {
+      toast.error("Seleziona almeno una SKU della preparazione.");
+      return;
+    }
+    if (nuovo === "pronto") {
+      const senzaFnsku = righe.filter((rg) => hasServizioFnsku(rg) && !cleanText(fnskuEdit[rg.id] || rg.fnsku));
+      if (senzaFnsku.length) {
+        toast.error(`Manca l'FNSKU per: ${senzaFnsku.map((r) => r.titolo || r.ean).join(", ")}`);
+        return;
+      }
+    }
+    setUpdatingRighe(true);
+    try {
+      await api.put(`/preparazioni/${id}/righe-stato`, { stato: nuovo, righe_ids: righe.map((rg) => rg.id) });
+      toast.success(nuovo === "pronto" ? "SKU selezionate segnate pronte" : "SKU selezionate avviate in lavorazione");
+      load();
+    } catch (e) {
+      toast.error(azioneErrore(e));
+    } finally {
+      setUpdatingRighe(false);
+    }
   };
 
   const righeFnskuModificate = () => (prep?.righe || []).filter((riga) => cleanText(fnskuEdit[riga.id]) !== cleanText(riga.fnsku));
@@ -191,10 +219,10 @@ export default function AdminPreparazioneDetail() {
     { label: "Spedita", date: prep.data_spedito, done: currentIndex >= 3, current: prep.stato === "pronto", empty: "Da spedire" },
   ];
   const notaCliente = (gruppiAmazon.noteCliente || "").trim();
-  const righeConServizioFnsku = prep.righe.filter(hasServizioFnsku);
-  const righeSelezionabili = righeConServizioFnsku.length ? righeConServizioFnsku : prep.righe;
+  const righeSelezionabili = prep.righe;
   const allSelected = righeSelezionabili.length > 0 && righeSelezionabili.every((rg) => selezione[rg.id]);
   const changedFnskuCount = righeFnskuModificate().length;
+  const selectedCount = righeSelezionate().length;
   const toggleAll = (checked) => {
     setSelezione(Object.fromEntries(righeSelezionabili.map((rg) => [rg.id, Boolean(checked)])));
   };
@@ -290,6 +318,16 @@ export default function AdminPreparazioneDetail() {
             <ClipboardList className="h-5 w-5 text-blue-600" /> Prodotti · servizi · FNSKU
           </h2>
           <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-muted-foreground" data-testid="prep-selected-rows-count">
+              {selectedCount} selezionate
+            </span>
+            <Button variant="outline" onClick={() => cambiaStatoRighe("in_lavorazione")} disabled={updatingRighe || selectedCount === 0} data-testid="prep-start-selected">
+              {updatingRighe ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              Avvia selezionate
+            </Button>
+            <Button variant="outline" onClick={() => cambiaStatoRighe("pronto")} disabled={updatingRighe || selectedCount === 0} data-testid="prep-ready-selected">
+              Segna selezionate pronte
+            </Button>
             <Label className="text-xs">Formato</Label>
             <Select value={formato} onValueChange={setFormato}>
               <SelectTrigger className="w-28" data-testid="formato-select"><SelectValue /></SelectTrigger>
@@ -320,6 +358,7 @@ export default function AdminPreparazioneDetail() {
               </TableHead>
               <TableHead>Prodotto</TableHead>
               <TableHead>Servizi</TableHead>
+              <TableHead>Stato</TableHead>
               <TableHead>FNSKU</TableHead>
               <TableHead>Q.tà</TableHead>
             </TableRow>
@@ -347,6 +386,17 @@ export default function AdminPreparazioneDetail() {
                       </span>
                     ))}
                   </div>
+                </TableCell>
+                <TableCell>
+                  {(() => {
+                    const statoRiga = rg.stato || "richiesta";
+                    const config = STATI_PREP[statoRiga] || STATI_PREP.richiesta;
+                    return (
+                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${config.cls}`} data-testid={`prep-riga-stato-${rg.id}`}>
+                        {config.label}
+                      </span>
+                    );
+                  })()}
                 </TableCell>
                 <TableCell>
                   <Input
