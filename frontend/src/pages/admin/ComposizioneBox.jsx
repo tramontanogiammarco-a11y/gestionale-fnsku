@@ -201,7 +201,8 @@ export default function AdminComposizioneBox() {
     } catch (e) { toast.error(azioneErrore(e)); }
   };
 
-  const imballabili = preparato.filter((m) => m.disponibile > 0);
+  const imballabili = preparato.filter((m) => m.imballabile !== false && m.disponibile > 0);
+  const nonImballabili = preparato.filter((m) => m.imballabile === false && Number(m.richiesto || 0) > 0);
   const boxGroups = useMemo(() => buildPreparazioneBoxGroups(boxes), [boxes]);
   const activeBoxGroups = useMemo(
     () => boxGroups.filter((group) => group.boxes.some((box) => box.stato !== "spedito")),
@@ -332,6 +333,46 @@ export default function AdminComposizioneBox() {
               </TableBody>
             </Table>
           </Card>
+
+          {nonImballabili.length > 0 && (
+            <Card className="p-5 border-amber-200 bg-amber-50/40" data-testid="comp-non-imballabili">
+              <div className="mb-3">
+                <h2 className="font-heading text-lg font-semibold flex items-center gap-2">
+                  <ClipboardList className="h-5 w-5 text-amber-600" /> In preparazione non ancora pronta
+                </h2>
+                <p className="mt-1 text-xs text-amber-800">
+                  Queste righe sono gia impegnate in una preparazione, ma non sono ancora disponibili per comporre box.
+                </p>
+              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Preparazione</TableHead>
+                    <TableHead>Prodotto / EAN</TableHead>
+                    <TableHead>FNSKU</TableHead>
+                    <TableHead>Stato</TableHead>
+                    <TableHead className="text-right">Quantità</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {nonImballabili.map((m) => (
+                    <TableRow key={`${m.preparazione_id}:${m.ean}:${m.stato_riga}`} data-testid={`comp-non-ready-${m.preparazione_id}-${m.ean}`}>
+                      <TableCell>
+                        <div className="text-xs font-semibold text-slate-700">{prepLabel(m)}</div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="max-w-xs truncate text-sm font-medium">{m.titolo || "Titolo non disponibile"}</div>
+                        <div className="mt-0.5 font-mono text-xs text-muted-foreground">EAN {m.ean || "—"}</div>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">{m.fnsku || "Da completare"}</TableCell>
+                      <TableCell><StatusBadge stato={m.stato_riga || m.stato_preparazione} tipo="preparazione" /></TableCell>
+                      <TableCell className="text-right font-semibold">{m.richiesto}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Card>
+          )}
 
           {/* Box del cliente */}
           <div>

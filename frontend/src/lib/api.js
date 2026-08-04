@@ -2260,7 +2260,7 @@ async function magazzinoMovimenti(params) {
 async function preparato(params) {
   const cid = await resolveClienteId(params.get("cliente_id") || undefined);
   const [{ data: preps, error: prepsError }, { data: boxes, error: boxesError }, { data: refs, error: refsError }] = await Promise.all([
-    supabase.from("preparazioni").select("*").eq("cliente_id", cid).in("stato", ["in_lavorazione", "pronto"]),
+    supabase.from("preparazioni").select("*").eq("cliente_id", cid).in("stato", PREP_RESERVING_STATUSES),
     supabase.from("box").select("*").eq("cliente_id", cid),
     supabase.from("referenze").select("*").eq("cliente_id", cid),
   ]);
@@ -2289,9 +2289,9 @@ async function preparato(params) {
 
   const rows = [];
   orderedPreps.forEach((prep, prepIndex) => {
-    const righePronte = (righeByPrep[prep.id] || []).filter((riga) => (
-      (riga.stato || (prep.stato === "pronto" ? "pronto" : "richiesta")) === "pronto"
-    ));
+    const righePrep = righeByPrep[prep.id] || [];
+    const statoRiga = (riga) => riga.stato || (prep.stato === "pronto" ? "pronto" : "richiesta");
+    const righePronte = righePrep.filter((riga) => statoRiga(riga) === "pronto");
     const richiesto = contenutoTotals(righePronte);
     const inBox = contenutoTotals((boxesByPrep[prep.id] || []).flatMap((box) => box.contenuto || []));
     Object.keys(richiesto).forEach((ean) => {
@@ -2306,9 +2306,41 @@ async function preparato(params) {
         fnsku: prepRow?.fnsku || ref.fnsku,
         sku: ref.sku,
         skus: skusByEan[ean] || (ref.sku ? [ref.sku] : []),
+        stato_riga: "pronto",
+        stato_preparazione: prep.stato,
+        imballabile: true,
         richiesto: richiesto[ean],
         in_box: inBox[ean] || 0,
         disponibile: Math.max(0, richiesto[ean] - (inBox[ean] || 0)),
+      });
+    });
+
+    const nonImballabili = righePrep.filter((riga) => statoRiga(riga) !== "pronto");
+    const bloccate = nonImballabili.reduce((acc, riga) => {
+      if (!riga.ean) return acc;
+      const key = `${riga.ean}:${statoRiga(riga)}`;
+      acc[key] ||= { ean: riga.ean, stato: statoRiga(riga), quantita: 0, fnsku: null };
+      acc[key].quantita += Number(riga.quantita || 0);
+      acc[key].fnsku ||= riga.fnsku;
+      return acc;
+    }, {});
+    Object.values(bloccate).forEach((item) => {
+      const ref = refByEan[item.ean] || {};
+      rows.push({
+        preparazione_id: prep.id,
+        preparazione_numero: prepIndex + 1,
+        preparazione_data: prep.data_pronto || prep.created_at,
+        ean: item.ean,
+        titolo: ref.titolo,
+        fnsku: item.fnsku || ref.fnsku,
+        sku: ref.sku,
+        skus: skusByEan[item.ean] || (ref.sku ? [ref.sku] : []),
+        stato_riga: item.stato,
+        stato_preparazione: prep.stato,
+        imballabile: false,
+        richiesto: item.quantita,
+        in_box: 0,
+        disponibile: 0,
       });
     });
   });
