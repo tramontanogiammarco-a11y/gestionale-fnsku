@@ -2275,7 +2275,7 @@ async function preparato(params) {
 
   const orderedPreps = [...(preps || [])].sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
   const righeByPrep = groupBy(righe || [], "preparazione_id");
-  const boxesByPrep = boxesByPreparazioneWithFallback(orderedPreps, righe || [], boxes || []);
+  const boxesByPrep = groupBy((boxes || []).filter((box) => prepIds.includes(box.preparazione_id)), "preparazione_id");
   const refByEan = {};
   const skusByEan = {};
   for (const ref of refs || []) {
