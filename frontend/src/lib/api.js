@@ -2203,7 +2203,7 @@ async function magazzinoMovimenti(params) {
     || optionalText((righeEntrata || []).find((row) => row.ean === ean)?.fnsku)
     || optionalText((righePrep || []).find((row) => row.ean === ean)?.fnsku);
   const ref = selectedRefByEan || (selectedFnsku ? refsByFnsku.get(selectedFnsku) : null) || {};
-  const sameProductRow = (row = {}) => row.ean === ean || Boolean(selectedFnsku && row.fnsku === selectedFnsku);
+  const sameProductRow = (row = {}) => optionalText(row.ean) === ean;
 
   const movimentiEntrata = (righeEntrata || [])
     .filter((row) => sameProductRow(row) && entrataMap.has(row.entrata_id))
