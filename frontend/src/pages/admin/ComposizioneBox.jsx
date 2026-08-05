@@ -209,14 +209,13 @@ export default function AdminComposizioneBox() {
 
   const imballabili = preparato.filter((m) => m.imballabile !== false && m.disponibile > 0);
   const nonImballabili = preparato.filter((m) => m.imballabile === false && Number(m.richiesto || 0) > 0);
-  const boxGroups = useMemo(() => buildPreparazioneBoxGroups(boxes), [boxes]);
   const activeBoxGroups = useMemo(
-    () => boxGroups.filter((group) => group.boxes.some((box) => box.stato !== "spedito")),
-    [boxGroups]
+    () => buildPreparazioneBoxGroups(boxes.filter((box) => box.stato !== "spedito")),
+    [boxes]
   );
   const shippedBoxGroups = useMemo(
-    () => boxGroups.filter((group) => group.boxes.length > 0 && group.boxes.every((box) => box.stato === "spedito")),
-    [boxGroups]
+    () => buildPreparazioneBoxGroups(boxes.filter((box) => box.stato === "spedito")),
+    [boxes]
   );
   const activeBoxes = activeBoxGroups.flatMap((group) => group.boxes);
   const visibleBoxGroups = boxFolder === "spedite" ? shippedBoxGroups : activeBoxGroups;
@@ -435,7 +434,7 @@ export default function AdminComposizioneBox() {
             ) : visibleBoxGroups.length === 0 ? (
               <div className="rounded-md border border-slate-200 bg-white p-4 text-sm text-muted-foreground" data-testid="comp-no-folder-box">
                 {boxFolder === "spedite"
-                  ? "Nessuna preparazione completamente spedita."
+                  ? "Nessun box spedito in archivio."
                   : "Nessuna preparazione da gestire: quelle chiuse sono nella cartella Spedite."}
               </div>
             ) : (
