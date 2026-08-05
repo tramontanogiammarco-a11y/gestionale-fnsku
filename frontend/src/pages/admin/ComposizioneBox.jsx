@@ -486,7 +486,7 @@ export default function AdminComposizioneBox() {
                                   onClick={(e) => e.stopPropagation()}
                                   data-testid={`comp-preparazione-labels-${group.key}-${index}`}
                                 >
-                                  <FileText className="h-3 w-3" /> Lotto {index + 1} · box {labelGroup.range}
+                                  <FileText className="h-3 w-3" /> Sottogruppo {index + 1} · box {labelGroup.range}
                                 </a>
                               ))}
                               <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : ""}`} />
@@ -496,7 +496,7 @@ export default function AdminComposizioneBox() {
                         <CollapsibleContent>
                           {group.labelGroups.length > 0 && (
                             <div className="border-t bg-emerald-50/50 p-3" data-testid={`comp-label-lots-${group.key}`}>
-                              <div className="mb-2 text-xs font-bold uppercase tracking-wide text-emerald-800">PDF etichette caricati</div>
+                              <div className="mb-2 text-xs font-bold uppercase tracking-wide text-emerald-800">Sottogruppi etichette caricati</div>
                               <div className="grid gap-2 md:grid-cols-2">
                                 {group.labelGroups.map((labelGroup, index) => (
                                   <div
@@ -505,7 +505,7 @@ export default function AdminComposizioneBox() {
                                     data-testid={`comp-label-lot-${group.key}-${index}`}
                                   >
                                     <span>
-                                      <span className="font-semibold">Lotto etichette {index + 1}</span>
+                                      <span className="font-semibold">Sottogruppo {index + 1}</span>
                                       <span className="ml-2 text-xs text-emerald-700">
                                         box {labelGroup.range} · {labelGroup.boxes.length} box · {labelGroup.pieces} pezzi
                                         {labelGroup.shippedBoxes.length > 0 ? ` · ${labelGroup.shippedBoxes.length} spediti` : ""}
@@ -524,7 +524,7 @@ export default function AdminComposizioneBox() {
                                           disabled={bulkSaving}
                                           data-testid={`comp-label-lot-ship-${group.key}-${index}`}
                                         >
-                                          {bulkSaving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Truck className="h-4 w-4 mr-1" />} Segna spedito lotto
+                                          {bulkSaving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Truck className="h-4 w-4 mr-1" />} Segna spedito sottogruppo
                                         </Button>
                                       )}
                                     </span>
@@ -583,7 +583,7 @@ export default function AdminComposizioneBox() {
                 {selectedPronti.length > 0 && (
                   <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-md border border-primary/20 bg-white p-3 shadow-lg" data-testid="comp-box-bulk-bar">
                     <div className="text-sm font-medium">
-                      {selectedPronti.length} box pronti selezionati
+                      {selectedPronti.length} box pronti con etichette selezionati
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <Button size="sm" variant="outline" onClick={deselezionaBox} disabled={bulkSaving} data-testid="comp-box-bulk-clear">
@@ -682,7 +682,9 @@ function ComposizioneBoxCard({ box: b, clienteId, imballabili, selected, onToggl
       )}
       <div className="flex flex-wrap gap-2 mt-2 text-xs">
         {b.etichetta_amazon_pdf_url && b.etichetta_amazon_pdf_url === b.etichetta_ups_pdf_url ? (
-          <a href={fileUrl(b.etichetta_amazon_pdf_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-emerald-600"><FileText className="h-3 w-3" /> Etichette</a>
+          <span className="inline-flex items-center gap-1 text-emerald-600">
+            <FileText className="h-3 w-3" /> PDF nel sottogruppo
+          </span>
         ) : (
           <>
             {b.etichetta_amazon_pdf_url && <a href={fileUrl(b.etichetta_amazon_pdf_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-blue-600"><FileText className="h-3 w-3" /> Amazon</a>}
