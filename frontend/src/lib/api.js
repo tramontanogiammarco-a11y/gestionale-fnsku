@@ -1414,15 +1414,19 @@ async function uploadBoxLabelsGroup(formData) {
 
   const { data: boxes, error: boxError } = await requireSupabase()
     .from("box")
-    .select("id,cliente_id,numero_box,stato")
+    .select("id,cliente_id,preparazione_id,numero_box,stato,etichetta_amazon_pdf_url,etichetta_ups_pdf_url")
     .in("id", boxIds);
   if (boxError) fail(boxError.message);
   if ((boxes || []).length !== boxIds.length) fail("Una o piu box non sono disponibili", 404);
 
   const clienteIds = [...new Set((boxes || []).map((box) => box.cliente_id))];
   if (clienteIds.length !== 1) fail("Le box selezionate devono appartenere allo stesso cliente");
+  const prepIds = [...new Set((boxes || []).map((box) => box.preparazione_id || "__senza_preparazione__"))];
+  if (prepIds.length !== 1) fail("Seleziona box della stessa preparazione per caricare un PDF gruppo");
   const nonPronte = (boxes || []).filter((box) => box.stato !== "pronto");
   if (nonPronte.length) fail("Puoi caricare etichette di gruppo solo su box pronte");
+  const giaEtichettate = (boxes || []).filter((box) => box.etichetta_amazon_pdf_url || box.etichetta_ups_pdf_url);
+  if (giaEtichettate.length) fail("Seleziona solo box senza PDF etichette");
 
   const sortedBoxes = [...boxes].sort((a, b) => String(a.numero_box || "").localeCompare(String(b.numero_box || ""), "it", { numeric: true }));
   const safeName = String(file.name || "etichette.pdf").replace(/[^a-zA-Z0-9._-]+/g, "-");

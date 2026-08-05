@@ -48,6 +48,10 @@ function sharedLabelUrl(box) {
     : null;
 }
 
+function hasBoxLabels(box) {
+  return Boolean(box?.etichetta_amazon_pdf_url && box?.etichetta_ups_pdf_url);
+}
+
 function labelTimestamp(url) {
   const match = String(url || "").match(/gruppo-(\d+)/);
   return match ? Number(match[1]) : 0;
@@ -121,6 +125,8 @@ function buildPreparazioneBoxGroups(boxes) {
       .map(([url, groupBoxes]) => ({
         url,
         boxes: sortBoxes(groupBoxes),
+        readyBoxes: sortBoxes(groupBoxes.filter((box) => box.stato === "pronto")),
+        shippedBoxes: sortBoxes(groupBoxes.filter((box) => box.stato === "spedito")),
         range: boxRangeLabel(groupBoxes),
         pieces: totalPieces(groupBoxes),
         ts: labelTimestamp(url),
@@ -214,7 +220,7 @@ export default function AdminComposizioneBox() {
   );
   const activeBoxes = activeBoxGroups.flatMap((group) => group.boxes);
   const visibleBoxGroups = boxFolder === "spedite" ? shippedBoxGroups : activeBoxGroups;
-  const boxPronti = activeBoxes.filter((b) => b.stato === "pronto");
+  const boxPronti = activeBoxes.filter((b) => b.stato === "pronto" && hasBoxLabels(b));
   const selectedPronti = boxPronti.filter((b) => selectedBoxIds.has(b.id));
   const toggleBox = (id, checked) => {
     setSelectedBoxIds((prev) => {
@@ -237,7 +243,7 @@ export default function AdminComposizioneBox() {
   const selezionaBoxPronti = (readyBoxes) => {
     setSelectedBoxIds((prev) => {
       const next = new Set(prev);
-      readyBoxes.forEach((box) => next.add(box.id));
+      readyBoxes.filter(hasBoxLabels).forEach((box) => next.add(box.id));
       return next;
     });
   };
@@ -436,9 +442,11 @@ export default function AdminComposizioneBox() {
               <div className="space-y-3">
                 {visibleBoxGroups.map((group) => {
                   const readyGroupBoxes = group.boxes.filter((box) => box.stato === "pronto");
+                  const shippableGroupBoxes = readyGroupBoxes.filter(hasBoxLabels);
+                  const waitingLabelsCount = readyGroupBoxes.length - shippableGroupBoxes.length;
                   const readyCount = group.boxes.filter((box) => box.stato === "pronto").length;
                   const shippedCount = group.boxes.filter((box) => box.stato === "spedito").length;
-                  const selectedGroupCount = readyGroupBoxes.filter((box) => selectedBoxIds.has(box.id)).length;
+                  const selectedGroupCount = shippableGroupBoxes.filter((box) => selectedBoxIds.has(box.id)).length;
                   const isOpen = openGroupKeys.has(group.key);
                   return (
                     <Collapsible
@@ -464,6 +472,7 @@ export default function AdminComposizioneBox() {
                                 </div>
                                 <div className="mt-1 text-xs text-muted-foreground">
                                   {group.boxes.length} box · {totalPieces(group.boxes)} pezzi · {readyCount} pronti · {shippedCount} spediti
+                                  {waitingLabelsCount > 0 ? ` · ${waitingLabelsCount} senza etichette` : ""}
                                 </div>
                               </div>
                             </div>
@@ -491,22 +500,36 @@ export default function AdminComposizioneBox() {
                               <div className="mb-2 text-xs font-bold uppercase tracking-wide text-emerald-800">PDF etichette caricati</div>
                               <div className="grid gap-2 md:grid-cols-2">
                                 {group.labelGroups.map((labelGroup, index) => (
-                                  <a
+                                  <div
                                     key={labelGroup.url}
-                                    href={fileUrl(labelGroup.url)}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="flex items-center justify-between gap-3 rounded-md border border-emerald-200 bg-white px-3 py-2 text-sm text-emerald-900 transition hover:bg-emerald-50"
+                                    className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-emerald-200 bg-white px-3 py-2 text-sm text-emerald-900"
                                     data-testid={`comp-label-lot-${group.key}-${index}`}
                                   >
                                     <span>
                                       <span className="font-semibold">Lotto etichette {index + 1}</span>
-                                      <span className="ml-2 text-xs text-emerald-700">box {labelGroup.range} · {labelGroup.boxes.length} box · {labelGroup.pieces} pezzi</span>
+                                      <span className="ml-2 text-xs text-emerald-700">
+                                        box {labelGroup.range} · {labelGroup.boxes.length} box · {labelGroup.pieces} pezzi
+                                        {labelGroup.shippedBoxes.length > 0 ? ` · ${labelGroup.shippedBoxes.length} spediti` : ""}
+                                      </span>
                                     </span>
-                                    <span className="inline-flex items-center gap-1 text-xs font-semibold">
-                                      <FileText className="h-3 w-3" /> Scarica PDF
+                                    <span className="flex flex-wrap gap-2">
+                                      <Button asChild size="sm" variant="outline" data-testid={`comp-label-lot-download-${group.key}-${index}`}>
+                                        <a href={fileUrl(labelGroup.url)} target="_blank" rel="noreferrer">
+                                          <FileText className="h-3 w-3 mr-1" /> Scarica PDF
+                                        </a>
+                                      </Button>
+                                      {boxFolder === "da_gestire" && labelGroup.readyBoxes.length > 0 && (
+                                        <Button
+                                          size="sm"
+                                          onClick={() => segnaBoxSpediti(labelGroup.readyBoxes)}
+                                          disabled={bulkSaving}
+                                          data-testid={`comp-label-lot-ship-${group.key}-${index}`}
+                                        >
+                                          {bulkSaving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Truck className="h-4 w-4 mr-1" />} Segna spedito lotto
+                                        </Button>
+                                      )}
                                     </span>
-                                  </a>
+                                  </div>
                                 ))}
                               </div>
                             </div>
@@ -514,25 +537,26 @@ export default function AdminComposizioneBox() {
                           {boxFolder === "da_gestire" && readyGroupBoxes.length > 0 && (
                             <div className="flex flex-wrap items-center justify-between gap-2 border-t bg-white p-3 text-xs text-muted-foreground">
                               <span data-testid={`comp-preparazione-selected-${group.key}`}>
-                                {selectedGroupCount} di {readyGroupBoxes.length} box pronti selezionati
+                                {selectedGroupCount} di {shippableGroupBoxes.length} box pronti con etichette selezionati
+                                {waitingLabelsCount > 0 ? ` · ${waitingLabelsCount} pronti in attesa PDF` : ""}
                               </span>
                               <div className="flex flex-wrap gap-2">
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  onClick={() => selezionaBoxPronti(readyGroupBoxes)}
-                                  disabled={bulkSaving}
+                                  onClick={() => selezionaBoxPronti(shippableGroupBoxes)}
+                                  disabled={bulkSaving || shippableGroupBoxes.length === 0}
                                   data-testid={`comp-preparazione-select-ready-${group.key}`}
                                 >
-                                  Seleziona box pronti
+                                  Seleziona box con etichette
                                 </Button>
                                 <Button
                                   size="sm"
-                                  onClick={() => segnaBoxSpediti(readyGroupBoxes)}
-                                  disabled={bulkSaving}
+                                  onClick={() => segnaBoxSpediti(shippableGroupBoxes)}
+                                  disabled={bulkSaving || shippableGroupBoxes.length === 0}
                                   data-testid={`comp-preparazione-ship-ready-${group.key}`}
                                 >
-                                  {bulkSaving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Truck className="h-4 w-4 mr-1" />} Segna spediti questa preparazione
+                                  {bulkSaving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Truck className="h-4 w-4 mr-1" />} Segna spediti con etichette
                                 </Button>
                               </div>
                             </div>
@@ -586,7 +610,7 @@ function ComposizioneBoxCard({ box: b, clienteId, imballabili, selected, onToggl
     <Card className="p-4" data-testid={`comp-box-${b.id}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-start gap-3">
-          {b.stato === "pronto" && (
+          {b.stato === "pronto" && hasBoxLabels(b) && (
             <Checkbox
               checked={selected}
               onCheckedChange={(checked) => onToggle(!!checked)}
