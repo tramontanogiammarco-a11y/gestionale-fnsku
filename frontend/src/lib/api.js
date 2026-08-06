@@ -2768,10 +2768,22 @@ function labelContent({ fnsku, titolo }, widthPt, heightPt, showTitle) {
   return ops.join("\n");
 }
 
+const MAX_LABEL_COPIES_PER_ITEM = 10000;
+const MAX_LABEL_PAGES_PER_PDF = 20000;
+
 function generateLabelsPdfBlob(payload = {}) {
   const { widthPt, heightPt } = parseLabelFormat(payload.formato);
+  let totalCopies = 0;
   const items = (payload.items || []).flatMap((item) => {
-    const copies = Math.max(1, Math.min(999, Number(item.copie) || 1));
+    const requestedCopies = Math.max(1, Number(item.copie) || 1);
+    if (requestedCopies > MAX_LABEL_COPIES_PER_ITEM) {
+      fail(`Massimo ${MAX_LABEL_COPIES_PER_ITEM} etichette per singola riga`);
+    }
+    totalCopies += requestedCopies;
+    if (totalCopies > MAX_LABEL_PAGES_PER_PDF) {
+      fail(`Massimo ${MAX_LABEL_PAGES_PER_PDF} etichette per PDF`);
+    }
+    const copies = requestedCopies;
     return Array.from({ length: copies }, () => item);
   });
   if (!items.length) fail("Inserisci almeno un FNSKU");
