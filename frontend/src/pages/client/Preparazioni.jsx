@@ -168,10 +168,29 @@ function NuovaPreparazioneDialog({ onDone }) {
     setGruppiAmazon(next);
   };
 
-  const totalePezzi = righe.reduce((sum, r) => sum + (Number(r.quantita) || 0), 0);
-  const righeRichieste = righe
+  const hydrateRiga = (r) => {
+    const prodotto = prodottoPerEan(r.ean);
+    return {
+      ...r,
+      quantita: Number(r.quantita) || 0,
+      fnsku: r.fnsku || prodotto?.fnsku || "",
+      servizi: r.servizi || [],
+      titolo: prodotto?.titolo || "",
+    };
+  };
+  const righeDaForm = righe
     .filter((r) => r.ean && Number(r.quantita) > 0)
-    .map((r) => ({ ...r, quantita: Number(r.quantita), titolo: magazzino.find((m) => m.ean === r.ean)?.titolo || "" }));
+    .map(hydrateRiga);
+  const righeDaGruppi = Object.values((gruppiAmazon || []).reduce((acc, gruppo) => {
+    (gruppo.righe || []).forEach((r) => {
+      if (!r.ean || Number(r.quantita) <= 0) return;
+      acc[r.ean] ||= hydrateRiga({ ean: r.ean, quantita: 0, servizi: [] });
+      acc[r.ean].quantita += Number(r.quantita) || 0;
+    });
+    return acc;
+  }, {}));
+  const righeRichieste = righeDaForm.length > 0 ? righeDaForm : (tipoPrep === "gruppi_amazon" ? righeDaGruppi : []);
+  const totalePezzi = righeRichieste.reduce((sum, r) => sum + (Number(r.quantita) || 0), 0);
   const richiestoPerEan = righeRichieste.reduce((acc, r) => {
     acc[r.ean] = (acc[r.ean] || 0) + r.quantita;
     return acc;
@@ -226,9 +245,9 @@ function NuovaPreparazioneDialog({ onDone }) {
   };
 
   const salva = async () => {
-    const valide = righe
+    const valide = righeRichieste
       .filter((r) => r.ean && Number(r.quantita) > 0)
-      .map((r) => ({ ean: r.ean, fnsku: r.fnsku || null, quantita: Number(r.quantita), servizi: r.servizi }));
+      .map((r) => ({ ean: r.ean, fnsku: r.fnsku || null, quantita: Number(r.quantita), servizi: r.servizi || [] }));
     if (valide.length === 0) { toast.error("Aggiungi almeno una riga con EAN e quantità"); return; }
     if (erroriDisponibilita.length > 0) {
       toast.error(`Disponibilità insufficiente: ${erroriDisponibilita[0]}`);
