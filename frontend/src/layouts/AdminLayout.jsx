@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import GlobalSearch from "@/components/GlobalSearch";
+import InstallAppButton from "@/components/InstallAppButton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import logo from "@/assets/logo.png";
 
@@ -129,9 +130,12 @@ export default function AdminLayout() {
               <div className="text-[10px] font-medium text-slate-500">{currentItem.label}</div>
             </div>
           </div>
-          <button className="rounded-md p-2 text-slate-600" onClick={handleLogout} data-testid="logout-btn-mobile" aria-label="Esci">
-            <LogOut className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <InstallAppButton compact />
+            <button className="rounded-md p-2 text-slate-600" onClick={handleLogout} data-testid="logout-btn-mobile" aria-label="Esci">
+              <LogOut className="h-5 w-5" />
+            </button>
+          </div>
         </div>
         <nav className="flex gap-1 overflow-x-auto border-t border-slate-100 px-2">
           {NAV.map((item) => <AdminNavLink key={`mobile-${item.id}`} item={item} mobile />)}
@@ -145,8 +149,9 @@ export default function AdminLayout() {
             <ChevronRight className="h-4 w-4 text-slate-300" />
             <span className="font-medium text-slate-500">{currentItem.label}</span>
           </div>
-          <div className="ml-auto flex w-full max-w-md items-center gap-5">
+          <div className="ml-auto flex w-full max-w-xl items-center gap-4">
             <div className="min-w-0 flex-1"><GlobalSearch /></div>
+            <InstallAppButton />
             <div className="flex shrink-0 items-center gap-2 text-xs font-semibold text-slate-500">
               <span className="h-2 w-2 rounded-full bg-emerald-500" /> Live
             </div>

@@ -13,6 +13,12 @@ const queryClient = new QueryClient({
   },
 });
 
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  window.__aimagoInstallPrompt = event;
+  window.dispatchEvent(new Event("aimago-install-ready"));
+});
+
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(
   <React.StrictMode>
@@ -21,3 +27,11 @@ root.render(
     </QueryClientProvider>
   </React.StrictMode>,
 );
+
+if ("serviceWorker" in navigator && process.env.NODE_ENV === "production") {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      // L'app resta utilizzabile online anche se il browser non abilita il service worker.
+    });
+  });
+}

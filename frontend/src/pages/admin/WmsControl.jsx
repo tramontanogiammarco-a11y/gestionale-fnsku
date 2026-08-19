@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -36,7 +36,11 @@ const ORDER_STATUS = {
 
 export default function WmsControl() {
   const navigate = useNavigate();
-  const [view, setView] = useState("control");
+  const [searchParams] = useSearchParams();
+  const [view, setView] = useState(() => {
+    const requested = searchParams.get("view");
+    return VIEWS.some((item) => item.key === requested) ? requested : "control";
+  });
   const [data, setData] = useState(null);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [updating, setUpdating] = useState(null);

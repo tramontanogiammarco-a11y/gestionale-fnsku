@@ -11,6 +11,26 @@ body {
     -moz-osx-font-smoothing: grayscale;
 }
 
+@supports (padding: env(safe-area-inset-top)) {
+    body {
+        padding-top: env(safe-area-inset-top);
+        padding-right: env(safe-area-inset-right);
+        padding-bottom: env(safe-area-inset-bottom);
+        padding-left: env(safe-area-inset-left);
+    }
+}
+
+@media (display-mode: standalone) {
+    body {
+        overscroll-behavior-y: none;
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
+    }
+    input, textarea, [contenteditable="true"] {
+        user-select: text;
+    }
+}
+
 @layer base {
     :root {
         --background: 210 20% 98%;
