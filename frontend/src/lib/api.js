@@ -1713,6 +1713,43 @@ async function enrichShopifyOrders(orders) {
   }));
 }
 
+async function updateShopifyOrderStatus(id, payload = {}) {
+  const profile = await currentProfile();
+  if (!isStaff(profile)) fail("Accesso riservato allo staff", 403);
+
+  const allowed = ["da_preparare", "in_preparazione", "pronto", "spedito", "annullato"];
+  const stato = optionalText(payload.wms_status || payload.stato);
+  if (!allowed.includes(stato)) fail("Stato ordine WMS non valido");
+
+  const { data: order, error: orderError } = await requireSupabase()
+    .from("shopify_orders")
+    .select("id,wms_status")
+    .eq("id", id)
+    .single();
+  if (orderError || !order) fail(orderError?.message || "Ordine WMS non trovato", 404);
+
+  if (["in_preparazione", "pronto"].includes(stato)) {
+    const { data: items, error: itemsError } = await requireSupabase()
+      .from("shopify_order_items")
+      .select("id,referenza_id,titolo")
+      .eq("order_id", id);
+    if (itemsError) fail(itemsError.message);
+    const missing = (items || []).filter((item) => !item.referenza_id);
+    if (missing.length) {
+      fail(`Collega prima ${missing.length} ${missing.length === 1 ? "riga" : "righe"} alle referenze di magazzino.`);
+    }
+  }
+
+  const { data, error } = await requireSupabase()
+    .from("shopify_orders")
+    .update({ wms_status: stato, updated_at: nowIso() })
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) fail(error.message);
+  return ok(data);
+}
+
 async function listWmsShipments(params) {
   let query = requireSupabase().from("wms_shipments").select("*").order("created_at", { ascending: false });
   if (params.get("cliente_id")) query = query.eq("cliente_id", params.get("cliente_id"));
@@ -2887,6 +2924,7 @@ export const api = {
     if (path.match(/^\/preparazioni\/[^/]+\/righe-stato$/)) return updatePreparazioneRigheStato(path.split("/")[2], payload);
     if (path.match(/^\/preparazioni\/[^/]+$/)) return updatePreparazione(path.split("/")[2], payload);
     if (path.match(/^\/preparazioni-righe\/[^/]+$/)) return updatePreparazioneRiga(path.split("/")[2], payload);
+    if (path.match(/^\/shopify\/orders\/[^/]+\/stato$/)) return updateShopifyOrderStatus(path.split("/")[3], payload);
     if (path.match(/^\/wms\/spedizioni\/[^/]+$/)) return updateWmsShipment(path.split("/")[3], payload);
     fail(`Endpoint non migrato: ${path}`, 404);
   },
