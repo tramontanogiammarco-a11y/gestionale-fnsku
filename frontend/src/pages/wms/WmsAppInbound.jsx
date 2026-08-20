@@ -491,16 +491,17 @@ function ProductConfirmation({ row }) {
 }
 
 function CameraScanner({ open, onOpenChange, purpose, onDetected }) {
-  const videoRef = useRef(null);
   const controlsRef = useRef(null);
   const onDetectedRef = useRef(onDetected);
+  const [videoElement, setVideoElement] = useState(null);
   const [starting, setStarting] = useState(false);
+  const [previewReady, setPreviewReady] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => { onDetectedRef.current = onDetected; }, [onDetected]);
 
   useEffect(() => {
-    if (!open) return undefined;
+    if (!open || !videoElement) return undefined;
     let cancelled = false;
     let handled = false;
     const reader = new BrowserMultiFormatReader(undefined, {
@@ -508,8 +509,16 @@ function CameraScanner({ open, onOpenChange, purpose, onDetected }) {
       delayBetweenScanSuccess: 1000,
     });
     setStarting(true);
+    setPreviewReady(false);
     setError("");
-    reader.decodeFromVideoDevice(undefined, videoRef.current, (result, _, controls) => {
+    reader.decodeFromConstraints({
+      audio: false,
+      video: {
+        facingMode: { ideal: "environment" },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      },
+    }, videoElement, (result, _, controls) => {
       if (controls) controlsRef.current = controls;
       if (!result || handled || cancelled) return;
       handled = true;
@@ -519,6 +528,7 @@ function CameraScanner({ open, onOpenChange, purpose, onDetected }) {
       if (cancelled) controls.stop();
       else controlsRef.current = controls;
       setStarting(false);
+      videoElement.play().catch(() => {});
     }).catch(() => {
       if (cancelled) return;
       setStarting(false);
@@ -529,7 +539,7 @@ function CameraScanner({ open, onOpenChange, purpose, onDetected }) {
       controlsRef.current?.stop();
       controlsRef.current = null;
     };
-  }, [open]);
+  }, [open, videoElement]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -539,9 +549,10 @@ function CameraScanner({ open, onOpenChange, purpose, onDetected }) {
           <DialogDescription>{purpose === "location" ? "Inquadra il barcode applicato alla posizione pallet." : "Inquadra l'EAN o il barcode del prodotto."}</DialogDescription>
         </DialogHeader>
         <div className="relative aspect-[4/5] max-h-[62dvh] overflow-hidden rounded-md bg-slate-950">
-          <video ref={videoRef} className="h-full w-full object-cover" muted playsInline />
+          <video ref={setVideoElement} className="h-full w-full object-cover" autoPlay muted playsInline onPlaying={() => { setPreviewReady(true); setStarting(false); }} />
           <div className="pointer-events-none absolute inset-x-[12%] top-1/2 h-28 -translate-y-1/2 rounded-md border-2 border-white shadow-[0_0_0_999px_rgba(0,0,0,0.28)]" />
           {starting && <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 text-white"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Avvio fotocamera</div>}
+          {!starting && !previewReady && !error && <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 p-6"><Button type="button" variant="secondary" onClick={() => videoElement?.play().catch(() => setError("Il browser ha bloccato l'anteprima. Chiudi e riapri la fotocamera."))}>Avvia anteprima</Button></div>}
         </div>
         {error && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
         <Button type="button" variant="outline" className="h-12 w-full" onClick={() => onOpenChange(false)}>Usa inserimento manuale</Button>
