@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api, fileUrl } from "@/lib/api";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Loader2, PackageCheck, Upload, FileText, Save } from "lucide-react";
+import { FileText, Loader2, PackageCheck, Save, ScanBarcode, Upload } from "lucide-react";
 
 function azioneErrore(e) {
   if (e?.response?.status === 403)
@@ -48,6 +48,7 @@ function editFromRow(row) {
 
 export default function AdminEntrataDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [entrata, setEntrata] = useState(null);
   const [docTipo, setDocTipo] = useState("DDT");
   const [uploading, setUploading] = useState(false);
@@ -55,11 +56,11 @@ export default function AdminEntrataDetail() {
   const [savingRighe, setSavingRighe] = useState(false);
   const fileRef = useRef(null);
 
-  const load = () => api.get(`/entrate/${id}`).then((r) => {
+  const load = useCallback(() => api.get(`/entrate/${id}`).then((r) => {
     setEntrata(r.data);
     setRigheEdit(Object.fromEntries((r.data.righe || []).map((row) => [row.id, editFromRow(row)])));
-  });
-  useEffect(() => { load(); }, [id]);
+  }), [id]);
+  useEffect(() => { load(); }, [load]);
 
   const uploadDocumento = async (file) => {
     setUploading(true);
@@ -143,29 +144,6 @@ export default function AdminEntrataDetail() {
     }
   };
 
-  const ricevi = async () => {
-    const righeRicezione = (entrata?.righe || []).map((row) => {
-      const edit = righeEdit[row.id] || editFromRow(row);
-      return {
-        id: row.id,
-        quantita_ricevuta: Math.max(0, Number(edit.quantita_ricevuta || 0)),
-      };
-    });
-    if (righeRicezione.reduce((sum, row) => sum + Number(row.quantita_ricevuta || 0), 0) <= 0) {
-      toast.error("Indica almeno una quantita arrivata.");
-      return;
-    }
-    const saved = await salvaRighe({ silent: true });
-    if (!saved) return;
-    try {
-      await api.post(`/entrate/${id}/ricevi`, { righe: righeRicezione });
-      toast.success("Entrata segnata come ricevuta");
-      load();
-    } catch (e) {
-      toast.error(azioneErrore(e));
-    }
-  };
-
   if (!entrata)
     return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
 
@@ -201,10 +179,13 @@ export default function AdminEntrataDetail() {
           {note.notePulita && <p className="text-sm text-muted-foreground mt-2">{note.notePulita}</p>}
         </div>
         <div className="flex items-center gap-2">
-          {entrata.stato === "in_attesa" ? (
-            <Button data-testid="ricevi-btn" onClick={ricevi} disabled={savingRighe}>
-              {savingRighe ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <PackageCheck className="h-4 w-4 mr-2" />}
-              Segna quantità arrivate
+          {["in_attesa", "in_lavorazione"].includes(entrata.stato) ? (
+            <Button
+              data-testid="ricevi-btn"
+              onClick={() => navigate(`/admin/wms/inbound/${id}`)}
+            >
+              <ScanBarcode className="mr-2 h-4 w-4" />
+              {entrata.stato === "in_lavorazione" ? "Continua ricezione" : "Ricevi con scanner"}
             </Button>
           ) : (
             <span className="inline-flex items-center gap-1 text-sm text-emerald-600 font-medium" data-testid="entrata-arrivato">

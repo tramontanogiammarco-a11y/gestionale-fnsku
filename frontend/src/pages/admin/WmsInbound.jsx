@@ -196,11 +196,6 @@ export default function WmsInbound() {
             </div>
           </div>
         </div>
-        {!data.active_session && !closed && (
-          <Button size="lg" onClick={start} disabled={working}>
-            {working ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PackageCheck className="mr-2 h-4 w-4" />} Avvia ricezione
-          </Button>
-        )}
       </header>
 
       <section className="border-y border-slate-200 bg-white py-4">
@@ -217,14 +212,16 @@ export default function WmsInbound() {
         </div>
       </section>
 
-      {data.active_session && (
+      {!closed && (
         <form onSubmit={register} className="border border-teal-200 bg-white p-4 shadow-sm sm:p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
               <h2 className="flex items-center gap-2 text-lg font-black"><Barcode className="h-5 w-5 text-teal-700" /> Scansiona merce</h2>
-              <p className="mt-1 text-xs text-muted-foreground">La pistola barcode invia automaticamente il codice con Invio.</p>
+              <p className="mt-1 text-xs text-muted-foreground">EAN o FNSKU · quantità · ubicazione · esito</p>
             </div>
-            {selectedRow && <Badge variant="outline" className="border-teal-200 bg-teal-50 text-teal-800">{selectedRow.mancante} mancanti</Badge>}
+            {data.active_session
+              ? selectedRow && <Badge variant="outline" className="border-teal-200 bg-teal-50 text-teal-800">{selectedRow.mancante} mancanti</Badge>
+              : <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">Da avviare</Badge>}
           </div>
 
           <div className="grid gap-4 lg:grid-cols-[minmax(220px,1.5fr)_120px_minmax(220px,1fr)_auto] lg:items-end">
@@ -239,26 +236,32 @@ export default function WmsInbound() {
                 placeholder="Scansiona il codice"
                 autoFocus
                 autoComplete="off"
+                disabled={!data.active_session}
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="wms-quantity">Quantità</Label>
-              <Input id="wms-quantity" type="number" min="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} className="h-12 text-base font-bold" />
+              <Input id="wms-quantity" type="number" min="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} className="h-12 text-base font-bold" disabled={!data.active_session} />
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <Label>Ubicazione</Label>
-                <button type="button" className="text-xs font-bold text-teal-700 hover:text-teal-900" onClick={() => setLocationDialog(true)}>Nuova</button>
+                <button type="button" className="text-xs font-bold text-teal-700 hover:text-teal-900 disabled:text-slate-400" onClick={() => setLocationDialog(true)} disabled={!data.active_session}>Nuova</button>
               </div>
               <Select value={locationId} onValueChange={setLocationId}>
-                <SelectTrigger className="h-12"><SelectValue placeholder="Seleziona ubicazione" /></SelectTrigger>
+                <SelectTrigger className="h-12" disabled={!data.active_session}><SelectValue placeholder="Seleziona ubicazione" /></SelectTrigger>
                 <SelectContent>
                   {activeLocations.map((location) => <SelectItem key={location.id} value={location.id}>{location.codice} · {location.zona || location.tipo}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-            <Button type="submit" size="lg" className="h-12 px-6" disabled={working || (!code && !selectedRowId) || !locationId}>
-              {working ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />} Registra
+            <Button type="submit" size="lg" className="h-12 px-6" disabled={working || (Boolean(data.active_session) && ((!code && !selectedRowId) || !locationId))}>
+              {working
+                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                : data.active_session
+                  ? <Plus className="mr-2 h-4 w-4" />
+                  : <PackageCheck className="mr-2 h-4 w-4" />}
+              {data.active_session ? "Registra" : "Avvia ricezione"}
             </Button>
           </div>
 
@@ -268,6 +271,7 @@ export default function WmsInbound() {
                 key={item.value}
                 type="button"
                 onClick={() => setDisposition(item.value)}
+                disabled={!data.active_session}
                 className={`flex min-h-12 items-center justify-center gap-2 border px-2 text-xs font-bold transition sm:text-sm ${disposition === item.value ? item.cls : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}
               >
                 <item.icon className="h-4 w-4 shrink-0" /> <span className="truncate">{item.label}</span>
