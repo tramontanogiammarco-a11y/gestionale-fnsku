@@ -62,7 +62,7 @@ export default function WmsAppDashboard() {
       ) : (
         <div className="grid grid-cols-2 gap-3">
           <OperationCard icon={Warehouse} title="Ubicazioni" value={200} unit="posizioni" tone="teal" onClick={() => navigate("/wms-app/ubicazioni")} />
-          <OperationCard icon={Archive} title="Inventario" value="—" unit="prossimo modulo" tone="blue" />
+          <OperationCard icon={Archive} title="Inventario" value="Apri" unit="conteggio posizioni" tone="blue" onClick={() => navigate("/wms-app/inventario")} />
           <OperationCard icon={Boxes} title="Picking" value="—" unit="prossimo modulo" tone="amber" />
           <OperationCard icon={Clock3} title="Packing" value="—" unit="prossimo modulo" tone="green" />
         </div>

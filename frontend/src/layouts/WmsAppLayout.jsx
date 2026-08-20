@@ -67,7 +67,7 @@ export default function WmsAppLayout() {
     : (entries || []).filter((entry) => entry.cliente_id === clientId);
 
   const focusScanner = () => {
-    if (location.pathname.includes("/wms-app/inbound/")) {
+    if (location.pathname.includes("/wms-app/inbound/") || /^\/wms-app\/inventario\/[^/]+$/.test(location.pathname)) {
       window.dispatchEvent(new Event("wms-focus-scanner"));
       return;
     }
@@ -143,7 +143,7 @@ export default function WmsAppLayout() {
             <MenuLink icon={LayoutGrid} label="Operazioni" active={location.pathname === "/wms-app"} onClick={() => { setMenuOpen(false); navigate("/wms-app"); }} />
             <MenuLink icon={PackageOpen} label="Arrivi" active={location.pathname.includes("/arrivi") || location.pathname.includes("/inbound/")} onClick={() => { setMenuOpen(false); navigate("/wms-app/arrivi"); }} />
             <MenuLink icon={Warehouse} label="Ubicazioni" active={location.pathname.includes("/ubicazioni")} onClick={() => { setMenuOpen(false); navigate("/wms-app/ubicazioni"); }} />
-            <MenuLink icon={Archive} label="Inventario" soon />
+            <MenuLink icon={Archive} label="Inventario" active={location.pathname.includes("/inventario")} onClick={() => { setMenuOpen(false); navigate("/wms-app/inventario"); }} />
             <MenuLink icon={Boxes} label="Picking e packing" soon />
             <MenuLink icon={SlidersHorizontal} label="Strumenti" active={location.pathname.includes("/strumenti")} onClick={() => { setMenuOpen(false); navigate("/wms-app/strumenti"); }} />
             <MenuLink icon={Settings} label="Configurazione" active={location.pathname.includes("/configurazione")} onClick={() => { setMenuOpen(false); navigate("/wms-app/configurazione"); }} />
@@ -175,11 +175,12 @@ function BottomNavigation() {
     { label: "Operazioni", icon: LayoutGrid, active: location.pathname === "/wms-app", action: () => navigate("/wms-app") },
     { label: "Arrivi", icon: PackageOpen, active: location.pathname.includes("/arrivi") || location.pathname.includes("/inbound/"), action: () => navigate("/wms-app/arrivi") },
     { label: "Stock", icon: Warehouse, active: location.pathname.includes("/ubicazioni"), action: () => navigate("/wms-app/ubicazioni") },
+    { label: "Inventario", icon: Archive, active: location.pathname.includes("/inventario"), action: () => navigate("/wms-app/inventario") },
     { label: "Strumenti", icon: SlidersHorizontal, active: location.pathname.includes("/strumenti"), action: () => navigate("/wms-app/strumenti") },
   ];
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-3xl border-t border-slate-200 bg-white/96 px-2 pb-[max(10px,env(safe-area-inset-bottom))] pt-2 backdrop-blur" aria-label="Navigazione WMS">
-      <div className="grid grid-cols-4 gap-1">
+      <div className="grid grid-cols-5 gap-1">
         {items.map((item) => (
           <button key={item.label} type="button" onClick={item.action} className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-md px-1 text-[11px] font-bold ${item.active ? "bg-teal-100 text-teal-900" : "text-slate-600 hover:bg-slate-50"}`}>
             <item.icon className="h-5 w-5" /> {item.label}

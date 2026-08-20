@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import {
-  ChevronRight, MapPinned, PackageSearch, Printer,
+  Archive, ChevronRight, MapPinned, PackageSearch, Printer,
   QrCode, ScanLine, SlidersHorizontal,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -10,6 +10,7 @@ export default function WmsAppTools() {
   const tools = [
     { icon: Printer, title: "Codici stampabili", subtitle: "Etichette e codici di magazzino", action: () => toast.info("Stampe: prossimo collegamento operativo") },
     { icon: MapPinned, title: "Ubicazioni magazzino", subtitle: "Pallet e slot censiti", action: () => navigate("/wms-app/ubicazioni") },
+    { icon: Archive, title: "Inventario", subtitle: "Conta e rettifica una posizione", action: () => navigate("/wms-app/inventario") },
     { icon: QrCode, title: "Crea codice posizione", subtitle: "Genera un barcode per una posizione", action: () => toast.info("Generazione barcode: prossimo collegamento operativo") },
     { icon: PackageSearch, title: "Cerca prodotto", subtitle: "Trova la posizione di EAN e FNSKU", action: () => toast.info("Ricerca prodotto: prossimo collegamento operativo") },
     { icon: ScanLine, title: "Calibrare lo scanner", subtitle: "Configura uno scanner USB o Bluetooth", badge: "Non calibrato", action: () => toast.info("Calibrazione scanner: prossimo collegamento operativo") },

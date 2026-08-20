@@ -2506,6 +2506,7 @@ async function wmsStock(params) {
     { data: entryRows, error: rowsError },
     { data: entries, error: entriesError },
     { data: references, error: referencesError },
+    { data: inventorySessions, error: inventorySessionsError },
   ] = await Promise.all([
     requireSupabase().from("wms_locations").select("*").order("codice", { ascending: true }),
     requireSupabase().from("wms_inbound_movements").select("*").eq("disposizione", "disponibile").order("created_at", { ascending: false }),
@@ -2516,9 +2517,19 @@ async function wmsStock(params) {
     clientIds.length
       ? requireSupabase().from("referenze").select("cliente_id,ean,fnsku,titolo").in("cliente_id", clientIds)
       : Promise.resolve({ data: [], error: null }),
+    requireSupabase().from("wms_inventory_sessions").select("id").eq("stato", "completata"),
   ]);
-  const firstError = locationsError || movementsError || rowsError || entriesError || referencesError;
+  const firstError = locationsError || movementsError || rowsError || entriesError || referencesError || inventorySessionsError;
   if (firstError) fail(firstError.message);
+
+  const completedInventoryIds = (inventorySessions || []).map((session) => session.id);
+  const { data: inventoryCounts, error: inventoryCountsError } = completedInventoryIds.length
+    ? await requireSupabase()
+      .from("wms_inventory_counts")
+      .select("*")
+      .in("session_id", completedInventoryIds)
+    : { data: [], error: null };
+  if (inventoryCountsError) fail(inventoryCountsError.message);
 
   const entryMap = new Map((entries || []).map((entry) => [entry.id, entry]));
   const rowMap = new Map((entryRows || []).map((row) => [row.id, row]));
@@ -2544,6 +2555,8 @@ async function wmsStock(params) {
         in_preparazione: Number(row.in_preparazione || 0),
         spedito: Number(row.spedito || 0),
         disponibile: Number(row.disponibile || 0),
+        base_disponibile: Number(row.disponibile || 0),
+        rettifica_inventario: 0,
         ubicazioni: [],
         non_ubicato: Number(row.disponibile || 0),
       };
@@ -2574,8 +2587,18 @@ async function wmsStock(params) {
   }
 
   const locationContents = new Map();
+  const inventoryDeltas = new Map();
+  for (const count of inventoryCounts || []) {
+    if (!clientMap[count.cliente_id]) continue;
+    const key = `${count.cliente_id}:${count.product_key}`;
+    if (!inventoryDeltas.has(key)) inventoryDeltas.set(key, new Map());
+    const locationDeltas = inventoryDeltas.get(key);
+    const delta = Number(count.quantita_contata || 0) - Number(count.quantita_attesa || 0);
+    locationDeltas.set(count.location_id, Number(locationDeltas.get(count.location_id) || 0) + delta);
+  }
+
   for (const product of products) {
-    let remaining = product.disponibile;
+    let remaining = product.base_disponibile;
     const key = `${product.cliente_id}:${wmsInventoryKey(product)}`;
     const batches = (movementsByProduct.get(key) || [])
       .sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")));
@@ -2587,7 +2610,17 @@ async function wmsStock(params) {
       remaining -= assigned;
       totalsByLocation.set(batch.location_id, Number(totalsByLocation.get(batch.location_id) || 0) + assigned);
     }
+
+    for (const [locationId, delta] of inventoryDeltas.get(key) || []) {
+      const current = Number(totalsByLocation.get(locationId) || 0);
+      const next = Math.max(0, current + Number(delta || 0));
+      product.rettifica_inventario += next - current;
+      if (next > 0) totalsByLocation.set(locationId, next);
+      else totalsByLocation.delete(locationId);
+    }
+
     product.non_ubicato = remaining;
+    product.disponibile = remaining + [...totalsByLocation.values()].reduce((sum, quantity) => sum + Number(quantity || 0), 0);
     product.ubicazioni = [...totalsByLocation.entries()].map(([locationId, quantita]) => {
       const location = (locations || []).find((item) => item.id === locationId);
       return { id: locationId, codice: location?.codice || "Ubicazione rimossa", tipo: location?.tipo || null, quantita };
@@ -2632,6 +2665,250 @@ async function wmsStock(params) {
     locations: locationRows,
     products,
   });
+}
+
+function inventoryProductKey(row = {}) {
+  return wmsInventoryKey(row);
+}
+
+async function inventorySessionSnapshot(sessionId) {
+  await assertWmsStaff();
+  const { data: session, error: sessionError } = await requireSupabase()
+    .from("wms_inventory_sessions")
+    .select("*")
+    .eq("id", sessionId)
+    .single();
+  if (sessionError || !session) fail(sessionError?.message || "Inventario non trovato", 404);
+
+  const [
+    { data: location, error: locationError },
+    { data: counts, error: countsError },
+    { data: operator, error: operatorError },
+  ] = await Promise.all([
+    requireSupabase().from("wms_locations").select("*").eq("id", session.location_id).single(),
+    requireSupabase().from("wms_inventory_counts").select("*").eq("session_id", session.id).order("created_at", { ascending: true }),
+    session.operatore_id
+      ? requireSupabase().from("profiles").select("id,name,email").eq("id", session.operatore_id).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+  ]);
+  const firstError = locationError || countsError || operatorError;
+  if (firstError) fail(firstError.message);
+
+  const rows = (counts || []).map((count) => ({
+    ...count,
+    differenza: Number(count.quantita_contata || 0) - Number(count.quantita_attesa || 0),
+  }));
+  return ok({
+    session: { ...session, location, operator },
+    counts: rows,
+    summary: {
+      righe: rows.length,
+      verificate: rows.filter((row) => row.verificata).length,
+      atteso: rows.reduce((sum, row) => sum + Number(row.quantita_attesa || 0), 0),
+      contato: rows.reduce((sum, row) => sum + Number(row.quantita_contata || 0), 0),
+      differenza: rows.reduce((sum, row) => sum + Number(row.differenza || 0), 0),
+      anomalie: rows.filter((row) => row.verificata && row.differenza !== 0).length,
+    },
+  });
+}
+
+async function listWmsInventory() {
+  await assertWmsStaff();
+  const [
+    { data: sessions, error: sessionsError },
+    { data: locations, error: locationsError },
+    { data: profiles, error: profilesError },
+  ] = await Promise.all([
+    requireSupabase().from("wms_inventory_sessions").select("*").order("started_at", { ascending: false }).limit(100),
+    requireSupabase().from("wms_locations").select("*"),
+    requireSupabase().from("profiles").select("id,name,email"),
+  ]);
+  const firstError = sessionsError || locationsError || profilesError;
+  if (firstError) fail(firstError.message);
+
+  const sessionIds = (sessions || []).map((session) => session.id);
+  const { data: counts, error: countsError } = sessionIds.length
+    ? await requireSupabase().from("wms_inventory_counts").select("*").in("session_id", sessionIds)
+    : { data: [], error: null };
+  if (countsError) fail(countsError.message);
+
+  const locationMap = new Map((locations || []).map((location) => [location.id, location]));
+  const profileMap = new Map((profiles || []).map((profile) => [profile.id, profile]));
+  const countsBySession = groupBy(counts || [], "session_id");
+  const rows = (sessions || []).map((session) => {
+    const sessionCounts = countsBySession[session.id] || [];
+    const verified = sessionCounts.filter((count) => count.verificata);
+    return {
+      ...session,
+      location: locationMap.get(session.location_id) || null,
+      operator: profileMap.get(session.operatore_id) || null,
+      righe: sessionCounts.length,
+      verificate: verified.length,
+      atteso: sessionCounts.reduce((sum, count) => sum + Number(count.quantita_attesa || 0), 0),
+      contato: sessionCounts.reduce((sum, count) => sum + Number(count.quantita_contata || 0), 0),
+      anomalie: verified.filter((count) => Number(count.quantita_contata || 0) !== Number(count.quantita_attesa || 0)).length,
+    };
+  });
+
+  return ok({
+    sessions: rows,
+    summary: {
+      in_corso: rows.filter((row) => row.stato === "in_corso").length,
+      completate: rows.filter((row) => row.stato === "completata").length,
+      con_differenze: rows.filter((row) => row.stato === "completata" && row.anomalie > 0).length,
+      posizioni_contate: new Set(rows.filter((row) => row.stato === "completata").map((row) => row.location_id)).size,
+    },
+  });
+}
+
+async function startWmsInventory(payload = {}) {
+  const profile = await assertWmsStaff();
+  const code = optionalText(payload.codice || payload.code)?.toUpperCase();
+  const locationId = optionalText(payload.location_id);
+  if (!code && !locationId) fail("Scansiona o seleziona una posizione");
+
+  let locationQuery = requireSupabase().from("wms_locations").select("*");
+  locationQuery = locationId ? locationQuery.eq("id", locationId) : locationQuery.ilike("codice", code);
+  const { data: location, error: locationError } = await locationQuery.maybeSingle();
+  if (locationError || !location) fail(locationError?.message || `Posizione ${code} non trovata`, 404);
+  if (location.stato !== "attiva") fail(`La posizione ${location.codice} e bloccata`, 409);
+
+  const { data: active, error: activeError } = await requireSupabase()
+    .from("wms_inventory_sessions")
+    .select("id")
+    .eq("location_id", location.id)
+    .eq("stato", "in_corso")
+    .maybeSingle();
+  if (activeError) fail(activeError.message);
+  if (active) return inventorySessionSnapshot(active.id);
+
+  const stockResponse = await wmsStock(new URLSearchParams());
+  const stockLocation = stockResponse.data.locations.find((item) => item.id === location.id);
+  const { data: session, error: insertError } = await requireSupabase()
+    .from("wms_inventory_sessions")
+    .insert({ location_id: location.id, operatore_id: profile.id, note: optionalText(payload.note) })
+    .select()
+    .single();
+  if (insertError) fail(insertError.code === "23505" ? "Questa posizione ha gia un inventario in corso" : insertError.message);
+
+  const initialCounts = (stockLocation?.contenuto || []).map((item) => ({
+    session_id: session.id,
+    location_id: location.id,
+    cliente_id: item.cliente_id,
+    product_key: inventoryProductKey(item),
+    ean: optionalText(item.ean),
+    fnsku: optionalText(item.fnsku),
+    titolo: optionalText(item.titolo),
+    quantita_attesa: Number(item.quantita || 0),
+    quantita_contata: 0,
+    verificata: false,
+    created_by: profile.id,
+  })).filter((item) => item.product_key);
+  if (initialCounts.length) {
+    const { error: countsError } = await requireSupabase().from("wms_inventory_counts").insert(initialCounts);
+    if (countsError) {
+      await requireSupabase().from("wms_inventory_sessions").delete().eq("id", session.id);
+      fail(countsError.message);
+    }
+  }
+  return inventorySessionSnapshot(session.id);
+}
+
+async function updateWmsInventoryCount(sessionId, payload = {}) {
+  const profile = await assertWmsStaff();
+  const snapshotResponse = await inventorySessionSnapshot(sessionId);
+  const snapshot = snapshotResponse.data;
+  if (snapshot.session.stato !== "in_corso") fail("Questo inventario e gia stato chiuso", 409);
+
+  if (payload.conferma_atteso === true) {
+    const updates = snapshot.counts.map((row) => requireSupabase()
+      .from("wms_inventory_counts")
+      .update({ quantita_contata: row.quantita_attesa, verificata: true, updated_at: nowIso() })
+      .eq("id", row.id));
+    const results = await Promise.all(updates);
+    const firstError = results.find((result) => result.error)?.error;
+    if (firstError) fail(firstError.message);
+    return inventorySessionSnapshot(sessionId);
+  }
+
+  const code = normalizedText(payload.codice || payload.code);
+  const countId = optionalText(payload.count_id);
+  let count = snapshot.counts.find((row) => row.id === countId || (code && [row.ean, row.fnsku].some((value) => normalizedText(value) === code)));
+
+  if (!count && code) {
+    const params = new URLSearchParams();
+    if (payload.cliente_id) params.set("cliente_id", payload.cliente_id);
+    const stockResponse = await wmsStock(params);
+    const matches = stockResponse.data.products.filter((product) => [product.ean, product.fnsku]
+      .some((value) => normalizedText(value) === code));
+    if (!matches.length) fail(`Prodotto ${payload.codice || payload.code} non riconosciuto`, 404);
+    if (matches.length > 1) fail("Codice presente per piu clienti: seleziona prima l'azienda", 409);
+    if (snapshot.counts.length) fail(`Prodotto non previsto in ${snapshot.session.location.codice}`, 409);
+    const product = matches[0];
+    const { data: inserted, error: insertError } = await requireSupabase()
+      .from("wms_inventory_counts")
+      .insert({
+        session_id: sessionId,
+        location_id: snapshot.session.location_id,
+        cliente_id: product.cliente_id,
+        product_key: inventoryProductKey(product),
+        ean: optionalText(product.ean),
+        fnsku: optionalText(product.fnsku),
+        titolo: optionalText(product.titolo),
+        quantita_attesa: 0,
+        quantita_contata: 0,
+        verificata: false,
+        created_by: profile.id,
+      })
+      .select()
+      .single();
+    if (insertError) fail(insertError.message);
+    count = inserted;
+  }
+  if (!count) fail("Riga inventario non trovata", 404);
+
+  const hasAbsolute = Object.prototype.hasOwnProperty.call(payload, "quantita");
+  const nextQuantity = hasAbsolute
+    ? Math.floor(Number(payload.quantita))
+    : Number(count.quantita_contata || 0) + Math.floor(Number(payload.delta ?? 1));
+  if (!Number.isFinite(nextQuantity) || nextQuantity < 0) fail("La quantita contata non puo essere negativa");
+
+  const { error: updateError } = await requireSupabase()
+    .from("wms_inventory_counts")
+    .update({ quantita_contata: nextQuantity, verificata: true, updated_at: nowIso() })
+    .eq("id", count.id);
+  if (updateError) fail(updateError.message);
+  return inventorySessionSnapshot(sessionId);
+}
+
+async function completeWmsInventory(sessionId, payload = {}) {
+  await assertWmsStaff();
+  const snapshotResponse = await inventorySessionSnapshot(sessionId);
+  const snapshot = snapshotResponse.data;
+  if (snapshot.session.stato !== "in_corso") fail("Questo inventario e gia stato chiuso", 409);
+  const pending = snapshot.counts.filter((count) => !count.verificata);
+  if (pending.length) fail(`Restano ${pending.length} referenze da verificare`);
+  if (snapshot.summary.anomalie > 0 && !payload.conferma_differenze) {
+    fail(`Sono presenti ${snapshot.summary.anomalie} differenze. Conferma le rettifiche per chiudere.`);
+  }
+  const { error } = await requireSupabase()
+    .from("wms_inventory_sessions")
+    .update({ stato: "completata", completed_at: nowIso(), note: optionalText(payload.note) })
+    .eq("id", sessionId);
+  if (error) fail(error.message);
+  return inventorySessionSnapshot(sessionId);
+}
+
+async function cancelWmsInventory(sessionId) {
+  await assertWmsStaff();
+  const snapshotResponse = await inventorySessionSnapshot(sessionId);
+  if (snapshotResponse.data.session.stato !== "in_corso") fail("Solo un inventario in corso puo essere annullato", 409);
+  const { error } = await requireSupabase()
+    .from("wms_inventory_sessions")
+    .update({ stato: "annullata", completed_at: nowIso() })
+    .eq("id", sessionId);
+  if (error) fail(error.message);
+  return inventorySessionSnapshot(sessionId);
 }
 
 async function wmsScan(params) {
@@ -3312,6 +3589,8 @@ export const api = {
     if (path === "/wms/spedizioni") return listWmsShipments(params);
     if (path === "/wms/stock") return wmsStock(params);
     if (path === "/wms/scan") return wmsScan(params);
+    if (path === "/wms/inventario") return listWmsInventory();
+    if (path.match(/^\/wms\/inventario\/[^/]+$/)) return inventorySessionSnapshot(path.split("/")[3]);
     if (path.match(/^\/wms\/inbound\/[^/]+$/)) return getWmsInbound(path.split("/")[3]);
     if (path.startsWith("/preparazioni/")) return getPreparazione(path.split("/")[2]);
     if (path === "/magazzino") return magazzino(params);
@@ -3337,6 +3616,10 @@ export const api = {
     if (path === "/shippypro/carriers") return listShippyProCarriers(payload);
     if (path === "/wms/spedizioni") return createWmsShipment(payload);
     if (path === "/wms/ubicazioni") return createWmsLocation(payload);
+    if (path === "/wms/inventario/avvia") return startWmsInventory(payload);
+    if (path.match(/^\/wms\/inventario\/[^/]+\/conteggio$/)) return updateWmsInventoryCount(path.split("/")[3], payload);
+    if (path.match(/^\/wms\/inventario\/[^/]+\/completa$/)) return completeWmsInventory(path.split("/")[3], payload);
+    if (path.match(/^\/wms\/inventario\/[^/]+\/annulla$/)) return cancelWmsInventory(path.split("/")[3]);
     if (path.match(/^\/wms\/inbound\/[^/]+\/avvia$/)) return startWmsInbound(path.split("/")[3], payload);
     if (path.match(/^\/wms\/inbound\/[^/]+\/movimenti$/)) return addWmsInboundMovement(path.split("/")[3], payload);
     if (path.match(/^\/wms\/inbound\/[^/]+\/completa$/)) return completeWmsInbound(path.split("/")[3], payload);
