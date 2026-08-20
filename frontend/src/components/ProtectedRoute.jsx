@@ -1,10 +1,11 @@
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Loader2 } from "lucide-react";
 
 // Guardia di rotta con controllo ruolo
 export function ProtectedRoute({ children, roles }) {
   const { user } = useAuth();
+  const location = useLocation();
 
   if (user === null) {
     return (
@@ -14,7 +15,7 @@ export function ProtectedRoute({ children, roles }) {
     );
   }
 
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />;
 
   if (roles && !roles.includes(user.role)) {
     // reindirizza all'area corretta in base al ruolo

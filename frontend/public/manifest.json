@@ -2,7 +2,8 @@
   "name": "Aimago WMS",
   "short_name": "Aimago WMS",
   "description": "Operazioni di magazzino Aimago: inbound, picking, packing e outbound.",
-  "start_url": "/admin/wms",
+  "id": "/wms-app",
+  "start_url": "/wms-app",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
@@ -24,19 +25,19 @@
   ],
   "shortcuts": [
     {
-      "name": "Inbound",
-      "short_name": "Inbound",
-      "url": "/admin/wms?view=inbound"
+      "name": "Da ricevere",
+      "short_name": "Da ricevere",
+      "url": "/wms-app?view=open"
     },
     {
-      "name": "Picking",
-      "short_name": "Picking",
-      "url": "/admin/wms?view=picking"
+      "name": "In corso",
+      "short_name": "In corso",
+      "url": "/wms-app?view=active"
     },
     {
-      "name": "Outbound",
-      "short_name": "Outbound",
-      "url": "/admin/wms?view=outbound"
+      "name": "Completati",
+      "short_name": "Completati",
+      "url": "/wms-app?view=history"
     }
   ]
 }

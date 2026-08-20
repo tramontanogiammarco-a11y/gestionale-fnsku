@@ -35,6 +35,9 @@ import ClientSpedizioni from "@/pages/client/Spedizioni";
 import ClientMagazzino from "@/pages/client/Magazzino";
 import ClientPreparazioni from "@/pages/client/Preparazioni";
 import ClientPreparazioneDetail from "@/pages/client/PreparazioneDetail";
+import WmsAppLayout from "@/layouts/WmsAppLayout";
+import WmsAppHome from "@/pages/wms/WmsAppHome";
+import WmsAppInbound from "@/pages/wms/WmsAppInbound";
 
 // Reindirizza dalla root all'area corretta
 function RootRedirect() {
@@ -57,6 +60,19 @@ function App() {
           <Routes>
             <Route path="/" element={<RootRedirect />} />
             <Route path="/login" element={<Login />} />
+
+            {/* App mobile dedicata agli operatori di magazzino */}
+            <Route
+              path="/wms-app"
+              element={
+                <ProtectedRoute roles={["admin", "staff"]}>
+                  <WmsAppLayout />
+                </ProtectedRoute>
+              }
+            >
+              <Route index element={<WmsAppHome />} />
+              <Route path="inbound/:id" element={<WmsAppInbound />} />
+            </Route>
 
             {/* Area backend (admin/staff) */}
             <Route

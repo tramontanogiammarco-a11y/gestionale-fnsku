@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import logo from "@/assets/logo-transparent.png";
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -22,7 +23,11 @@ export default function Login() {
     const res = await login(email, password);
     setLoading(false);
     if (res.ok) {
-      navigate(res.user.role === "cliente" ? "/app" : "/admin", { replace: true });
+      const requestedPath = location.state?.from;
+      const staffDestination = typeof requestedPath === "string" && requestedPath.startsWith("/wms-app")
+        ? requestedPath
+        : "/admin";
+      navigate(res.user.role === "cliente" ? "/app" : staffDestination, { replace: true });
     } else {
       setError(res.error);
     }
