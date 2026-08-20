@@ -42,13 +42,16 @@ import WmsAppInbound from "@/pages/wms/WmsAppInbound";
 // Reindirizza dalla root all'area corretta
 function RootRedirect() {
   const { user } = useAuth();
+  const wmsOnly = process.env.REACT_APP_WMS_ONLY === "true"
+    || window.location.hostname === "aimago-prep-wms.vercel.app";
   if (user === null)
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to="/login" replace state={wmsOnly ? { from: "/wms-app" } : undefined} />;
+  if (wmsOnly && user.role !== "cliente") return <Navigate to="/wms-app" replace />;
   return <Navigate to={user.role === "cliente" ? "/app" : "/admin"} replace />;
 }
 
