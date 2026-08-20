@@ -36,8 +36,12 @@ import ClientMagazzino from "@/pages/client/Magazzino";
 import ClientPreparazioni from "@/pages/client/Preparazioni";
 import ClientPreparazioneDetail from "@/pages/client/PreparazioneDetail";
 import WmsAppLayout from "@/layouts/WmsAppLayout";
+import WmsAppDashboard from "@/pages/wms/WmsAppDashboard";
 import WmsAppHome from "@/pages/wms/WmsAppHome";
 import WmsAppInbound from "@/pages/wms/WmsAppInbound";
+import WmsAppLocations from "@/pages/wms/WmsAppLocations";
+import WmsAppTools from "@/pages/wms/WmsAppTools";
+import WmsAppSettings from "@/pages/wms/WmsAppSettings";
 
 // Reindirizza dalla root all'area corretta
 function RootRedirect() {
@@ -73,8 +77,12 @@ function App() {
                 </ProtectedRoute>
               }
             >
-              <Route index element={<WmsAppHome />} />
+              <Route index element={<WmsAppDashboard />} />
+              <Route path="arrivi" element={<WmsAppHome />} />
               <Route path="inbound/:id" element={<WmsAppInbound />} />
+              <Route path="ubicazioni" element={<WmsAppLocations />} />
+              <Route path="strumenti" element={<WmsAppTools />} />
+              <Route path="configurazione" element={<WmsAppSettings />} />
             </Route>
 
             {/* Area backend (admin/staff) */}

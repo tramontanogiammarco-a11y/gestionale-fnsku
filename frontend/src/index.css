@@ -97,6 +97,18 @@ body {
     }
 }
 
+@layer components {
+    .wms-icon-button {
+        @apply flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-900 shadow-sm transition hover:border-teal-300 hover:text-teal-800;
+    }
+    .wms-segment {
+        @apply min-h-11 rounded-md px-2 text-sm font-bold text-slate-500 transition;
+    }
+    .wms-segment-active {
+        @apply bg-white text-slate-950 shadow-sm;
+    }
+}
+
 main h1,
 main h2,
 main h3,

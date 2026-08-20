@@ -44,8 +44,8 @@ export default function WmsAppHome() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-sm font-semibold text-teal-700">Aimago Prep Center</p>
-            <h1 className="mt-1 text-3xl font-black">Inbound</h1>
-            <p className="mt-2 text-sm text-slate-500">Ricezione e controllo merce in arrivo.</p>
+            <h1 className="mt-1 text-3xl font-black">Arrivi</h1>
+            <p className="mt-2 text-sm text-slate-500">Ricezione e controllo della merce.</p>
           </div>
           <Button size="icon" variant="outline" onClick={loadEntries} aria-label="Aggiorna inbound"><RefreshCw className="h-5 w-5" /></Button>
         </div>

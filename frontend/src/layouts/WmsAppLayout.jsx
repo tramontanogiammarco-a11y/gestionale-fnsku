@@ -3,9 +3,9 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
 import {
-  Archive, Barcode, Boxes, CheckCircle2, ChevronRight,
-  LogOut, Menu, PackageOpen, Printer, ScanLine, Settings, Tags,
-  UserRound, Warehouse,
+  Archive, Barcode, Boxes, ChevronRight, CircleHelp,
+  LayoutGrid, LogOut, Menu, PackageOpen, Printer, Settings,
+  SlidersHorizontal, UserRound, Warehouse,
 } from "lucide-react";
 import {
   Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle,
@@ -69,7 +69,7 @@ export default function WmsAppLayout() {
       window.dispatchEvent(new Event("wms-focus-scanner"));
       return;
     }
-    navigate("/wms-app?view=open&scan=1");
+    navigate("/wms-app/arrivi?view=open&scan=1");
   };
 
   const signOut = async () => {
@@ -79,18 +79,18 @@ export default function WmsAppLayout() {
   };
 
   return (
-    <div className="min-h-dvh bg-[#edf2f3] text-slate-950" data-testid="wms-app-layout">
-      <div className="mx-auto min-h-dvh w-full max-w-3xl bg-white shadow-[0_0_40px_rgba(15,23,42,0.08)]">
+    <div className="min-h-dvh bg-[#eef2f3] text-slate-950" data-testid="wms-app-layout">
+      <div className="mx-auto min-h-dvh w-full max-w-3xl bg-[#fbfcfc] shadow-[0_0_40px_rgba(15,23,42,0.08)]">
+        <div className="h-2 bg-teal-700" />
         <header className="sticky top-0 z-40 border-b border-slate-100 bg-white/95 backdrop-blur">
-          <div className="flex h-16 items-center gap-2 px-4 sm:px-6">
+          <div className="flex h-[72px] items-center gap-2 px-4 sm:px-6">
             <button
               type="button"
               onClick={() => setCompanyOpen(true)}
-              className="flex min-w-0 flex-1 items-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-left font-bold"
+              className="flex min-w-0 flex-1 items-center gap-2 rounded-md bg-slate-100 px-3 py-2.5 text-left font-bold"
               aria-label="Seleziona azienda"
               data-testid="wms-company-picker"
             >
-              <Warehouse className="h-5 w-5 shrink-0 text-teal-700" />
               <span className="truncate">{companyLabel}</span>
               <ChevronRight className="ml-auto h-4 w-4 rotate-90 text-slate-500" />
             </button>
@@ -100,11 +100,11 @@ export default function WmsAppLayout() {
           </div>
         </header>
 
-        <main className="px-4 pb-28 pt-6 sm:px-6">
+        <main className="px-4 pb-28 pt-5 sm:px-6">
           <Outlet context={{ entries: filteredEntries, allEntries: entries, clientId, clients, loadEntries }} />
         </main>
 
-        <BottomNavigation onMenu={() => setMenuOpen(true)} />
+        <BottomNavigation />
       </div>
 
       <CompanySheet
@@ -128,12 +128,13 @@ export default function WmsAppLayout() {
             </div>
           </SheetHeader>
           <nav className="flex-1 space-y-1 px-4 py-5">
-            <MenuLink icon={PackageOpen} label="Inbound" active onClick={() => { setMenuOpen(false); navigate("/wms-app"); }} />
-            <MenuLink icon={Warehouse} label="Ubicazioni" soon />
+            <MenuLink icon={LayoutGrid} label="Operazioni" active={location.pathname === "/wms-app"} onClick={() => { setMenuOpen(false); navigate("/wms-app"); }} />
+            <MenuLink icon={PackageOpen} label="Arrivi" active={location.pathname.includes("/arrivi") || location.pathname.includes("/inbound/")} onClick={() => { setMenuOpen(false); navigate("/wms-app/arrivi"); }} />
+            <MenuLink icon={Warehouse} label="Ubicazioni" active={location.pathname.includes("/ubicazioni")} onClick={() => { setMenuOpen(false); navigate("/wms-app/ubicazioni"); }} />
             <MenuLink icon={Archive} label="Inventario" soon />
             <MenuLink icon={Boxes} label="Picking e packing" soon />
-            <MenuLink icon={Tags} label="Strumenti" soon />
-            <MenuLink icon={Settings} label="Configurazione" soon />
+            <MenuLink icon={SlidersHorizontal} label="Strumenti" active={location.pathname.includes("/strumenti")} onClick={() => { setMenuOpen(false); navigate("/wms-app/strumenti"); }} />
+            <MenuLink icon={Settings} label="Configurazione" active={location.pathname.includes("/configurazione")} onClick={() => { setMenuOpen(false); navigate("/wms-app/configurazione"); }} />
           </nav>
           <div className="border-t border-slate-100 p-4">
             <button type="button" onClick={signOut} className="flex w-full items-center gap-3 rounded-md px-4 py-3 text-left font-bold text-red-600 hover:bg-red-50">
@@ -141,8 +142,9 @@ export default function WmsAppLayout() {
             </button>
             <div className="mt-3 flex items-center gap-3 rounded-md border border-slate-200 p-3">
               <img src={logo} alt="Aimago" className="h-8 w-auto" />
-              <div><div className="text-xs font-bold">Aimago WMS</div><div className="text-[11px] text-slate-400">Inbound mobile</div></div>
+              <div><div className="text-xs font-bold">Aimago WMS</div><div className="text-[11px] text-slate-400">Versione operativa</div></div>
             </div>
+            <button type="button" onClick={() => toast.info("Manuale operatore: prossimo collegamento")} className="mt-3 flex w-full items-center gap-3 rounded-md border border-slate-200 px-4 py-3 text-left font-semibold"><CircleHelp className="h-5 w-5" /> Manuale operatore</button>
           </div>
         </SheetContent>
       </Sheet>
@@ -154,23 +156,20 @@ function IconButton({ label, onClick, children }) {
   return <button type="button" aria-label={label} title={label} onClick={onClick} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-slate-950 hover:bg-slate-100">{children}</button>;
 }
 
-function BottomNavigation({ onMenu }) {
+function BottomNavigation() {
   const navigate = useNavigate();
   const location = useLocation();
-  const params = new URLSearchParams(location.search);
-  const view = params.get("view") || "open";
-  const detail = location.pathname.includes("/inbound/");
   const items = [
-    { label: "Da ricevere", icon: PackageOpen, active: !detail && view === "open", action: () => navigate("/wms-app?view=open") },
-    { label: "In corso", icon: ScanLine, active: detail || view === "active", action: () => navigate("/wms-app?view=active") },
-    { label: "Completati", icon: CheckCircle2, active: !detail && view === "history", action: () => navigate("/wms-app?view=history") },
-    { label: "Menu", icon: Menu, active: false, action: onMenu },
+    { label: "Operazioni", icon: LayoutGrid, active: location.pathname === "/wms-app", action: () => navigate("/wms-app") },
+    { label: "Arrivi", icon: PackageOpen, active: location.pathname.includes("/arrivi") || location.pathname.includes("/inbound/"), action: () => navigate("/wms-app/arrivi") },
+    { label: "Stock", icon: Warehouse, active: location.pathname.includes("/ubicazioni"), action: () => navigate("/wms-app/ubicazioni") },
+    { label: "Strumenti", icon: SlidersHorizontal, active: location.pathname.includes("/strumenti"), action: () => navigate("/wms-app/strumenti") },
   ];
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-3xl border-t border-slate-200 bg-white/96 px-2 pb-[max(10px,env(safe-area-inset-bottom))] pt-2 backdrop-blur" aria-label="Navigazione WMS">
       <div className="grid grid-cols-4 gap-1">
         {items.map((item) => (
-          <button key={item.label} type="button" onClick={item.action} className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-md px-1 text-[11px] font-bold ${item.active ? "bg-teal-50 text-teal-800" : "text-slate-600 hover:bg-slate-50"}`}>
+          <button key={item.label} type="button" onClick={item.action} className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-md px-1 text-[11px] font-bold ${item.active ? "bg-teal-100 text-teal-900" : "text-slate-600 hover:bg-slate-50"}`}>
             <item.icon className="h-5 w-5" /> {item.label}
           </button>
         ))}
@@ -202,7 +201,7 @@ function CompanyRow({ name, count, selected, onClick }) {
       <Warehouse className={`h-5 w-5 ${selected ? "text-teal-700" : "text-slate-500"}`} />
       <span className="min-w-0 flex-1 truncate font-bold">{name}</span>
       <span className="text-sm text-slate-500">{count} aperti</span>
-      {selected && <CheckCircle2 className="h-5 w-5 text-teal-700" />}
+      {selected && <span className="h-3 w-3 rounded-full bg-teal-700" />}
     </button>
   );
 }
@@ -210,7 +209,7 @@ function CompanyRow({ name, count, selected, onClick }) {
 function MenuLink({ icon: Icon, label, active, soon, onClick }) {
   return (
     <button type="button" onClick={onClick || (() => toast.info(`${label}: modulo in sviluppo`))} className={`flex w-full items-center gap-3 rounded-md px-4 py-3 text-left font-semibold ${active ? "bg-slate-950 text-white" : "text-slate-800 hover:bg-slate-50"}`}>
-      <Icon className="h-5 w-5" /><span className="flex-1">{label}</span>{soon && <span className="text-[10px] font-bold uppercase text-slate-400">Presto</span>}
+      <Icon className="h-5 w-5" /><span className="flex-1">{label}</span>{soon && <span className="text-[10px] font-bold uppercase text-slate-400">Presto</span>}{!soon && <ChevronRight className="h-4 w-4 opacity-50" />}
     </button>
   );
 }

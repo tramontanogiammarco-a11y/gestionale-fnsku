@@ -282,13 +282,13 @@ export default function WmsAppInbound() {
   };
 
   if (loading) return <div className="flex min-h-[65dvh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-teal-700" /></div>;
-  if (!data) return <EmptyInbound onBack={() => navigate("/wms-app")} />;
+  if (!data) return <EmptyInbound onBack={() => navigate("/wms-app/arrivi")} />;
 
   const entry = data.entrata;
   return (
     <div className="space-y-6 pb-24" data-testid="wms-app-inbound">
       <header>
-        <button type="button" onClick={() => navigate("/wms-app")} className="mb-5 flex h-10 w-10 items-center justify-center rounded-md border border-slate-200" aria-label="Torna agli inbound">
+        <button type="button" onClick={() => navigate("/wms-app/arrivi")} className="mb-5 flex h-10 w-10 items-center justify-center rounded-md border border-slate-200" aria-label="Torna agli inbound">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div className="flex items-start justify-between gap-3">
@@ -426,7 +426,7 @@ export default function WmsAppInbound() {
 
       {data.active_session && (
         <div className="fixed inset-x-0 bottom-[73px] z-30 mx-auto w-full max-w-3xl border-t border-slate-200 bg-white/95 p-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur">
-          <div className="grid grid-cols-2 gap-2"><Button variant="outline" className="h-12" onClick={() => navigate("/wms-app?view=active")}><CirclePause className="mr-2 h-4 w-4" /> Sospendi</Button><Button className="h-12" onClick={() => summary.missing > 0 ? setDifferenceDialog(true) : complete(false)} disabled={working}><PackageCheck className="mr-2 h-4 w-4" /> Chiudi</Button></div>
+          <div className="grid grid-cols-2 gap-2"><Button variant="outline" className="h-12" onClick={() => navigate("/wms-app/arrivi?view=active")}><CirclePause className="mr-2 h-4 w-4" /> Sospendi</Button><Button className="h-12" onClick={() => summary.missing > 0 ? setDifferenceDialog(true) : complete(false)} disabled={working}><PackageCheck className="mr-2 h-4 w-4" /> Chiudi</Button></div>
         </div>
       )}
 
