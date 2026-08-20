@@ -2515,7 +2515,7 @@ async function wmsStock(params) {
       ? requireSupabase().from("entrate").select("id,cliente_id").in("cliente_id", clientIds)
       : Promise.resolve({ data: [], error: null }),
     clientIds.length
-      ? requireSupabase().from("referenze").select("cliente_id,ean,fnsku,titolo").in("cliente_id", clientIds)
+      ? requireSupabase().from("referenze").select("cliente_id,ean,sku,fnsku,titolo").in("cliente_id", clientIds)
       : Promise.resolve({ data: [], error: null }),
     requireSupabase().from("wms_inventory_sessions").select("id").eq("stato", "completata"),
   ]);
@@ -2545,10 +2545,13 @@ async function wmsStock(params) {
   clients.forEach((client, clientIndex) => {
     for (const row of stockResponses[clientIndex]?.data || []) {
       if (row.is_bundle) continue;
+      const reference = (row.fnsku && referenceByFnsku.get(`${client.id}:${normalizedText(row.fnsku)}`))
+        || (row.ean && referenceByEan.get(`${client.id}:${normalizedText(row.ean)}`));
       const product = {
         cliente_id: client.id,
         cliente: client.ragione_sociale,
         ean: optionalText(row.ean),
+        skus: [...new Set([...(row.skus || []), reference?.sku].map(optionalText).filter(Boolean))],
         fnsku: optionalText(row.fnsku),
         titolo: optionalText(row.titolo) || "Titolo non disponibile",
         ricevuto: Number(row.ricevuto || 0),
@@ -2563,6 +2566,7 @@ async function wmsStock(params) {
       products.push(product);
       if (product.ean) productIndexes.set(`${client.id}:ean:${normalizedText(product.ean)}`, product);
       if (product.fnsku) productIndexes.set(`${client.id}:fnsku:${normalizedText(product.fnsku)}`, product);
+      product.skus.forEach((sku) => productIndexes.set(`${client.id}:sku:${normalizedText(sku)}`, product));
     }
   });
 
@@ -2632,6 +2636,7 @@ async function wmsStock(params) {
         cliente_id: product.cliente_id,
         cliente: product.cliente,
         ean: product.ean,
+        skus: product.skus,
         fnsku: product.fnsku,
         titolo: product.titolo,
         quantita: item.quantita,
@@ -2665,6 +2670,131 @@ async function wmsStock(params) {
     locations: locationRows,
     products,
   });
+}
+
+const DEFAULT_WMS_CUTOFF = "12:00";
+const DEFAULT_WMS_TIMEZONE = "Europe/Rome";
+
+function cutoffMinutes(value) {
+  const match = String(value || "").match(/^(\d{2}):(\d{2})/);
+  if (!match) return 12 * 60;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function zonedDateParts(value, timezone = DEFAULT_WMS_TIMEZONE) {
+  const date = value instanceof Date ? value : new Date(value);
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+  return Object.fromEntries(formatter.formatToParts(date).map((part) => [part.type, part.value]));
+}
+
+function dateKeyFromParts(parts) {
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function addDaysToDateKey(dateKey, days) {
+  const date = new Date(`${dateKey}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function orderOperationalDate(order, cutoff, timezone) {
+  const parts = zonedDateParts(order.processed_at || order.created_at, timezone);
+  const day = dateKeyFromParts(parts);
+  const minutes = Number(parts.hour) * 60 + Number(parts.minute);
+  return minutes <= cutoffMinutes(cutoff) ? day : addDaysToDateKey(day, 1);
+}
+
+async function wmsSettingsRecord() {
+  await assertWmsStaff();
+  const { data, error } = await requireSupabase()
+    .from("wms_settings")
+    .select("*")
+    .eq("id", 1)
+    .maybeSingle();
+  if (error) fail(error.message);
+  return data || {
+    id: 1,
+    cutoff_time: `${DEFAULT_WMS_CUTOFF}:00`,
+    timezone: DEFAULT_WMS_TIMEZONE,
+    updated_at: null,
+  };
+}
+
+async function wmsOperationalOrdersData(params = new URLSearchParams()) {
+  const settings = await wmsSettingsRecord();
+  let query = requireSupabase()
+    .from("shopify_orders")
+    .select("*")
+    .neq("wms_status", "annullato")
+    .order("processed_at", { ascending: false });
+  if (params.get("cliente_id")) query = query.eq("cliente_id", params.get("cliente_id"));
+  const { data, error } = await query;
+  if (error) fail(error.message);
+
+  const timezone = settings.timezone || DEFAULT_WMS_TIMEZONE;
+  const cutoff = String(settings.cutoff_time || DEFAULT_WMS_CUTOFF).slice(0, 5);
+  const nowParts = zonedDateParts(new Date(), timezone);
+  const today = dateKeyFromParts(nowParts);
+  const tomorrow = addDaysToDateKey(today, 1);
+  const enriched = await enrichShopifyOrders(data || []);
+  const active = enriched.filter((order) => !["spedito", "annullato"].includes(order.wms_status));
+  const orders = active.map((order) => {
+    const operationalDate = orderOperationalDate(order, cutoff, timezone);
+    const wave = operationalDate < today ? "arretrati" : operationalDate === today ? "oggi" : "prossima";
+    return { ...order, operational_date: operationalDate, wave };
+  });
+  const nowMinutes = Number(nowParts.hour) * 60 + Number(nowParts.minute);
+
+  return {
+    settings: {
+      ...settings,
+      cutoff_time: cutoff,
+      cutoff_passed: nowMinutes > cutoffMinutes(cutoff),
+      today,
+      tomorrow,
+    },
+    orders,
+    summary: {
+      arretrati: orders.filter((order) => order.wave === "arretrati").length,
+      oggi: orders.filter((order) => order.wave === "oggi").length,
+      prossima: orders.filter((order) => order.wave === "prossima").length,
+      pezzi_oggi: orders.filter((order) => order.wave !== "prossima").reduce((sum, order) => sum + (order.items || []).reduce((inner, item) => inner + Number(item.quantita || 0), 0), 0),
+    },
+  };
+}
+
+async function getWmsSettings() {
+  const data = await wmsOperationalOrdersData();
+  return ok({ settings: data.settings, summary: data.summary });
+}
+
+async function updateWmsSettings(payload = {}) {
+  const profile = await assertWmsStaff();
+  const cutoff = String(payload.cutoff_time || "").trim();
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(cutoff)) fail("Inserisci un orario valido nel formato HH:MM");
+  const { error } = await requireSupabase()
+    .from("wms_settings")
+    .upsert({
+      id: 1,
+      cutoff_time: `${cutoff}:00`,
+      timezone: DEFAULT_WMS_TIMEZONE,
+      updated_by: profile.id,
+      updated_at: nowIso(),
+    });
+  if (error) fail(error.message);
+  return getWmsSettings();
+}
+
+async function listWmsOperationalOrders(params) {
+  return ok(await wmsOperationalOrdersData(params));
 }
 
 function inventoryProductKey(row = {}) {
@@ -2920,7 +3050,7 @@ async function wmsScan(params) {
   const location = stock.locations.find((item) => normalizedText(item.codice).replace(/\s+/g, "") === normalizedCode);
   if (location) return ok({ kind: "location", code, location, generated_at: stock.generated_at });
 
-  const products = stock.products.filter((product) => [product.ean, product.fnsku]
+  const products = stock.products.filter((product) => [product.ean, product.fnsku, ...(product.skus || [])]
     .some((value) => normalizedText(value).replace(/\s+/g, "") === normalizedCode));
   if (products.length) return ok({ kind: "product", code, products, generated_at: stock.generated_at });
   return ok({ kind: "unknown", code, generated_at: stock.generated_at });
@@ -3589,6 +3719,8 @@ export const api = {
     if (path === "/wms/spedizioni") return listWmsShipments(params);
     if (path === "/wms/stock") return wmsStock(params);
     if (path === "/wms/scan") return wmsScan(params);
+    if (path === "/wms/configurazione") return getWmsSettings();
+    if (path === "/wms/ordini") return listWmsOperationalOrders(params);
     if (path === "/wms/inventario") return listWmsInventory();
     if (path.match(/^\/wms\/inventario\/[^/]+$/)) return inventorySessionSnapshot(path.split("/")[3]);
     if (path.match(/^\/wms\/inbound\/[^/]+$/)) return getWmsInbound(path.split("/")[3]);
@@ -3657,6 +3789,7 @@ export const api = {
     if (path.match(/^\/preparazioni-righe\/[^/]+$/)) return updatePreparazioneRiga(path.split("/")[2], payload);
     if (path.match(/^\/shopify\/orders\/[^/]+\/stato$/)) return updateShopifyOrderStatus(path.split("/")[3], payload);
     if (path.match(/^\/wms\/spedizioni\/[^/]+$/)) return updateWmsShipment(path.split("/")[3], payload);
+    if (path === "/wms/configurazione") return updateWmsSettings(payload);
     fail(`Endpoint non migrato: ${path}`, 404);
   },
 

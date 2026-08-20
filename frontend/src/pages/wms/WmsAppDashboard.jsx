@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import {
   Archive, ArrowRight, Boxes, CheckCircle2, Clock3, Loader2,
-  PackageOpen, RefreshCw, ScanLine, Warehouse,
+  PackageOpen, RefreshCw, ScanLine, ShoppingCart, Warehouse,
 } from "lucide-react";
 
 export default function WmsAppDashboard() {
@@ -63,7 +63,7 @@ export default function WmsAppDashboard() {
         <div className="grid grid-cols-2 gap-3">
           <OperationCard icon={Warehouse} title="Ubicazioni" value={200} unit="posizioni" tone="teal" onClick={() => navigate("/wms-app/ubicazioni")} />
           <OperationCard icon={Archive} title="Inventario" value="Apri" unit="conteggio posizioni" tone="blue" onClick={() => navigate("/wms-app/inventario")} />
-          <OperationCard icon={Boxes} title="Picking" value="—" unit="prossimo modulo" tone="amber" />
+          <OperationCard icon={ShoppingCart} title="Ordini" value="Apri" unit="giornata operativa" tone="amber" onClick={() => navigate("/wms-app/ordini")} />
           <OperationCard icon={Clock3} title="Packing" value="—" unit="prossimo modulo" tone="green" />
         </div>
       )}

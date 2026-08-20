@@ -42,6 +42,8 @@ import WmsAppInbound from "@/pages/wms/WmsAppInbound";
 import WmsAppInventory from "@/pages/wms/WmsAppInventory";
 import WmsAppInventoryCount from "@/pages/wms/WmsAppInventoryCount";
 import WmsAppLocations from "@/pages/wms/WmsAppLocations";
+import WmsAppOrders from "@/pages/wms/WmsAppOrders";
+import WmsAppProductSearch from "@/pages/wms/WmsAppProductSearch";
 import WmsAppTools from "@/pages/wms/WmsAppTools";
 import WmsAppSettings from "@/pages/wms/WmsAppSettings";
 
@@ -85,6 +87,8 @@ function App() {
               <Route path="inventario" element={<WmsAppInventory />} />
               <Route path="inventario/:id" element={<WmsAppInventoryCount />} />
               <Route path="ubicazioni" element={<WmsAppLocations />} />
+              <Route path="ordini" element={<WmsAppOrders />} />
+              <Route path="cerca-prodotto" element={<WmsAppProductSearch />} />
               <Route path="strumenti" element={<WmsAppTools />} />
               <Route path="configurazione" element={<WmsAppSettings />} />
             </Route>

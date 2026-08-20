@@ -4,8 +4,8 @@ import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
 import {
   Archive, Barcode, Boxes, ChevronRight, CircleHelp,
-  LayoutGrid, LogOut, Menu, PackageOpen, Printer, Settings,
-  SlidersHorizontal, UserRound, Warehouse,
+  LayoutGrid, LogOut, Menu, PackageOpen, Printer, Search, Settings,
+  ShoppingCart, SlidersHorizontal, UserRound, Warehouse,
 } from "lucide-react";
 import {
   Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle,
@@ -144,6 +144,8 @@ export default function WmsAppLayout() {
             <MenuLink icon={PackageOpen} label="Arrivi" active={location.pathname.includes("/arrivi") || location.pathname.includes("/inbound/")} onClick={() => { setMenuOpen(false); navigate("/wms-app/arrivi"); }} />
             <MenuLink icon={Warehouse} label="Ubicazioni" active={location.pathname.includes("/ubicazioni")} onClick={() => { setMenuOpen(false); navigate("/wms-app/ubicazioni"); }} />
             <MenuLink icon={Archive} label="Inventario" active={location.pathname.includes("/inventario")} onClick={() => { setMenuOpen(false); navigate("/wms-app/inventario"); }} />
+            <MenuLink icon={ShoppingCart} label="Ordini" active={location.pathname.includes("/ordini")} onClick={() => { setMenuOpen(false); navigate("/wms-app/ordini"); }} />
+            <MenuLink icon={Search} label="Cerca prodotto" active={location.pathname.includes("/cerca-prodotto")} onClick={() => { setMenuOpen(false); navigate("/wms-app/cerca-prodotto"); }} />
             <MenuLink icon={Boxes} label="Picking e packing" soon />
             <MenuLink icon={SlidersHorizontal} label="Strumenti" active={location.pathname.includes("/strumenti")} onClick={() => { setMenuOpen(false); navigate("/wms-app/strumenti"); }} />
             <MenuLink icon={Settings} label="Configurazione" active={location.pathname.includes("/configurazione")} onClick={() => { setMenuOpen(false); navigate("/wms-app/configurazione"); }} />

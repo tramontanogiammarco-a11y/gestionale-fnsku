@@ -12,7 +12,7 @@ export default function WmsAppTools() {
     { icon: MapPinned, title: "Ubicazioni magazzino", subtitle: "Pallet e slot censiti", action: () => navigate("/wms-app/ubicazioni") },
     { icon: Archive, title: "Inventario", subtitle: "Conta e rettifica una posizione", action: () => navigate("/wms-app/inventario") },
     { icon: QrCode, title: "Crea codice posizione", subtitle: "Genera un barcode per una posizione", action: () => toast.info("Generazione barcode: prossimo collegamento operativo") },
-    { icon: PackageSearch, title: "Cerca prodotto", subtitle: "Trova la posizione di EAN e FNSKU", action: () => toast.info("Ricerca prodotto: prossimo collegamento operativo") },
+    { icon: PackageSearch, title: "Cerca prodotto", subtitle: "Cerca per SKU, EAN, FNSKU o cliente", action: () => navigate("/wms-app/cerca-prodotto") },
     { icon: ScanLine, title: "Calibrare lo scanner", subtitle: "Configura uno scanner USB o Bluetooth", badge: "Non calibrato", action: () => toast.info("Calibrazione scanner: prossimo collegamento operativo") },
   ];
   return (
