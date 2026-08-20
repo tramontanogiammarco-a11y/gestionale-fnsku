@@ -12,9 +12,11 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { BrowserMultiFormatReader } from "@zxing/browser";
 import {
-  AlertTriangle, ArrowLeft, Barcode, CheckCircle2, ChevronRight, CirclePause,
-  Clock3, Loader2, MapPin, PackageCheck, Plus, RotateCcw, ShieldAlert, Trash2,
+  AlertTriangle, ArrowLeft, Barcode, Camera, CheckCircle2, ChevronRight,
+  CirclePause, Clock3, Keyboard, Loader2, MapPin, PackageCheck, RotateCcw,
+  ScanBarcode, ShieldAlert, Trash2,
 } from "lucide-react";
 
 const DISPOSITIONS = [
@@ -28,6 +30,7 @@ export default function WmsAppInbound() {
   const navigate = useNavigate();
   const { loadEntries } = useOutletContext();
   const scanRef = useRef(null);
+  const locationScanRef = useRef(null);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
@@ -36,6 +39,11 @@ export default function WmsAppInbound() {
   const [quantity, setQuantity] = useState(1);
   const [disposition, setDisposition] = useState("disponibile");
   const [locationId, setLocationId] = useState("");
+  const [locationCode, setLocationCode] = useState("");
+  const [flowStep, setFlowStep] = useState("product");
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraPurpose, setCameraPurpose] = useState("product");
+  const [pendingLocationCode, setPendingLocationCode] = useState("");
   const [locationDialog, setLocationDialog] = useState(false);
   const [differenceDialog, setDifferenceDialog] = useState(false);
   const [newLocation, setNewLocation] = useState({ codice: "", zona: "", tipo: "scaffale" });
@@ -72,22 +80,31 @@ export default function WmsAppInbound() {
   const closed = data?.entrata?.stato === "ricevuto" && !data?.active_session;
 
   useEffect(() => {
-    if (!data || locationId) return;
-    const preferred = activeLocations.find((location) => location.codice === "INBOUND-01") || activeLocations[0];
-    if (preferred) setLocationId(preferred.id);
-  }, [activeLocations, data, locationId]);
-
-  useEffect(() => {
     if (disposition !== "quarantena") return;
     const quarantine = activeLocations.find((location) => location.tipo === "quarantena");
     if (quarantine) setLocationId(quarantine.id);
   }, [activeLocations, disposition]);
 
   useEffect(() => {
-    const focus = () => window.setTimeout(() => scanRef.current?.focus(), 50);
+    const focus = () => {
+      if (flowStep === "location") window.setTimeout(() => locationScanRef.current?.focus(), 50);
+      else window.setTimeout(() => scanRef.current?.focus(), 50);
+    };
     window.addEventListener("wms-focus-scanner", focus);
     return () => window.removeEventListener("wms-focus-scanner", focus);
-  }, []);
+  }, [flowStep]);
+
+  const resetFlow = () => {
+    setCode("");
+    setSelectedRowId(null);
+    setQuantity(1);
+    setDisposition("disponibile");
+    setLocationId("");
+    setLocationCode("");
+    setPendingLocationCode("");
+    setFlowStep("product");
+    window.setTimeout(() => scanRef.current?.focus(), 80);
+  };
 
   const start = async () => {
     setWorking(true);
@@ -96,6 +113,7 @@ export default function WmsAppInbound() {
       setData(response.data);
       await loadEntries();
       toast.success("Ricezione avviata");
+      setFlowStep("product");
       window.setTimeout(() => scanRef.current?.focus(), 80);
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Sessione non avviata");
@@ -104,16 +122,51 @@ export default function WmsAppInbound() {
     }
   };
 
-  const chooseRow = (row) => {
+  const selectProduct = (row, scannedCode = "") => {
     setSelectedRowId(row.id);
-    setCode(row.ean || row.fnsku || "");
-    setQuantity(1);
-    window.setTimeout(() => scanRef.current?.focus(), 50);
+    setCode(scannedCode || row.ean || row.fnsku || "");
+    setQuantity(Math.max(1, Number(row.mancante || 1)));
+    setFlowStep("quantity");
+    if (navigator.vibrate) navigator.vibrate(70);
   };
 
-  const register = async (event) => {
+  const recognizeProduct = (value) => {
+    if (!data?.active_session) {
+      toast.error("Avvia prima la ricezione");
+      return;
+    }
+    const normalized = normalizeCode(value);
+    const row = rows.find((candidate) => candidate.mancante > 0 && [candidate.ean, candidate.fnsku]
+      .some((candidateCode) => normalizeCode(candidateCode) === normalized));
+    if (!row) {
+      toast.error(`Codice ${String(value || "").trim() || "non valido"} non presente in questo arrivo`);
+      setCode("");
+      window.setTimeout(() => scanRef.current?.focus(), 50);
+      return;
+    }
+    selectProduct(row, String(value || "").trim());
+    toast.success(`Prodotto riconosciuto: ${row.titolo || row.ean}`);
+  };
+
+  const submitProductCode = (event) => {
     event?.preventDefault();
-    if (!data?.active_session) return start();
+    recognizeProduct(code);
+  };
+
+  const confirmQuantity = () => {
+    const numericQuantity = Math.floor(Number(quantity || 0));
+    if (!selectedRow) return setFlowStep("product");
+    if (!Number.isFinite(numericQuantity) || numericQuantity <= 0) return toast.error("Inserisci una quantità valida");
+    if (numericQuantity > Number(selectedRow.mancante || 0)) return toast.error(`Puoi registrare al massimo ${selectedRow.mancante} pezzi`);
+    setQuantity(numericQuantity);
+    setLocationId("");
+    setLocationCode("");
+    setFlowStep("location");
+    window.setTimeout(() => locationScanRef.current?.focus(), 80);
+  };
+
+  const registerAtLocation = async (location) => {
+    if (!selectedRow || !location) return;
     setWorking(true);
     try {
       const response = await api.post(`/wms/inbound/${id}/movimenti`, {
@@ -121,20 +174,51 @@ export default function WmsAppInbound() {
         entrata_riga_id: selectedRowId,
         quantita: Number(quantity),
         disposizione: disposition,
-        location_id: locationId,
+        location_id: location.id,
       });
       setData(response.data);
-      setCode("");
-      setSelectedRowId(null);
-      setQuantity(1);
-      toast.success("Quantità registrata");
-      window.setTimeout(() => scanRef.current?.focus(), 50);
+      toast.success(`${quantity} pezzi registrati in ${location.codice}`);
+      if (navigator.vibrate) navigator.vibrate([70, 40, 70]);
+      resetFlow();
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Ricezione non registrata");
-      window.setTimeout(() => scanRef.current?.select(), 50);
+      window.setTimeout(() => locationScanRef.current?.select(), 50);
     } finally {
       setWorking(false);
     }
+  };
+
+  const recognizeLocation = (value) => {
+    const normalized = normalizeCode(value);
+    const location = activeLocations.find((candidate) => normalizeCode(candidate.codice) === normalized);
+    if (!location) {
+      const rawCode = String(value || "").trim().toUpperCase();
+      if (!rawCode) return toast.error("Scansiona o inserisci una posizione");
+      setPendingLocationCode(rawCode);
+      setNewLocation({ codice: rawCode, zona: "", tipo: "pallet" });
+      setLocationDialog(true);
+      return;
+    }
+    setLocationId(location.id);
+    setLocationCode(location.codice);
+    registerAtLocation(location);
+  };
+
+  const submitLocationCode = (event) => {
+    event?.preventDefault();
+    recognizeLocation(locationCode);
+  };
+
+  const openCamera = (purpose) => {
+    if (!data?.active_session) return toast.error("Avvia prima la ricezione");
+    setCameraPurpose(purpose);
+    setCameraOpen(true);
+  };
+
+  const handleCameraCode = (value) => {
+    setCameraOpen(false);
+    if (cameraPurpose === "location") recognizeLocation(value);
+    else recognizeProduct(value);
   };
 
   const removeMovement = async (movement) => {
@@ -169,11 +253,25 @@ export default function WmsAppInbound() {
     setWorking(true);
     try {
       const response = await api.post("/wms/ubicazioni", newLocation);
-      await load();
-      setLocationId(response.data.id);
       setLocationDialog(false);
       setNewLocation({ codice: "", zona: "", tipo: "scaffale" });
-      toast.success("Ubicazione creata");
+      if (pendingLocationCode && selectedRowId) {
+        setPendingLocationCode("");
+        const movementResponse = await api.post(`/wms/inbound/${id}/movimenti`, {
+          codice: code,
+          entrata_riga_id: selectedRowId,
+          quantita: Number(quantity),
+          disposizione: disposition,
+          location_id: response.data.id,
+        });
+        setData(movementResponse.data);
+        toast.success(`${quantity} pezzi registrati nella nuova posizione ${response.data.codice}`);
+        resetFlow();
+      } else {
+        await load();
+        setLocationId(response.data.id);
+        toast.success("Ubicazione creata");
+      }
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Ubicazione non creata");
     } finally {
@@ -220,45 +318,98 @@ export default function WmsAppInbound() {
       </section>
 
       {!closed ? (
-        <form onSubmit={register} className="rounded-md border-2 border-teal-200 bg-white p-4 shadow-sm">
+        <section className="rounded-md border-2 border-teal-200 bg-white p-4 shadow-sm">
           <div className="flex items-start justify-between gap-3">
-            <div><h2 className="flex items-center gap-2 text-lg font-black"><Barcode className="h-5 w-5 text-teal-700" /> Scansiona merce</h2><p className="mt-1 text-xs text-slate-500">EAN o FNSKU</p></div>
+            <div><h2 className="flex items-center gap-2 text-lg font-black"><ScanBarcode className="h-5 w-5 text-teal-700" /> Ricevi merce</h2><p className="mt-1 text-xs text-slate-500">Prodotto, quantità e posizione</p></div>
             <span className={`rounded-md px-2 py-1 text-[11px] font-black uppercase ${data.active_session ? "bg-teal-50 text-teal-800" : "bg-amber-50 text-amber-800"}`}>{data.active_session ? "Attiva" : "Da avviare"}</span>
           </div>
 
-          <div className="mt-5 space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="wms-app-scan">Codice prodotto</Label>
-              <Input id="wms-app-scan" ref={scanRef} value={code} onChange={(event) => { setCode(event.target.value); setSelectedRowId(null); }} className="h-14 font-mono text-lg" placeholder="Scansiona o inserisci il codice" autoFocus autoComplete="off" disabled={!data.active_session} />
-              {selectedRow && <p className="truncate text-xs font-bold text-teal-700">{selectedRow.titolo || "Prodotto selezionato"} · {selectedRow.mancante} mancanti</p>}
-            </div>
+          <FlowSteps current={flowStep} disabled={!data.active_session} />
 
-            <div className="grid grid-cols-[100px_minmax(0,1fr)] gap-3">
-              <div className="space-y-2"><Label htmlFor="wms-app-quantity">Quantità</Label><Input id="wms-app-quantity" type="number" min="1" value={quantity} onChange={(event) => setQuantity(event.target.value)} className="h-12 text-lg font-black" disabled={!data.active_session} /></div>
+          {!data.active_session ? (
+            <div className="mt-5">
+              <p className="text-sm leading-6 text-slate-600">Avvia l'arrivo per controllare i prodotti manualmente o con la fotocamera.</p>
+              <Button type="button" className="mt-4 h-14 w-full text-base font-black" onClick={start} disabled={working}>
+                {working ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <PackageCheck className="mr-2 h-5 w-5" />}
+                Avvia ricezione
+              </Button>
+            </div>
+          ) : flowStep === "product" ? (
+            <div className="mt-5 space-y-4">
+              <Button type="button" className="h-16 w-full text-base font-black" onClick={() => openCamera("product")}>
+                <Camera className="mr-2 h-6 w-6" /> Scansiona prodotto
+              </Button>
+              <div className="relative flex items-center gap-3 py-1"><span className="h-px flex-1 bg-slate-200" /><span className="text-[11px] font-bold uppercase text-slate-400">oppure inserisci</span><span className="h-px flex-1 bg-slate-200" /></div>
+              <form onSubmit={submitProductCode} className="space-y-2">
+                <Label htmlFor="wms-app-scan">EAN o FNSKU</Label>
+                <div className="flex gap-2">
+                  <Input id="wms-app-scan" ref={scanRef} value={code} onChange={(event) => setCode(event.target.value)} className="h-14 min-w-0 flex-1 font-mono text-lg" placeholder="Scansiona o digita" autoFocus autoComplete="off" />
+                  <Button type="submit" size="icon" variant="outline" className="h-14 w-14 shrink-0" disabled={!code.trim()} aria-label="Conferma codice prodotto"><Keyboard className="h-5 w-5" /></Button>
+                </div>
+              </form>
+              <p className="text-center text-xs text-slate-500">Puoi anche selezionare il prodotto dall'elenco sotto.</p>
+            </div>
+          ) : flowStep === "quantity" && selectedRow ? (
+            <div className="mt-5 space-y-4">
+              <ProductConfirmation row={selectedRow} />
               <div className="space-y-2">
-                <div className="flex items-center justify-between"><Label>Ubicazione</Label><button type="button" className="text-xs font-bold text-teal-700 disabled:text-slate-300" onClick={() => setLocationDialog(true)} disabled={!data.active_session}>Nuova</button></div>
-                <Select value={locationId} onValueChange={setLocationId} disabled={!data.active_session}><SelectTrigger className="h-12"><SelectValue placeholder="Seleziona" /></SelectTrigger><SelectContent>{activeLocations.map((location) => <SelectItem key={location.id} value={location.id}>{location.codice} · {location.zona || location.tipo}</SelectItem>)}</SelectContent></Select>
+                <Label htmlFor="wms-app-quantity">Quanti pezzi hai ricevuto?</Label>
+                <Input id="wms-app-quantity" type="number" min="1" max={selectedRow.mancante} value={quantity} onChange={(event) => setQuantity(event.target.value)} className="h-14 text-xl font-black" inputMode="numeric" />
+                <p className="text-xs text-slate-500">Attesi ancora: {selectedRow.mancante}</p>
+              </div>
+
+              <div>
+                <Label>Esito controllo</Label>
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  {DISPOSITIONS.map((item) => <button key={item.value} type="button" onClick={() => setDisposition(item.value)} className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-md border px-1 text-[11px] font-bold ${disposition === item.value ? item.active : "border-slate-200 text-slate-500"}`}><item.icon className="h-5 w-5" />{item.label}</button>)}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-2">
+                <Button type="button" variant="outline" className="h-14" onClick={resetFlow}>Indietro</Button>
+                <Button type="button" className="h-14 font-black" onClick={confirmQuantity}>Conferma quantità <ChevronRight className="ml-2 h-5 w-5" /></Button>
               </div>
             </div>
-
-            <div className="grid grid-cols-3 gap-2">
-              {DISPOSITIONS.map((item) => <button key={item.value} type="button" onClick={() => setDisposition(item.value)} disabled={!data.active_session} className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-md border px-1 text-[11px] font-bold ${disposition === item.value ? item.active : "border-slate-200 text-slate-500"}`}><item.icon className="h-5 w-5" />{item.label}</button>)}
+          ) : flowStep === "location" && selectedRow ? (
+            <div className="mt-5 space-y-4">
+              <div className="rounded-md bg-teal-50 p-3 text-teal-900">
+                <div className="text-xs font-bold uppercase text-teal-700">Prodotto confermato</div>
+                <div className="mt-1 font-black">{selectedRow.titolo || selectedRow.ean || "Prodotto"}</div>
+                <div className="mt-1 text-sm"><strong>{quantity} pezzi</strong> · {DISPOSITIONS.find((item) => item.value === disposition)?.label}</div>
+              </div>
+              <div>
+                <h3 className="text-lg font-black">Dove lo vuoi ubicare?</h3>
+                <p className="mt-1 text-sm text-slate-500">Scansiona il barcode della posizione pallet.</p>
+              </div>
+              <Button type="button" className="h-16 w-full text-base font-black" onClick={() => openCamera("location")} disabled={working}>
+                <Camera className="mr-2 h-6 w-6" /> Scansiona posizione
+              </Button>
+              <form onSubmit={submitLocationCode} className="space-y-2">
+                <Label htmlFor="wms-location-scan">Codice posizione</Label>
+                <div className="flex gap-2">
+                  <Input id="wms-location-scan" ref={locationScanRef} value={locationCode} onChange={(event) => { setLocationCode(event.target.value.toUpperCase()); setLocationId(""); }} className="h-14 min-w-0 flex-1 font-mono text-lg" placeholder="es. 1+A1" autoFocus autoComplete="off" />
+                  <Button type="submit" size="icon" variant="outline" className="h-14 w-14 shrink-0" disabled={working || !locationCode.trim()} aria-label="Conferma posizione"><MapPin className="h-5 w-5" /></Button>
+                </div>
+              </form>
+              {activeLocations.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between"><Label>Selezione manuale</Label><button type="button" className="text-xs font-bold text-teal-700" onClick={() => { setPendingLocationCode(""); setNewLocation({ codice: "", zona: "", tipo: "pallet" }); setLocationDialog(true); }}>Nuova posizione</button></div>
+                  <Select value={locationId} onValueChange={(value) => { const location = activeLocations.find((item) => item.id === value); setLocationId(value); setLocationCode(location?.codice || ""); }}><SelectTrigger className="h-12"><SelectValue placeholder="Scegli una posizione" /></SelectTrigger><SelectContent>{activeLocations.map((location) => <SelectItem key={location.id} value={location.id}>{location.codice} · {location.zona || location.tipo}</SelectItem>)}</SelectContent></Select>
+                  <Button type="button" variant="outline" className="h-12 w-full font-bold" disabled={working || !locationId} onClick={() => registerAtLocation(activeLocations.find((location) => location.id === locationId))}>{working && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Registra in posizione</Button>
+                </div>
+              )}
+              <Button type="button" variant="ghost" className="h-11 w-full" onClick={() => setFlowStep("quantity")} disabled={working}>Torna alla quantità</Button>
             </div>
-
-            <Button type="submit" className="h-14 w-full text-base font-black" disabled={working || (Boolean(data.active_session) && ((!code && !selectedRowId) || !locationId))}>
-              {working ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : data.active_session ? <Plus className="mr-2 h-5 w-5" /> : <PackageCheck className="mr-2 h-5 w-5" />}
-              {data.active_session ? "Registra quantità" : "Avvia ricezione"}
-            </Button>
-          </div>
-        </form>
+          ) : null}
+        </section>
       ) : (
         <div className="flex items-center gap-3 rounded-md border border-emerald-200 bg-emerald-50 p-4 text-emerald-900"><CheckCircle2 className="h-6 w-6 shrink-0" /><div><div className="font-black">Inbound completato</div><div className="text-sm">La merce è già registrata nello stock.</div></div></div>
       )}
 
       <section>
-        <div className="mb-3 flex items-end justify-between gap-3"><div><h2 className="text-xl font-black">Contenuto arrivo</h2><p className="mt-1 text-sm text-slate-500">Tocca un prodotto per riceverlo.</p></div><span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-bold">{rows.length}</span></div>
+        <div className="mb-3 flex items-end justify-between gap-3"><div><h2 className="text-xl font-black">Contenuto arrivo</h2><p className="mt-1 text-sm text-slate-500">Tocca un prodotto per riceverlo manualmente.</p></div><span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-bold">{rows.length}</span></div>
         <div className="divide-y divide-slate-100 rounded-md border border-slate-200 bg-white">
-          {rows.map((row) => <InboundRow key={row.id} row={row} active={selectedRowId === row.id} disabled={!data.active_session || row.mancante <= 0} onClick={() => chooseRow(row)} />)}
+          {rows.map((row) => <InboundRow key={row.id} row={row} active={selectedRowId === row.id} disabled={!data.active_session || row.mancante <= 0} onClick={() => selectProduct(row)} />)}
         </div>
       </section>
 
@@ -277,11 +428,13 @@ export default function WmsAppInbound() {
         </div>
       )}
 
-      <Dialog open={locationDialog} onOpenChange={setLocationDialog}>
+      <CameraScanner open={cameraOpen} onOpenChange={setCameraOpen} purpose={cameraPurpose} onDetected={handleCameraCode} />
+
+      <Dialog open={locationDialog} onOpenChange={(open) => { setLocationDialog(open); if (!open) setPendingLocationCode(""); }}>
         <DialogContent className="max-w-[calc(100%-32px)] rounded-md">
-          <DialogHeader><DialogTitle>Nuova ubicazione</DialogTitle><DialogDescription>Crea una posizione utilizzabile subito.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>{pendingLocationCode ? "Posizione non censita" : "Nuova ubicazione"}</DialogTitle><DialogDescription>{pendingLocationCode ? `La posizione ${pendingLocationCode} non esiste. Creala e registra qui la merce.` : "Crea una posizione utilizzabile subito."}</DialogDescription></DialogHeader>
           <div className="grid gap-4 py-2"><div className="space-y-2"><Label htmlFor="wms-location-code">Codice</Label><Input id="wms-location-code" value={newLocation.codice} onChange={(event) => setNewLocation((current) => ({ ...current, codice: event.target.value.toUpperCase() }))} placeholder="A-01-02" /></div><div className="space-y-2"><Label htmlFor="wms-location-zone">Zona</Label><Input id="wms-location-zone" value={newLocation.zona} onChange={(event) => setNewLocation((current) => ({ ...current, zona: event.target.value }))} placeholder="Scaffale A" /></div><div className="space-y-2"><Label>Tipo</Label><Select value={newLocation.tipo} onValueChange={(value) => setNewLocation((current) => ({ ...current, tipo: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="scaffale">Scaffale</SelectItem><SelectItem value="pallet">Pallet</SelectItem><SelectItem value="terra">Terra</SelectItem><SelectItem value="quarantena">Quarantena</SelectItem></SelectContent></Select></div></div>
-          <DialogFooter className="gap-2"><Button variant="outline" onClick={() => setLocationDialog(false)}>Annulla</Button><Button onClick={createLocation} disabled={working || !newLocation.codice.trim()}>{working && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Crea</Button></DialogFooter>
+          <DialogFooter className="gap-2"><Button variant="outline" onClick={() => { setLocationDialog(false); setPendingLocationCode(""); }}>Annulla</Button><Button onClick={createLocation} disabled={working || !newLocation.codice.trim()}>{working && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} {pendingLocationCode ? "Crea e registra" : "Crea"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -303,6 +456,98 @@ function Meta({ label, value, wide = false }) {
 function MiniKpi({ label, value, tone }) {
   const colors = { teal: "bg-teal-50 text-teal-800", amber: "bg-amber-50 text-amber-800", slate: "bg-slate-100 text-slate-700" };
   return <div className={`rounded-md px-2 py-3 ${colors[tone]}`}><div className="text-xl font-black">{value}</div><div className="mt-1 truncate text-[10px] font-bold">{label}</div></div>;
+}
+
+function FlowSteps({ current, disabled }) {
+  const steps = [
+    { id: "product", label: "Prodotto" },
+    { id: "quantity", label: "Quantità" },
+    { id: "location", label: "Posizione" },
+  ];
+  const currentIndex = disabled ? -1 : steps.findIndex((step) => step.id === current);
+  return (
+    <div className="mt-5 grid grid-cols-3 gap-2" aria-label="Avanzamento ricezione">
+      {steps.map((step, index) => (
+        <div key={step.id} className={`rounded-md border px-2 py-2 text-center ${index === currentIndex ? "border-teal-600 bg-teal-50 text-teal-800" : index < currentIndex ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 text-slate-400"}`}>
+          <span className="block text-[10px] font-black uppercase">{index < currentIndex ? "Fatto" : `Passo ${index + 1}`}</span>
+          <span className="mt-0.5 block truncate text-xs font-bold">{step.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ProductConfirmation({ row }) {
+  return (
+    <div className="flex items-start gap-3 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-emerald-950">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-white text-emerald-700"><CheckCircle2 className="h-5 w-5" /></span>
+      <div className="min-w-0">
+        <div className="text-xs font-black uppercase text-emerald-700">Prodotto riconosciuto</div>
+        <div className="mt-1 font-black">{row.titolo || "Titolo non disponibile"}</div>
+        <div className="mt-1 break-all font-mono text-xs text-emerald-800">{row.ean || "EAN assente"} · {row.fnsku || "FNSKU assente"}</div>
+      </div>
+    </div>
+  );
+}
+
+function CameraScanner({ open, onOpenChange, purpose, onDetected }) {
+  const videoRef = useRef(null);
+  const controlsRef = useRef(null);
+  const onDetectedRef = useRef(onDetected);
+  const [starting, setStarting] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => { onDetectedRef.current = onDetected; }, [onDetected]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    let cancelled = false;
+    let handled = false;
+    const reader = new BrowserMultiFormatReader(undefined, {
+      delayBetweenScanAttempts: 150,
+      delayBetweenScanSuccess: 1000,
+    });
+    setStarting(true);
+    setError("");
+    reader.decodeFromVideoDevice(undefined, videoRef.current, (result, _, controls) => {
+      if (controls) controlsRef.current = controls;
+      if (!result || handled || cancelled) return;
+      handled = true;
+      controlsRef.current?.stop();
+      onDetectedRef.current(result.getText());
+    }).then((controls) => {
+      if (cancelled) controls.stop();
+      else controlsRef.current = controls;
+      setStarting(false);
+    }).catch(() => {
+      if (cancelled) return;
+      setStarting(false);
+      setError("Fotocamera non disponibile. Consenti l'accesso nelle impostazioni del browser oppure usa l'inserimento manuale.");
+    });
+    return () => {
+      cancelled = true;
+      controlsRef.current?.stop();
+      controlsRef.current = null;
+    };
+  }, [open]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[calc(100%-24px)] rounded-md p-4 sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{purpose === "location" ? "Scansiona posizione" : "Scansiona prodotto"}</DialogTitle>
+          <DialogDescription>{purpose === "location" ? "Inquadra il barcode applicato alla posizione pallet." : "Inquadra l'EAN o il barcode del prodotto."}</DialogDescription>
+        </DialogHeader>
+        <div className="relative aspect-[4/5] max-h-[62dvh] overflow-hidden rounded-md bg-slate-950">
+          <video ref={videoRef} className="h-full w-full object-cover" muted playsInline />
+          <div className="pointer-events-none absolute inset-x-[12%] top-1/2 h-28 -translate-y-1/2 rounded-md border-2 border-white shadow-[0_0_0_999px_rgba(0,0,0,0.28)]" />
+          {starting && <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 text-white"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Avvio fotocamera</div>}
+        </div>
+        {error && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+        <Button type="button" variant="outline" className="h-12 w-full" onClick={() => onOpenChange(false)}>Usa inserimento manuale</Button>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function InboundRow({ row, active, disabled, onClick }) {
@@ -336,5 +581,6 @@ function EmptyInbound({ onBack }) {
   return <div className="flex min-h-[65dvh] flex-col items-center justify-center text-center"><RotateCcw className="h-9 w-9 text-slate-300" /><h1 className="mt-4 text-xl font-black">Inbound non disponibile</h1><p className="mt-2 text-sm text-slate-500">Controlla l'entrata e riprova.</p><Button variant="outline" className="mt-5" onClick={onBack}>Torna agli arrivi</Button></div>;
 }
 
+function normalizeCode(value) { return String(value || "").trim().toUpperCase().replace(/\s+/g, ""); }
 function capitalize(value) { const text = String(value || ""); return text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : "Entrata"; }
 function formatTime(value) { return value ? new Date(value).toLocaleString("it-IT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"; }
