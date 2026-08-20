@@ -149,7 +149,7 @@ export default function WmsControl() {
 
 function buildModel(data) {
   const source = data || { entrate: [], preps: [], orders: [], shipments: [], boxes: [] };
-  const inbound = source.entrate.filter((row) => row.stato === "in_attesa");
+  const inbound = source.entrate.filter((row) => ["in_attesa", "in_lavorazione"].includes(row.stato));
   const picking = source.orders.filter((row) => ["da_preparare", "in_preparazione"].includes(row.wms_status));
   const packing = source.orders.filter((row) => row.wms_status === "pronto");
   const outbound = source.shipments.filter((row) => !["annullata"].includes(row.stato));
@@ -179,7 +179,7 @@ function buildModel(data) {
 
 function ControlView({ model, setView, navigate, onSelectOrder }) {
   const queue = [
-    ...model.inbound.slice(0, 3).map((row) => ({ id: `in-${row.id}`, title: row.cliente_ragione_sociale, meta: `${row.tipo} · ${(row.righe || []).length} referenze`, label: "Ricevi", tone: "amber", action: () => navigate(`/admin/entrate/${row.id}`) })),
+    ...model.inbound.slice(0, 3).map((row) => ({ id: `in-${row.id}`, title: row.cliente_ragione_sociale, meta: `${row.tipo} · ${(row.righe || []).length} referenze`, label: row.stato === "in_lavorazione" ? "Continua" : "Ricevi", tone: "amber", action: () => navigate(`/admin/wms/inbound/${row.id}`) })),
     ...model.picking.slice(0, 5).map((row) => ({ id: `pick-${row.id}`, title: `${row.order_name} · ${row.cliente_ragione_sociale}`, meta: `${(row.items || []).length} righe · ${orderPieces(row)} pezzi`, label: row.wms_status === "da_preparare" ? "Avvia picking" : "Continua", tone: "sky", action: () => onSelectOrder(row) })),
   ].slice(0, 7);
   return (
@@ -215,9 +215,9 @@ function ControlView({ model, setView, navigate, onSelectOrder }) {
 }
 
 function InboundView({ rows, navigate }) {
-  return <Card className="overflow-hidden"><SectionHeader title="Arrivi attesi" count={rows.length} />
-    <Table><TableHeader><TableRow><TableHead>Cliente</TableHead><TableHead>Tipo</TableHead><TableHead>Corriere</TableHead><TableHead>Righe</TableHead><TableHead>Pezzi</TableHead><TableHead>Annunciata</TableHead><TableHead /></TableRow></TableHeader>
-      <TableBody>{rows.length === 0 ? <EmptyRow colSpan={7} text="Nessun inbound da ricevere" /> : rows.map((row) => <TableRow key={row.id} className="cursor-pointer" onClick={() => navigate(`/admin/entrate/${row.id}`)}><TableCell className="font-bold">{row.cliente_ragione_sociale}</TableCell><TableCell className="capitalize">{row.tipo}</TableCell><TableCell>{row.corriere || "—"}</TableCell><TableCell>{row.righe?.length || 0}</TableCell><TableCell>{(row.righe || []).reduce((sum, item) => sum + Number(item.quantita || 0), 0)}</TableCell><TableCell>{formatDate(row.data_annuncio)}</TableCell><TableCell><Button size="sm" variant="outline">Ricevi <ChevronRight className="ml-1 h-4 w-4" /></Button></TableCell></TableRow>)}</TableBody>
+  return <Card className="overflow-hidden"><SectionHeader title="Inbound aperti" count={rows.length} />
+    <Table><TableHeader><TableRow><TableHead>Cliente</TableHead><TableHead>Tipo</TableHead><TableHead>Corriere</TableHead><TableHead>Righe</TableHead><TableHead>Pezzi</TableHead><TableHead>Stato</TableHead><TableHead>Annunciata</TableHead><TableHead /></TableRow></TableHeader>
+      <TableBody>{rows.length === 0 ? <EmptyRow colSpan={8} text="Nessun inbound da ricevere" /> : rows.map((row) => <TableRow key={row.id} className="cursor-pointer" onClick={() => navigate(`/admin/wms/inbound/${row.id}`)}><TableCell className="font-bold">{row.cliente_ragione_sociale}</TableCell><TableCell className="capitalize">{row.tipo}</TableCell><TableCell>{row.corriere || "—"}</TableCell><TableCell>{row.righe?.length || 0}</TableCell><TableCell>{(row.righe || []).reduce((sum, item) => sum + Number(item.quantita || 0), 0)}</TableCell><TableCell><Badge variant="outline" className={row.stato === "in_lavorazione" ? "border-sky-200 bg-sky-50 text-sky-800" : "border-amber-200 bg-amber-50 text-amber-800"}>{row.stato === "in_lavorazione" ? "In ricezione" : "Da ricevere"}</Badge></TableCell><TableCell>{formatDate(row.data_annuncio)}</TableCell><TableCell><Button size="sm" variant="outline">{row.stato === "in_lavorazione" ? "Continua" : "Ricevi"} <ChevronRight className="ml-1 h-4 w-4" /></Button></TableCell></TableRow>)}</TableBody>
     </Table></Card>;
 }
 

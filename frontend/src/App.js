@@ -24,6 +24,7 @@ import AdminFatturazione from "@/pages/admin/Fatturazione";
 import AdminIntegrazioni from "@/pages/admin/Integrazioni";
 import AdminOrdiniWms from "@/pages/admin/OrdiniWms";
 import AdminWmsControl from "@/pages/admin/WmsControl";
+import AdminWmsInbound from "@/pages/admin/WmsInbound";
 
 import ClientDashboard from "@/pages/client/Dashboard";
 import ClientReferenze from "@/pages/client/Referenze";
@@ -81,6 +82,7 @@ function App() {
               <Route path="fatturazione" element={<AdminFatturazione />} />
               <Route path="integrazioni" element={<AdminIntegrazioni />} />
               <Route path="wms" element={<AdminWmsControl />} />
+              <Route path="wms/inbound/:id" element={<AdminWmsInbound />} />
               <Route path="ordini-wms" element={<AdminOrdiniWms />} />
             </Route>
 

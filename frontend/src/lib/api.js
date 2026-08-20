@@ -1109,6 +1109,267 @@ async function riceviEntrata(id, payload = {}) {
   return getEntrata(data.id);
 }
 
+const WMS_INBOUND_DISPOSITIONS = ["disponibile", "danneggiato", "quarantena"];
+
+async function assertWmsStaff() {
+  const profile = await currentProfile();
+  if (!isStaff(profile)) fail("Accesso riservato agli operatori di magazzino", 403);
+  return profile;
+}
+
+async function wmsInboundRecords(entrataId) {
+  const [{ data: sessions, error: sessionsError }, { data: locations, error: locationsError }] = await Promise.all([
+    requireSupabase()
+      .from("wms_inbound_sessions")
+      .select("*")
+      .eq("entrata_id", entrataId)
+      .order("started_at", { ascending: false }),
+    requireSupabase()
+      .from("wms_locations")
+      .select("*")
+      .order("codice", { ascending: true }),
+  ]);
+  const firstError = sessionsError || locationsError;
+  if (firstError) fail(firstError.message);
+
+  const sessionIds = (sessions || []).map((session) => session.id);
+  const { data: movements, error: movementsError } = sessionIds.length
+    ? await requireSupabase()
+      .from("wms_inbound_movements")
+      .select("*")
+      .in("session_id", sessionIds)
+      .order("created_at", { ascending: false })
+    : { data: [], error: null };
+  if (movementsError) fail(movementsError.message);
+
+  return { sessions: sessions || [], locations: locations || [], movements: movements || [] };
+}
+
+async function getWmsInbound(entrataId) {
+  await assertWmsStaff();
+  const [{ data: entrata }, records] = await Promise.all([
+    getEntrata(entrataId),
+    wmsInboundRecords(entrataId),
+  ]);
+  const locationMap = Object.fromEntries(records.locations.map((location) => [location.id, location]));
+  const rowMap = Object.fromEntries((entrata.righe || []).map((row) => [row.id, row]));
+  const totals = {};
+
+  for (const movement of records.movements) {
+    totals[movement.entrata_riga_id] = totals[movement.entrata_riga_id] || {
+      disponibile: 0,
+      danneggiato: 0,
+      quarantena: 0,
+    };
+    totals[movement.entrata_riga_id][movement.disposizione] += Number(movement.quantita || 0);
+  }
+
+  const rows = (entrata.righe || []).map((row) => {
+    const rowTotals = totals[row.id] || { disponibile: 0, danneggiato: 0, quarantena: 0 };
+    if (records.sessions.length === 0 && entrata.stato === "ricevuto") {
+      rowTotals.disponibile = entrataRowReceivedQuantity(row, entrata);
+    }
+    const registrato = rowTotals.disponibile + rowTotals.danneggiato + rowTotals.quarantena;
+    const atteso = Number(row.quantita || 0);
+    return {
+      ...row,
+      atteso,
+      ricevuto_disponibile: rowTotals.disponibile,
+      danneggiato: rowTotals.danneggiato,
+      quarantena: rowTotals.quarantena,
+      registrato,
+      mancante: Math.max(0, atteso - registrato),
+      eccedenza: Math.max(0, registrato - atteso),
+    };
+  });
+
+  return ok({
+    entrata: { ...entrata, righe: rows },
+    locations: records.locations,
+    sessions: records.sessions,
+    active_session: records.sessions.find((session) => session.stato === "in_corso") || null,
+    movements: records.movements.map((movement) => ({
+      ...movement,
+      riga: rowMap[movement.entrata_riga_id] || null,
+      location: locationMap[movement.location_id] || null,
+    })),
+  });
+}
+
+async function startWmsInbound(entrataId, payload = {}) {
+  const profile = await assertWmsStaff();
+  const { data: entrata, error: entrataError } = await requireSupabase()
+    .from("entrate")
+    .select("id,stato")
+    .eq("id", entrataId)
+    .single();
+  if (entrataError || !entrata) fail(entrataError?.message || "Entrata non trovata", 404);
+  if (!["in_attesa", "in_lavorazione"].includes(entrata.stato)) {
+    fail("Questa entrata e gia stata chiusa e non puo essere ricevuta di nuovo", 409);
+  }
+
+  const { data: active, error: activeError } = await requireSupabase()
+    .from("wms_inbound_sessions")
+    .select("*")
+    .eq("entrata_id", entrataId)
+    .eq("stato", "in_corso")
+    .maybeSingle();
+  if (activeError) fail(activeError.message);
+
+  if (!active) {
+    const { error: insertError } = await requireSupabase()
+      .from("wms_inbound_sessions")
+      .insert({
+        entrata_id: entrataId,
+        operatore_id: profile.id,
+        note: optionalText(payload.note),
+      });
+    if (insertError) fail(insertError.message);
+  }
+
+  const { error: updateError } = await requireSupabase()
+    .from("entrate")
+    .update({ stato: "in_lavorazione" })
+    .eq("id", entrataId);
+  if (updateError) fail(updateError.message);
+  return getWmsInbound(entrataId);
+}
+
+async function recomputeWmsInboundAvailable(entrataRigaId) {
+  const { data: movements, error } = await requireSupabase()
+    .from("wms_inbound_movements")
+    .select("quantita")
+    .eq("entrata_riga_id", entrataRigaId)
+    .eq("disposizione", "disponibile");
+  if (error) fail(error.message);
+  const quantity = (movements || []).reduce((sum, movement) => sum + Number(movement.quantita || 0), 0);
+  const { error: updateError } = await requireSupabase()
+    .from("entrate_righe")
+    .update({ quantita_ricevuta: quantity })
+    .eq("id", entrataRigaId);
+  if (updateError) fail(updateError.message);
+  return quantity;
+}
+
+async function addWmsInboundMovement(entrataId, payload = {}) {
+  const profile = await assertWmsStaff();
+  const snapshotResponse = await getWmsInbound(entrataId);
+  let snapshot = snapshotResponse.data;
+  if (!snapshot.active_session) {
+    const started = await startWmsInbound(entrataId);
+    snapshot = started.data;
+  }
+
+  const code = String(payload.codice || payload.code || "").trim();
+  const rowId = optionalText(payload.entrata_riga_id);
+  const disposition = optionalText(payload.disposizione) || "disponibile";
+  const quantity = Math.floor(Number(payload.quantita || 0));
+  if (!WMS_INBOUND_DISPOSITIONS.includes(disposition)) fail("Esito ricezione non valido");
+  if (!Number.isFinite(quantity) || quantity <= 0) fail("La quantita deve essere maggiore di zero");
+  if (!rowId && !code) fail("Scansiona un EAN o un FNSKU");
+
+  const normalizedCode = normalizedText(code);
+  const row = (snapshot.entrata.righe || []).find((candidate) => (
+    (rowId && candidate.id === rowId)
+    || (normalizedCode && [candidate.ean, candidate.fnsku].some((value) => normalizedText(value) === normalizedCode))
+  ));
+  if (!row) fail(`Codice ${code || rowId} non presente in questa entrata`, 404);
+  if (row.registrato + quantity > row.atteso) {
+    fail(`Quantita oltre l'atteso per ${row.titolo || row.ean}: restano ${row.mancante} pezzi da registrare.`);
+  }
+
+  let locationId = optionalText(payload.location_id);
+  if (!locationId && disposition === "quarantena") {
+    locationId = snapshot.locations.find((location) => location.codice === "QUARANTENA-01")?.id || null;
+  }
+  const location = snapshot.locations.find((candidate) => candidate.id === locationId);
+  if (!location || location.stato !== "attiva") fail("Seleziona un'ubicazione attiva");
+  if (disposition === "quarantena" && location.tipo !== "quarantena") {
+    fail("La merce in quarantena deve essere assegnata a un'ubicazione di quarantena");
+  }
+
+  const { error: insertError } = await requireSupabase()
+    .from("wms_inbound_movements")
+    .insert({
+      session_id: snapshot.active_session.id,
+      entrata_riga_id: row.id,
+      location_id: location.id,
+      disposizione: disposition,
+      quantita: quantity,
+      codice_scansionato: code || row.ean || row.fnsku,
+      created_by: profile.id,
+    });
+  if (insertError) fail(insertError.message);
+
+  await recomputeWmsInboundAvailable(row.id);
+  return getWmsInbound(entrataId);
+}
+
+async function deleteWmsInboundMovement(id) {
+  await assertWmsStaff();
+  const { data: movement, error: readError } = await requireSupabase()
+    .from("wms_inbound_movements")
+    .select("id,entrata_riga_id,session_id")
+    .eq("id", id)
+    .single();
+  if (readError || !movement) fail(readError?.message || "Movimento non trovato", 404);
+  const { data: session, error: sessionError } = await requireSupabase()
+    .from("wms_inbound_sessions")
+    .select("entrata_id,stato")
+    .eq("id", movement.session_id)
+    .single();
+  if (sessionError || !session) fail(sessionError?.message || "Sessione inbound non trovata", 404);
+  if (session.stato !== "in_corso") fail("Non puoi eliminare movimenti di un inbound gia chiuso", 409);
+
+  const { error: deleteError } = await requireSupabase()
+    .from("wms_inbound_movements")
+    .delete()
+    .eq("id", id);
+  if (deleteError) fail(deleteError.message);
+  await recomputeWmsInboundAvailable(movement.entrata_riga_id);
+  return getWmsInbound(session.entrata_id);
+}
+
+async function completeWmsInbound(entrataId, payload = {}) {
+  await assertWmsStaff();
+  const { data: snapshot } = await getWmsInbound(entrataId);
+  if (!snapshot.active_session) fail("Nessuna sessione inbound aperta", 409);
+  const missing = (snapshot.entrata.righe || []).reduce((sum, row) => sum + Number(row.mancante || 0), 0);
+  if (missing > 0 && !payload.chiudi_con_differenze) {
+    fail(`Mancano ancora ${missing} pezzi. Sospendi la sessione oppure conferma la chiusura con differenze.`);
+  }
+
+  const completedAt = nowIso();
+  const [{ error: sessionError }, { error: entrataError }] = await Promise.all([
+    requireSupabase()
+      .from("wms_inbound_sessions")
+      .update({ stato: "completata", completed_at: completedAt, note: optionalText(payload.note) })
+      .eq("id", snapshot.active_session.id),
+    requireSupabase()
+      .from("entrate")
+      .update({ stato: "ricevuto", data_ricezione: completedAt })
+      .eq("id", entrataId),
+  ]);
+  const firstError = sessionError || entrataError;
+  if (firstError) fail(firstError.message);
+  return getWmsInbound(entrataId);
+}
+
+async function createWmsLocation(payload = {}) {
+  await assertWmsStaff();
+  const codice = String(payload.codice || "").trim().toUpperCase();
+  const tipo = optionalText(payload.tipo) || "scaffale";
+  if (!codice) fail("Codice ubicazione obbligatorio");
+  if (!["scaffale", "pallet", "terra", "quarantena"].includes(tipo)) fail("Tipo ubicazione non valido");
+  const { data, error } = await requireSupabase()
+    .from("wms_locations")
+    .insert({ codice, zona: optionalText(payload.zona), tipo, note: optionalText(payload.note) })
+    .select()
+    .single();
+  if (error) fail(error.code === "23505" ? "Questa ubicazione esiste gia" : error.message);
+  return ok(data);
+}
+
 function parseDocumentiNote(note = "") {
   const match = String(note || "").match(/\[DOCUMENTI\]([\s\S]*?)\[\/DOCUMENTI\]/);
   if (!match) return { notePulita: note || "", documenti: [] };
@@ -2869,6 +3130,7 @@ export const api = {
     if (path === "/preparazioni") return listPreparazioni(params);
     if (path === "/shopify/orders") return listShopifyOrders(params);
     if (path === "/wms/spedizioni") return listWmsShipments(params);
+    if (path.match(/^\/wms\/inbound\/[^/]+$/)) return getWmsInbound(path.split("/")[3]);
     if (path.startsWith("/preparazioni/")) return getPreparazione(path.split("/")[2]);
     if (path === "/magazzino") return magazzino(params);
     if (path === "/magazzino/movimenti") return magazzinoMovimenti(params);
@@ -2892,6 +3154,10 @@ export const api = {
     if (path === "/shippypro/label") return createShippyProLabel(payload);
     if (path === "/shippypro/carriers") return listShippyProCarriers(payload);
     if (path === "/wms/spedizioni") return createWmsShipment(payload);
+    if (path === "/wms/ubicazioni") return createWmsLocation(payload);
+    if (path.match(/^\/wms\/inbound\/[^/]+\/avvia$/)) return startWmsInbound(path.split("/")[3], payload);
+    if (path.match(/^\/wms\/inbound\/[^/]+\/movimenti$/)) return addWmsInboundMovement(path.split("/")[3], payload);
+    if (path.match(/^\/wms\/inbound\/[^/]+\/completa$/)) return completeWmsInbound(path.split("/")[3], payload);
     if (path === "/referenze") return createReferenza(payload);
     if (path === "/referenze/import") return importReferenze(payload);
     if (path.match(/^\/referenze\/[^/]+\/foto$/)) return uploadReferenzaFoto(path.split("/")[2], payload);
@@ -2937,6 +3203,7 @@ export const api = {
     if (path.match(/^\/preparazioni\/[^/]+$/)) return deletePreparazione(path.split("/")[2]);
     if (path.match(/^\/preparazioni-righe\/[^/]+$/)) return deletePreparazioneRiga(path.split("/")[2]);
     if (path.match(/^\/referenze\/[^/]+$/)) return deleteReferenza(path.split("/")[2]);
+    if (path.match(/^\/wms\/inbound\/movimenti\/[^/]+$/)) return deleteWmsInboundMovement(path.split("/")[4]);
     fail(`Endpoint non migrato: ${path}`, 404);
   },
 };
