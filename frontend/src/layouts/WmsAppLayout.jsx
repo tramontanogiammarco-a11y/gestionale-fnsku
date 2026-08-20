@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/sheet";
 import logo from "@/assets/logo-transparent.png";
 import { toast } from "sonner";
+import UniversalScanner from "@/components/wms/UniversalScanner";
 
 const ACTIVE_STATES = new Set(["in_attesa", "in_lavorazione"]);
 
@@ -23,6 +24,7 @@ export default function WmsAppLayout() {
   const [clientId, setClientId] = useState("all");
   const [companyOpen, setCompanyOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   const loadEntries = useCallback(async () => {
     try {
@@ -69,7 +71,7 @@ export default function WmsAppLayout() {
       window.dispatchEvent(new Event("wms-focus-scanner"));
       return;
     }
-    navigate("/wms-app/arrivi?view=open&scan=1");
+    setScannerOpen(true);
   };
 
   const signOut = async () => {
@@ -114,6 +116,16 @@ export default function WmsAppLayout() {
         selected={clientId}
         totalOpen={(entries || []).filter((entry) => ACTIVE_STATES.has(entry.stato)).length}
         onSelect={(value) => { setClientId(value); setCompanyOpen(false); }}
+      />
+
+      <UniversalScanner
+        open={scannerOpen}
+        onOpenChange={setScannerOpen}
+        clientId={clientId}
+        onViewLocation={(code) => {
+          setScannerOpen(false);
+          navigate(`/wms-app/ubicazioni?code=${encodeURIComponent(code)}`);
+        }}
       />
 
       <Sheet open={menuOpen} onOpenChange={setMenuOpen}>

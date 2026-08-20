@@ -2469,6 +2469,186 @@ async function magazzino(params) {
   return ok(rows);
 }
 
+function wmsInventoryKey(row = {}) {
+  const fnsku = normalizedText(row.fnsku);
+  const ean = normalizedText(row.ean);
+  return fnsku ? `fnsku:${fnsku}` : ean ? `ean:${ean}` : null;
+}
+
+function naturalLocationSort(left, right) {
+  return String(left?.codice || "").localeCompare(String(right?.codice || ""), "it", { numeric: true });
+}
+
+async function wmsStock(params) {
+  await assertWmsStaff();
+  const requestedClientId = optionalText(params.get("cliente_id"));
+  const { data: allClients, error: clientsError } = await requireSupabase()
+    .from("clienti")
+    .select("id,ragione_sociale")
+    .order("ragione_sociale", { ascending: true });
+  if (clientsError) fail(clientsError.message);
+
+  const clients = requestedClientId
+    ? (allClients || []).filter((client) => client.id === requestedClientId)
+    : (allClients || []);
+  if (requestedClientId && !clients.length) fail("Cliente non trovato", 404);
+
+  const clientIds = clients.map((client) => client.id);
+  const clientMap = Object.fromEntries(clients.map((client) => [client.id, client]));
+  const stockResponses = await Promise.all(clients.map((client) => {
+    const query = new URLSearchParams({ cliente_id: client.id });
+    return magazzino(query);
+  }));
+
+  const [
+    { data: locations, error: locationsError },
+    { data: movements, error: movementsError },
+    { data: entryRows, error: rowsError },
+    { data: entries, error: entriesError },
+    { data: references, error: referencesError },
+  ] = await Promise.all([
+    requireSupabase().from("wms_locations").select("*").order("codice", { ascending: true }),
+    requireSupabase().from("wms_inbound_movements").select("*").eq("disposizione", "disponibile").order("created_at", { ascending: false }),
+    requireSupabase().from("entrate_righe").select("id,entrata_id,ean,fnsku"),
+    clientIds.length
+      ? requireSupabase().from("entrate").select("id,cliente_id").in("cliente_id", clientIds)
+      : Promise.resolve({ data: [], error: null }),
+    clientIds.length
+      ? requireSupabase().from("referenze").select("cliente_id,ean,fnsku,titolo").in("cliente_id", clientIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  const firstError = locationsError || movementsError || rowsError || entriesError || referencesError;
+  if (firstError) fail(firstError.message);
+
+  const entryMap = new Map((entries || []).map((entry) => [entry.id, entry]));
+  const rowMap = new Map((entryRows || []).map((row) => [row.id, row]));
+  const referenceByEan = new Map();
+  const referenceByFnsku = new Map();
+  for (const reference of references || []) {
+    if (reference.ean) referenceByEan.set(`${reference.cliente_id}:${normalizedText(reference.ean)}`, reference);
+    if (reference.fnsku) referenceByFnsku.set(`${reference.cliente_id}:${normalizedText(reference.fnsku)}`, reference);
+  }
+
+  const products = [];
+  const productIndexes = new Map();
+  clients.forEach((client, clientIndex) => {
+    for (const row of stockResponses[clientIndex]?.data || []) {
+      if (row.is_bundle) continue;
+      const product = {
+        cliente_id: client.id,
+        cliente: client.ragione_sociale,
+        ean: optionalText(row.ean),
+        fnsku: optionalText(row.fnsku),
+        titolo: optionalText(row.titolo) || "Titolo non disponibile",
+        ricevuto: Number(row.ricevuto || 0),
+        in_preparazione: Number(row.in_preparazione || 0),
+        spedito: Number(row.spedito || 0),
+        disponibile: Number(row.disponibile || 0),
+        ubicazioni: [],
+        non_ubicato: Number(row.disponibile || 0),
+      };
+      products.push(product);
+      if (product.ean) productIndexes.set(`${client.id}:ean:${normalizedText(product.ean)}`, product);
+      if (product.fnsku) productIndexes.set(`${client.id}:fnsku:${normalizedText(product.fnsku)}`, product);
+    }
+  });
+
+  const movementsByProduct = new Map();
+  for (const movement of movements || []) {
+    const row = rowMap.get(movement.entrata_riga_id);
+    const entry = row ? entryMap.get(row.entrata_id) : null;
+    if (!row || !entry || !clientMap[entry.cliente_id]) continue;
+    const reference = (row.fnsku && referenceByFnsku.get(`${entry.cliente_id}:${normalizedText(row.fnsku)}`))
+      || (row.ean && referenceByEan.get(`${entry.cliente_id}:${normalizedText(row.ean)}`));
+    const product = (row.fnsku && productIndexes.get(`${entry.cliente_id}:fnsku:${normalizedText(row.fnsku)}`))
+      || (row.ean && productIndexes.get(`${entry.cliente_id}:ean:${normalizedText(row.ean)}`));
+    if (!product) continue;
+    const key = `${entry.cliente_id}:${wmsInventoryKey(product)}`;
+    if (!movementsByProduct.has(key)) movementsByProduct.set(key, []);
+    movementsByProduct.get(key).push({
+      ...movement,
+      ean: row.ean || product.ean,
+      fnsku: row.fnsku || product.fnsku,
+      titolo: reference?.titolo || product.titolo,
+    });
+  }
+
+  const locationContents = new Map();
+  for (const product of products) {
+    let remaining = product.disponibile;
+    const key = `${product.cliente_id}:${wmsInventoryKey(product)}`;
+    const batches = (movementsByProduct.get(key) || [])
+      .sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")));
+    const totalsByLocation = new Map();
+    for (const batch of batches) {
+      if (remaining <= 0) break;
+      const assigned = Math.min(remaining, Number(batch.quantita || 0));
+      if (assigned <= 0 || !batch.location_id) continue;
+      remaining -= assigned;
+      totalsByLocation.set(batch.location_id, Number(totalsByLocation.get(batch.location_id) || 0) + assigned);
+    }
+    product.non_ubicato = remaining;
+    product.ubicazioni = [...totalsByLocation.entries()].map(([locationId, quantita]) => {
+      const location = (locations || []).find((item) => item.id === locationId);
+      return { id: locationId, codice: location?.codice || "Ubicazione rimossa", tipo: location?.tipo || null, quantita };
+    }).sort(naturalLocationSort);
+
+    for (const item of product.ubicazioni) {
+      if (!locationContents.has(item.id)) locationContents.set(item.id, []);
+      locationContents.get(item.id).push({
+        cliente_id: product.cliente_id,
+        cliente: product.cliente,
+        ean: product.ean,
+        fnsku: product.fnsku,
+        titolo: product.titolo,
+        quantita: item.quantita,
+      });
+    }
+  }
+
+  const locationRows = (locations || []).map((location) => {
+    const contents = locationContents.get(location.id) || [];
+    return {
+      ...location,
+      occupata: contents.length > 0,
+      quantita: contents.reduce((sum, item) => sum + Number(item.quantita || 0), 0),
+      contenuto: contents.sort((left, right) => String(left.titolo).localeCompare(String(right.titolo))),
+    };
+  }).sort(naturalLocationSort);
+  products.sort((left, right) => String(left.titolo).localeCompare(String(right.titolo), "it"));
+
+  const operationalLocations = locationRows.filter((location) => ["pallet", "slot"].includes(location.tipo));
+  return ok({
+    generated_at: nowIso(),
+    clienti: clients,
+    summary: {
+      unita_disponibili: products.reduce((sum, product) => sum + product.disponibile, 0),
+      referenze_disponibili: products.filter((product) => product.disponibile > 0).length,
+      ubicazioni_totali: operationalLocations.length,
+      ubicazioni_occupate: operationalLocations.filter((location) => location.occupata).length,
+      ubicazioni_bloccate: operationalLocations.filter((location) => location.stato === "bloccata").length,
+      non_ubicato: products.reduce((sum, product) => sum + product.non_ubicato, 0),
+    },
+    locations: locationRows,
+    products,
+  });
+}
+
+async function wmsScan(params) {
+  const code = optionalText(params.get("code"));
+  if (!code) fail("Codice richiesto");
+  const response = await wmsStock(params);
+  const stock = response.data;
+  const normalizedCode = normalizedText(code).replace(/\s+/g, "");
+  const location = stock.locations.find((item) => normalizedText(item.codice).replace(/\s+/g, "") === normalizedCode);
+  if (location) return ok({ kind: "location", code, location, generated_at: stock.generated_at });
+
+  const products = stock.products.filter((product) => [product.ean, product.fnsku]
+    .some((value) => normalizedText(value).replace(/\s+/g, "") === normalizedCode));
+  if (products.length) return ok({ kind: "product", code, products, generated_at: stock.generated_at });
+  return ok({ kind: "unknown", code, generated_at: stock.generated_at });
+}
+
 function shortCode(id) {
   return String(id || "").slice(0, 8).toUpperCase();
 }
@@ -3130,6 +3310,8 @@ export const api = {
     if (path === "/preparazioni") return listPreparazioni(params);
     if (path === "/shopify/orders") return listShopifyOrders(params);
     if (path === "/wms/spedizioni") return listWmsShipments(params);
+    if (path === "/wms/stock") return wmsStock(params);
+    if (path === "/wms/scan") return wmsScan(params);
     if (path.match(/^\/wms\/inbound\/[^/]+$/)) return getWmsInbound(path.split("/")[3]);
     if (path.startsWith("/preparazioni/")) return getPreparazione(path.split("/")[2]);
     if (path === "/magazzino") return magazzino(params);
