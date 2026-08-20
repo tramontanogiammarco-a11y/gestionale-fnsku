@@ -1360,7 +1360,7 @@ async function createWmsLocation(payload = {}) {
   const codice = String(payload.codice || "").trim().toUpperCase();
   const tipo = optionalText(payload.tipo) || "scaffale";
   if (!codice) fail("Codice ubicazione obbligatorio");
-  if (!["scaffale", "pallet", "terra", "quarantena"].includes(tipo)) fail("Tipo ubicazione non valido");
+  if (!["scaffale", "slot", "pallet", "terra", "quarantena"].includes(tipo)) fail("Tipo ubicazione non valido");
   const { data, error } = await requireSupabase()
     .from("wms_locations")
     .insert({ codice, zona: optionalText(payload.zona), tipo, note: optionalText(payload.note) })

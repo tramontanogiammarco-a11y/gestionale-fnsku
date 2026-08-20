@@ -63,7 +63,9 @@ export default function WmsAppInbound() {
 
   const rows = useMemo(() => data?.entrata?.righe || [], [data]);
   const activeLocations = useMemo(
-    () => (data?.locations || []).filter((location) => location.stato === "attiva"),
+    () => (data?.locations || [])
+      .filter((location) => location.stato === "attiva")
+      .sort((left, right) => left.codice.localeCompare(right.codice, "it", { numeric: true })),
     [data],
   );
   const selectedRow = rows.find((row) => row.id === selectedRowId) || null;
@@ -433,7 +435,7 @@ export default function WmsAppInbound() {
       <Dialog open={locationDialog} onOpenChange={(open) => { setLocationDialog(open); if (!open) setPendingLocationCode(""); }}>
         <DialogContent className="max-w-[calc(100%-32px)] rounded-md">
           <DialogHeader><DialogTitle>{pendingLocationCode ? "Posizione non censita" : "Nuova ubicazione"}</DialogTitle><DialogDescription>{pendingLocationCode ? `La posizione ${pendingLocationCode} non esiste. Creala e registra qui la merce.` : "Crea una posizione utilizzabile subito."}</DialogDescription></DialogHeader>
-          <div className="grid gap-4 py-2"><div className="space-y-2"><Label htmlFor="wms-location-code">Codice</Label><Input id="wms-location-code" value={newLocation.codice} onChange={(event) => setNewLocation((current) => ({ ...current, codice: event.target.value.toUpperCase() }))} placeholder="A-01-02" /></div><div className="space-y-2"><Label htmlFor="wms-location-zone">Zona</Label><Input id="wms-location-zone" value={newLocation.zona} onChange={(event) => setNewLocation((current) => ({ ...current, zona: event.target.value }))} placeholder="Scaffale A" /></div><div className="space-y-2"><Label>Tipo</Label><Select value={newLocation.tipo} onValueChange={(value) => setNewLocation((current) => ({ ...current, tipo: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="scaffale">Scaffale</SelectItem><SelectItem value="pallet">Pallet</SelectItem><SelectItem value="terra">Terra</SelectItem><SelectItem value="quarantena">Quarantena</SelectItem></SelectContent></Select></div></div>
+          <div className="grid gap-4 py-2"><div className="space-y-2"><Label htmlFor="wms-location-code">Codice</Label><Input id="wms-location-code" value={newLocation.codice} onChange={(event) => setNewLocation((current) => ({ ...current, codice: event.target.value.toUpperCase() }))} placeholder="A-01-02" /></div><div className="space-y-2"><Label htmlFor="wms-location-zone">Zona</Label><Input id="wms-location-zone" value={newLocation.zona} onChange={(event) => setNewLocation((current) => ({ ...current, zona: event.target.value }))} placeholder="Scaffale A" /></div><div className="space-y-2"><Label>Tipo</Label><Select value={newLocation.tipo} onValueChange={(value) => setNewLocation((current) => ({ ...current, tipo: value }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="scaffale">Scaffale</SelectItem><SelectItem value="slot">Slot</SelectItem><SelectItem value="pallet">Pallet</SelectItem><SelectItem value="terra">Terra</SelectItem><SelectItem value="quarantena">Quarantena</SelectItem></SelectContent></Select></div></div>
           <DialogFooter className="gap-2"><Button variant="outline" onClick={() => { setLocationDialog(false); setPendingLocationCode(""); }}>Annulla</Button><Button onClick={createLocation} disabled={working || !newLocation.codice.trim()}>{working && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} {pendingLocationCode ? "Crea e registra" : "Crea"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
