@@ -2840,6 +2840,7 @@ async function wmsStock(params) {
     { data: references, error: referencesError },
     { data: inventorySessions, error: inventorySessionsError },
     { data: outboundMovements, error: outboundMovementsError },
+    { data: stockTransfers, error: stockTransfersError },
   ] = await Promise.all([
     requireSupabase().from("wms_locations").select("*").order("codice", { ascending: true }),
     requireSupabase().from("wms_inbound_movements").select("*").eq("disposizione", "disponibile").order("created_at", { ascending: false }),
@@ -2854,8 +2855,11 @@ async function wmsStock(params) {
     clientIds.length
       ? requireSupabase().from("wms_outbound_movements").select("*").in("cliente_id", clientIds)
       : Promise.resolve({ data: [], error: null }),
+    clientIds.length
+      ? requireSupabase().from("wms_stock_transfers").select("*").in("cliente_id", clientIds).order("created_at", { ascending: true })
+      : Promise.resolve({ data: [], error: null }),
   ]);
-  const firstError = locationsError || movementsError || rowsError || entriesError || referencesError || inventorySessionsError || outboundMovementsError;
+  const firstError = locationsError || movementsError || rowsError || entriesError || referencesError || inventorySessionsError || outboundMovementsError || stockTransfersError;
   if (firstError) fail(firstError.message);
 
   const completedInventoryIds = (inventorySessions || []).map((session) => session.id);
@@ -2929,6 +2933,12 @@ async function wmsStock(params) {
   const locationContents = new Map();
   const inventoryDeltas = new Map();
   const outboundByProduct = new Map();
+  const transfersByProduct = new Map();
+  for (const transfer of stockTransfers || []) {
+    const key = `${transfer.cliente_id}:${transfer.product_key}`;
+    if (!transfersByProduct.has(key)) transfersByProduct.set(key, []);
+    transfersByProduct.get(key).push(transfer);
+  }
   for (const movement of outboundMovements || []) {
     const key = `${movement.cliente_id}:${movement.product_key}`;
     if (!outboundByProduct.has(key)) outboundByProduct.set(key, new Map());
@@ -2964,6 +2974,16 @@ async function wmsStock(params) {
       product.rettifica_inventario += next - current;
       if (next > 0) totalsByLocation.set(locationId, next);
       else totalsByLocation.delete(locationId);
+    }
+
+    for (const transfer of transfersByProduct.get(key) || []) {
+      const sourceQuantity = Number(totalsByLocation.get(transfer.source_location_id) || 0);
+      const moved = Math.min(sourceQuantity, Number(transfer.quantita || 0));
+      if (moved <= 0) continue;
+      const sourceRemaining = sourceQuantity - moved;
+      if (sourceRemaining > 0) totalsByLocation.set(transfer.source_location_id, sourceRemaining);
+      else totalsByLocation.delete(transfer.source_location_id);
+      totalsByLocation.set(transfer.target_location_id, Number(totalsByLocation.get(transfer.target_location_id) || 0) + moved);
     }
 
     for (const [locationId, quantity] of outboundByProduct.get(key) || []) {
@@ -3175,6 +3195,161 @@ function nearestLocationOrder(locations, start) {
   return result;
 }
 
+async function wmsPickingPlan(order, items) {
+  const missingReferences = (items || []).filter((item) => !item.referenza_id);
+  if (missingReferences.length) {
+    return { ready: false, allocations: [], replenishment: [], errors: [`Collega prima ${missingReferences.length} ${missingReferences.length === 1 ? "riga" : "righe"} alle referenze.`] };
+  }
+
+  const referenceIds = [...new Set((items || []).map((item) => item.referenza_id))];
+  const [
+    { data: references, error: referencesError },
+    stockResponse,
+    { data: activeTasks, error: activeTasksError },
+    { data: mapSettings, error: mapError },
+  ] = await Promise.all([
+    requireSupabase().from("referenze").select("id,cliente_id,titolo,ean,fnsku,sku").in("id", referenceIds),
+    wmsStock(new URLSearchParams({ cliente_id: order.cliente_id })),
+    requireSupabase().from("wms_pick_tasks").select("id").in("stato", ["da_prelevare", "in_corso"]),
+    requireSupabase().from("wms_warehouse_map").select("entrance_x,entrance_z").eq("id", true).single(),
+  ]);
+  const firstError = referencesError || activeTasksError || mapError;
+  if (firstError) fail(firstError.message);
+
+  const referenceMap = Object.fromEntries((references || []).map((reference) => [reference.id, reference]));
+  const activeTaskIds = (activeTasks || []).map((task) => task.id);
+  const { data: reservedLines, error: reservedError } = activeTaskIds.length
+    ? await requireSupabase().from("wms_pick_lines").select("location_id,product_key,quantita_attesa,quantita_prelevata").in("task_id", activeTaskIds)
+    : { data: [], error: null };
+  if (reservedError) fail(reservedError.message);
+
+  const reserved = new Map();
+  for (const line of reservedLines || []) {
+    const key = `${line.location_id}:${line.product_key}`;
+    reserved.set(key, Number(reserved.get(key) || 0) + Math.max(0, Number(line.quantita_attesa || 0) - Number(line.quantita_prelevata || 0)));
+  }
+
+  const allLocations = stockResponse.data.locations || [];
+  const locationMap = Object.fromEntries(allLocations.map((location) => [location.id, location]));
+  const availableEmptySlots = allLocations
+    .filter((location) => location.tipo === "slot" && location.stato === "attiva" && !location.occupata)
+    .sort(naturalLocationSort);
+  const usedSuggestedSlots = new Set();
+  const allocations = [];
+  const replenishment = [];
+  const errors = [];
+
+  for (const item of items || []) {
+    const reference = referenceMap[item.referenza_id];
+    if (!reference) {
+      errors.push(`Referenza non trovata per ${item.titolo}`);
+      continue;
+    }
+    const productKey = pickingProductKey(reference);
+    const product = (stockResponse.data.products || []).find((candidate) => (
+      candidate.cliente_id === order.cliente_id
+      && ((reference.fnsku && normalizedText(candidate.fnsku) === normalizedText(reference.fnsku))
+        || (reference.ean && normalizedText(candidate.ean) === normalizedText(reference.ean)))
+    ));
+    if (!product || !productKey) {
+      errors.push(`Nessuno stock disponibile per ${reference.titolo || item.titolo}`);
+      continue;
+    }
+
+    let remaining = Number(item.quantita || 0);
+    const slotLocations = (product.ubicazioni || []).filter((location) => location.tipo === "slot").map((location) => {
+      const key = `${location.id}:${productKey}`;
+      return { ...location, available: Math.max(0, Number(location.quantita || 0) - Number(reserved.get(key) || 0)) };
+    }).filter((location) => location.available > 0);
+    for (const location of slotLocations) {
+      if (remaining <= 0) break;
+      const quantity = Math.min(remaining, location.available);
+      allocations.push({
+        order_item_id: item.id,
+        location_id: location.id,
+        product_key: productKey,
+        titolo: reference.titolo || item.titolo,
+        ean: reference.ean || item.ean,
+        fnsku: reference.fnsku,
+        sku: reference.sku || item.sku,
+        quantita_attesa: quantity,
+      });
+      const key = `${location.id}:${productKey}`;
+      reserved.set(key, Number(reserved.get(key) || 0) + quantity);
+      remaining -= quantity;
+    }
+
+    if (remaining > 0) {
+      const palletSources = (product.ubicazioni || [])
+        .filter((location) => location.tipo === "pallet" && Number(location.quantita || 0) > 0)
+        .sort(naturalLocationSort)
+        .map((location) => ({ id: location.id, codice: location.codice, quantita: Number(location.quantita || 0) }));
+      const palletAvailable = palletSources.reduce((sum, location) => sum + location.quantita, 0);
+      const suggestedSlot = availableEmptySlots.find((location) => !usedSuggestedSlots.has(location.id)) || null;
+      if (suggestedSlot) usedSuggestedSlots.add(suggestedSlot.id);
+      replenishment.push({
+        order_id: order.id,
+        cliente_id: order.cliente_id,
+        referenza_id: reference.id,
+        product_key: productKey,
+        titolo: reference.titolo || item.titolo,
+        ean: reference.ean || item.ean,
+        fnsku: reference.fnsku,
+        quantita: remaining,
+        pallet_available: palletAvailable,
+        pallet_sources: palletSources,
+        target_slot: suggestedSlot ? { id: suggestedSlot.id, codice: suggestedSlot.codice } : null,
+        can_replenish: palletAvailable >= remaining && Boolean(suggestedSlot),
+      });
+    }
+  }
+
+  return { ready: errors.length === 0 && replenishment.length === 0, allocations, replenishment, errors, locationMap, mapSettings };
+}
+
+async function replenishWmsSlot(payload = {}) {
+  const profile = await assertWmsStaff();
+  const clienteId = optionalText(payload.cliente_id);
+  const productKey = optionalText(payload.product_key);
+  const targetLocationId = optionalText(payload.target_location_id);
+  const quantity = Math.floor(Number(payload.quantita || 0));
+  if (!clienteId || !productKey || !targetLocationId || quantity <= 0) fail("Rifornimento non valido");
+
+  const stockResponse = await wmsStock(new URLSearchParams({ cliente_id: clienteId }));
+  const product = (stockResponse.data.products || []).find((item) => wmsInventoryKey(item) === productKey);
+  if (!product) fail("Prodotto non trovato nello stock", 404);
+  const target = (stockResponse.data.locations || []).find((location) => location.id === targetLocationId);
+  if (!target || target.tipo !== "slot" || target.stato !== "attiva") fail("La destinazione deve essere uno slot attivo");
+  const foreignContents = (target.contenuto || []).filter((item) => item.cliente_id !== clienteId || wmsInventoryKey(item) !== productKey);
+  if (foreignContents.length) fail(`${target.codice} contiene gia un altro prodotto.`);
+
+  const sources = (product.ubicazioni || [])
+    .filter((location) => location.tipo === "pallet" && Number(location.quantita || 0) > 0)
+    .sort(naturalLocationSort);
+  const palletAvailable = sources.reduce((sum, location) => sum + Number(location.quantita || 0), 0);
+  if (palletAvailable < quantity) fail(`Nei pallet ci sono ${palletAvailable} pezzi, ne servono ${quantity}.`);
+
+  let remaining = quantity;
+  const transfers = [];
+  for (const source of sources) {
+    if (remaining <= 0) break;
+    const moved = Math.min(remaining, Number(source.quantita || 0));
+    transfers.push({
+      cliente_id: clienteId,
+      product_key: productKey,
+      source_location_id: source.id,
+      target_location_id: targetLocationId,
+      quantita: moved,
+      order_id: optionalText(payload.order_id),
+      operatore_id: profile.id,
+    });
+    remaining -= moved;
+  }
+  const { error } = await requireSupabase().from("wms_stock_transfers").insert(transfers);
+  if (error) fail(error.message);
+  return ok({ moved: quantity, target: target.codice, sources: transfers.length });
+}
+
 async function wmsPickSnapshot(orderId) {
   await assertWmsStaff();
   const { data: order, error: orderError } = await requireSupabase()
@@ -3190,7 +3365,10 @@ async function wmsPickSnapshot(orderId) {
     .eq("order_id", orderId)
     .maybeSingle();
   if (taskError) fail(taskError.message);
-  if (!task) return ok({ order: enrichedOrder, task: null, lines: [], current_line: null, summary: { expected: 0, picked: 0, progress: 0 } });
+  if (!task) {
+    const plan = await wmsPickingPlan(order, enrichedOrder.items || []);
+    return ok({ order: enrichedOrder, task: null, lines: [], current_line: null, replenishment: plan.replenishment, errors: plan.errors, can_start: plan.ready, summary: { expected: 0, picked: 0, progress: 0 } });
+  }
 
   const { data: lines, error: linesError } = await requireSupabase()
     .from("wms_pick_lines")
@@ -3228,72 +3406,10 @@ async function startWmsPicking(orderId) {
   const { data: items, error: itemsError } = await requireSupabase().from("shopify_order_items").select("*").eq("order_id", orderId);
   if (itemsError) fail(itemsError.message);
   if (!(items || []).length) fail("L'ordine non contiene prodotti");
-  const missing = (items || []).filter((item) => !item.referenza_id);
-  if (missing.length) fail(`Collega prima ${missing.length} ${missing.length === 1 ? "riga" : "righe"} alle referenze.`);
-
-  const referenceIds = [...new Set(items.map((item) => item.referenza_id))];
-  const [
-    { data: references, error: referencesError },
-    stockResponse,
-    { data: activeTasks, error: activeTasksError },
-    { data: mapSettings, error: mapError },
-  ] = await Promise.all([
-    requireSupabase().from("referenze").select("id,cliente_id,titolo,ean,fnsku,sku").in("id", referenceIds),
-    wmsStock(new URLSearchParams({ cliente_id: order.cliente_id })),
-    requireSupabase().from("wms_pick_tasks").select("id").in("stato", ["da_prelevare", "in_corso"]),
-    requireSupabase().from("wms_warehouse_map").select("entrance_x,entrance_z").eq("id", true).single(),
-  ]);
-  const firstError = referencesError || activeTasksError || mapError;
-  if (firstError) fail(firstError.message);
-  const referenceMap = Object.fromEntries((references || []).map((reference) => [reference.id, reference]));
-  const activeTaskIds = (activeTasks || []).map((task) => task.id);
-  const { data: reservedLines, error: reservedError } = activeTaskIds.length
-    ? await requireSupabase().from("wms_pick_lines").select("location_id,product_key,quantita_attesa,quantita_prelevata").in("task_id", activeTaskIds)
-    : { data: [], error: null };
-  if (reservedError) fail(reservedError.message);
-  const reserved = new Map();
-  for (const line of reservedLines || []) {
-    const key = `${line.location_id}:${line.product_key}`;
-    reserved.set(key, Number(reserved.get(key) || 0) + Math.max(0, Number(line.quantita_attesa || 0) - Number(line.quantita_prelevata || 0)));
-  }
-  const allLocations = stockResponse.data.locations || [];
-  const locationMap = Object.fromEntries(allLocations.map((location) => [location.id, location]));
-  const allocations = [];
-
-  for (const item of items || []) {
-    const reference = referenceMap[item.referenza_id];
-    if (!reference) fail(`Referenza non trovata per ${item.titolo}`);
-    const productKey = pickingProductKey(reference);
-    const product = (stockResponse.data.products || []).find((candidate) => (
-      candidate.cliente_id === order.cliente_id
-      && ((reference.fnsku && normalizedText(candidate.fnsku) === normalizedText(reference.fnsku))
-        || (reference.ean && normalizedText(candidate.ean) === normalizedText(reference.ean)))
-    ));
-    if (!product || !productKey) fail(`Nessuno stock ubicato per ${reference.titolo || item.titolo}`);
-    let remaining = Number(item.quantita || 0);
-    const availableLocations = (product.ubicazioni || []).map((location) => {
-      const key = `${location.id}:${productKey}`;
-      return { ...location, available: Math.max(0, Number(location.quantita || 0) - Number(reserved.get(key) || 0)) };
-    }).filter((location) => location.available > 0);
-    for (const location of availableLocations) {
-      if (remaining <= 0) break;
-      const quantity = Math.min(remaining, location.available);
-      allocations.push({
-        order_item_id: item.id,
-        location_id: location.id,
-        product_key: productKey,
-        titolo: reference.titolo || item.titolo,
-        ean: reference.ean || item.ean,
-        fnsku: reference.fnsku,
-        sku: reference.sku || item.sku,
-        quantita_attesa: quantity,
-      });
-      const key = `${location.id}:${productKey}`;
-      reserved.set(key, Number(reserved.get(key) || 0) + quantity);
-      remaining -= quantity;
-    }
-    if (remaining > 0) fail(`Stock ubicato insufficiente per ${reference.titolo || item.titolo}: mancano ${remaining} pezzi.`);
-  }
+  const plan = await wmsPickingPlan(order, items || []);
+  if (plan.errors.length) fail(plan.errors.join(" "));
+  if (plan.replenishment.length) fail(`Rifornisci prima gli slot per ${plan.replenishment.length} ${plan.replenishment.length === 1 ? "prodotto" : "prodotti"}.`);
+  const { allocations, locationMap, mapSettings } = plan;
 
   const uniqueLocations = [...new Set(allocations.map((allocation) => allocation.location_id))].map((id) => locationMap[id]).filter(Boolean);
   const route = nearestLocationOrder(uniqueLocations, { x: mapSettings.entrance_x, z: mapSettings.entrance_z });
@@ -3332,6 +3448,7 @@ async function scanWmsPicking(taskId, payload = {}) {
   const code = normalizedText(payload.codice || payload.code);
   if (!code) fail("Scansiona una posizione o un prodotto");
   if (!current.location_confirmed_at) {
+    if (current.location?.tipo !== "slot") fail("Il picking e consentito solo da una posizione slot.", 409);
     if (normalizedText(current.location?.codice) !== code) fail(`Vai in ${current.location?.codice} e scansiona la posizione corretta.`);
     const { error } = await requireSupabase().from("wms_pick_lines").update({ location_confirmed_at: nowIso() }).eq("id", current.id);
     if (error) fail(error.message);
@@ -4424,6 +4541,7 @@ export const api = {
     if (path === "/shopify/import") return importShopify(payload);
     if (path === "/shopify/orders/import") return importShopifyOrders(payload);
     if (path === "/wms/ordini/import-csv") return importCsvWmsOrders(payload);
+    if (path === "/wms/rifornimenti") return replenishWmsSlot(payload);
     if (path === "/shopify/oauth/start") return startShopifyOAuth(payload);
     if (path === "/shippypro/label") return createShippyProLabel(payload);
     if (path === "/shippypro/carriers") return listShippyProCarriers(payload);

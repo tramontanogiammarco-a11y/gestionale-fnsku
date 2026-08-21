@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
-  ArrowLeft, Barcode, Boxes, Camera, CheckCircle2, ChevronRight, Loader2,
-  MapPin, Navigation, PackageCheck, Play, Route, ScanLine,
+  ArrowLeft, Barcode, Boxes, Camera, CheckCircle2, Loader2,
+  MapPin, Navigation, PackageCheck, Play, Route, ScanLine, Warehouse,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -68,6 +68,26 @@ export default function WmsAppPicking() {
     }
   };
 
+  const replenish = async (item) => {
+    if (!item.target_slot) return;
+    setWorking(true);
+    try {
+      await api.post("/wms/rifornimenti", {
+        order_id: orderId,
+        cliente_id: item.cliente_id,
+        product_key: item.product_key,
+        target_location_id: item.target_slot.id,
+        quantita: item.quantita,
+      });
+      toast.success(`${item.quantita} pezzi spostati in ${item.target_slot.codice}`);
+      await load();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || error.message || "Rifornimento non completato");
+    } finally {
+      setWorking(false);
+    }
+  };
+
   const scan = async (rawCode) => {
     const value = String(rawCode || code).trim();
     if (!value || !data?.task) return;
@@ -105,12 +125,35 @@ export default function WmsAppPicking() {
       </header>
 
       {!data.task ? (
-        <section className="rounded-md border border-slate-200 bg-white p-5">
-          <Route className="h-8 w-8 text-teal-700" />
-          <h2 className="mt-4 text-xl font-black">Crea la rotta</h2>
-          <div className="mt-4 grid grid-cols-2 gap-2"><Metric label="Righe" value={data.order.items?.length || 0} /><Metric label="Pezzi" value={(data.order.items || []).reduce((sum, item) => sum + Number(item.quantita || 0), 0)} /></div>
-          <Button className="mt-5 h-14 w-full text-base font-black" onClick={start} disabled={working}>{working ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Play className="mr-2 h-5 w-5" />} Avvia picking</Button>
-        </section>
+        <>
+          {(data.replenishment || []).length > 0 && (
+            <section className="rounded-md border border-amber-300 bg-amber-50 p-5">
+              <div className="flex items-center gap-3"><span className="flex h-11 w-11 items-center justify-center rounded-md bg-white text-amber-800"><Warehouse className="h-6 w-6" /></span><div><p className="text-xs font-black uppercase text-amber-800">Prima del picking</p><h2 className="text-xl font-black text-amber-950">Rifornisci gli slot</h2></div></div>
+              <p className="mt-3 text-sm text-amber-900">Il prelievo parte esclusivamente dagli slot. Sposta dai pallet la merce necessaria all'ordine.</p>
+              <div className="mt-4 space-y-3">
+                {data.replenishment.map((item) => (
+                  <div key={item.product_key} className="rounded-md border border-amber-200 bg-white p-4">
+                    <strong className="block text-sm">{item.titolo}</strong>
+                    <div className="mt-1 font-mono text-xs text-slate-500">{item.fnsku || item.ean}</div>
+                    <div className="mt-3 grid grid-cols-3 gap-2"><Metric label="Da spostare" value={item.quantita} /><Metric label="Nei pallet" value={item.pallet_available} /><Metric label="Slot" value={item.target_slot?.codice || "-"} /></div>
+                    <div className="mt-2 text-xs text-slate-500">Origine: {item.pallet_sources.map((source) => `${source.codice} (${source.quantita})`).join(" · ") || "nessun pallet"}</div>
+                    <Button className="mt-3 h-12 w-full font-black" onClick={() => replenish(item)} disabled={working || !item.can_replenish}>
+                      {working ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Warehouse className="mr-2 h-4 w-4" />} Rifornisci {item.target_slot?.codice || "slot"}
+                    </Button>
+                    {!item.can_replenish && <p className="mt-2 text-xs font-bold text-red-700">{!item.target_slot ? "Nessuno slot libero disponibile." : `Stock pallet insufficiente: mancano ${Math.max(0, item.quantita - item.pallet_available)} pezzi.`}</p>}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+          <section className="rounded-md border border-slate-200 bg-white p-5">
+            <Route className="h-8 w-8 text-teal-700" />
+            <h2 className="mt-4 text-xl font-black">Crea la rotta slot</h2>
+            <div className="mt-4 grid grid-cols-2 gap-2"><Metric label="Righe" value={data.order.items?.length || 0} /><Metric label="Pezzi" value={(data.order.items || []).reduce((sum, item) => sum + Number(item.quantita || 0), 0)} /></div>
+            <Button className="mt-5 h-14 w-full text-base font-black" onClick={start} disabled={working || !data.can_start}>{working ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Play className="mr-2 h-5 w-5" />} Avvia picking</Button>
+            {!data.can_start && <p className="mt-3 text-center text-xs font-bold text-slate-500">Il picking si abilita quando tutte le quantità sono disponibili negli slot.</p>}
+          </section>
+        </>
       ) : complete ? (
         <section className="rounded-md border border-emerald-200 bg-emerald-50 p-6 text-center">
           <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-700" />
