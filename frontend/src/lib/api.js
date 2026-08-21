@@ -383,6 +383,15 @@ async function startShopifyOAuth(payload) {
   return ok(data);
 }
 
+async function listShopifyConnections() {
+  const { data, error } = await requireSupabase()
+    .from("shopify_connections")
+    .select("id,cliente_id,shop_domain,scopes,connected_at,updated_at")
+    .order("connected_at", { ascending: false });
+  if (error) fail(error.message);
+  return ok(data || []);
+}
+
 async function createShippyProLabel(payload) {
   const sb = requireSupabase();
   const { data: sessionData } = await sb.auth.getSession();
@@ -4124,6 +4133,7 @@ export const api = {
     if (path.startsWith("/entrate/")) return getEntrata(path.split("/")[2]);
     if (path === "/box") return listBox(params);
     if (path === "/preparazioni") return listPreparazioni(params);
+    if (path === "/shopify/connections") return listShopifyConnections();
     if (path === "/shopify/orders") return listShopifyOrders(params);
     if (path === "/wms/spedizioni") return listWmsShipments(params);
     if (path === "/wms/stock") return wmsStock(params);

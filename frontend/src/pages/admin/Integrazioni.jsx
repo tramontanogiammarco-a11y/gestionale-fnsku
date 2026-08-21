@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api, formatApiError } from "@/lib/api";
@@ -13,15 +13,16 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { CheckCircle2, DownloadCloud, ExternalLink, Link2, Loader2, PlugZap, ShieldCheck, ShoppingCart, Store, Truck } from "lucide-react";
+import { CheckCircle2, CircleAlert, DownloadCloud, ExternalLink, Link2, Loader2, PlugZap, ShieldCheck, ShoppingCart, Store, Truck } from "lucide-react";
 
 const SHOPIFY_CALLBACK_URL = "https://ryprjuqfervusppnedsz.supabase.co/functions/v1/shopify-oauth-callback";
 
 export default function AdminIntegrazioni() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [clienti, setClienti] = useState([]);
+  const [connections, setConnections] = useState([]);
   const [clienteId, setClienteId] = useState("");
-  const [shopDomain, setShopDomain] = useState("zcgygr-91.myshopify.com");
+  const [shopDomain, setShopDomain] = useState("");
   const [accessToken, setAccessToken] = useState("");
   const [result, setResult] = useState(null);
   const [ordersResult, setOrdersResult] = useState(null);
@@ -31,16 +32,38 @@ export default function AdminIntegrazioni() {
   const [shippyLoading, setShippyLoading] = useState(false);
   const [shippyCarriers, setShippyCarriers] = useState(null);
 
-  useEffect(() => {
-    api.get("/clienti").then((r) => setClienti(r.data || []));
+  const loadConnections = useCallback(async () => {
+    const [clientiResult, connectionsResult] = await Promise.all([
+      api.get("/clienti"),
+      api.get("/shopify/connections"),
+    ]);
+    setClienti(clientiResult.data || []);
+    setConnections(connectionsResult.data || []);
   }, []);
+
+  useEffect(() => {
+    loadConnections().catch((error) => toast.error(formatApiError(error.response?.data?.detail || error.message)));
+  }, [loadConnections]);
 
   useEffect(() => {
     if (searchParams.get("shopify") === "connected") {
       toast.success(`Shopify collegato: ${searchParams.get("shop") || "negozio"}`);
+      loadConnections().catch(() => {});
       setSearchParams({});
     }
-  }, [searchParams, setSearchParams]);
+  }, [loadConnections, searchParams, setSearchParams]);
+
+  const selectedConnection = connections.find((connection) => connection.cliente_id === clienteId);
+  const selectedClient = clienti.find((cliente) => cliente.id === clienteId);
+
+  const selectClient = (value) => {
+    setClienteId(value);
+    const connection = connections.find((item) => item.cliente_id === value);
+    setShopDomain(connection?.shop_domain || "");
+    setAccessToken("");
+    setResult(null);
+    setOrdersResult(null);
+  };
 
   const connectShopify = async () => {
     if (!clienteId || !shopDomain) {
@@ -145,6 +168,33 @@ export default function AdminIntegrazioni() {
       </div>
 
       <Card className="p-5">
+        <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {clienti.map((cliente) => {
+            const connection = connections.find((item) => item.cliente_id === cliente.id);
+            return (
+              <button
+                key={cliente.id}
+                type="button"
+                onClick={() => selectClient(cliente.id)}
+                className={`flex min-h-24 items-start justify-between gap-3 rounded-md border p-4 text-left transition-colors ${
+                  clienteId === cliente.id ? "border-teal-500 bg-teal-50" : "border-slate-200 bg-white hover:border-slate-300"
+                }`}
+              >
+                <div className="min-w-0">
+                  <div className="truncate font-heading text-base font-bold text-slate-950">{cliente.ragione_sociale}</div>
+                  <div className="mt-1 truncate text-xs text-muted-foreground">{connection?.shop_domain || "Nessun negozio Shopify"}</div>
+                </div>
+                <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold uppercase ${
+                  connection ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+                }`}>
+                  {connection ? <CheckCircle2 className="h-3 w-3" /> : <CircleAlert className="h-3 w-3" />}
+                  {connection ? "Collegato" : "Da collegare"}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
         <div className="mb-5 grid gap-3 rounded-md border border-teal-200 bg-teal-50 p-4 text-sm text-teal-950 lg:grid-cols-[1fr_auto]">
           <div>
             <div className="flex items-center gap-2 font-heading text-lg font-bold">
@@ -165,7 +215,7 @@ export default function AdminIntegrazioni() {
         <div className="grid gap-4 lg:grid-cols-2">
           <div>
             <Label className="text-xs">Cliente</Label>
-            <Select value={clienteId} onValueChange={setClienteId}>
+            <Select value={clienteId} onValueChange={selectClient}>
               <SelectTrigger className="mt-1" data-testid="shopify-cliente"><SelectValue placeholder="Seleziona cliente" /></SelectTrigger>
               <SelectContent>
                 {clienti.map((c) => <SelectItem key={c.id} value={c.id}>{c.ragione_sociale}</SelectItem>)}
@@ -196,24 +246,41 @@ export default function AdminIntegrazioni() {
             </p>
           </div>
         </div>
+        {clienteId && (
+          <div className={`mt-4 flex items-start gap-3 rounded-md border p-3 text-sm ${
+            selectedConnection ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"
+          }`}>
+            {selectedConnection ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" /> : <CircleAlert className="mt-0.5 h-5 w-5 shrink-0" />}
+            <div>
+              <div className="font-bold">
+                {selectedConnection ? `${selectedClient?.ragione_sociale || "Cliente"} è collegato a Shopify` : `${selectedClient?.ragione_sociale || "Cliente"} non è ancora collegato`}
+              </div>
+              <div className="mt-0.5 text-xs opacity-80">
+                {selectedConnection
+                  ? `Negozio ${selectedConnection.shop_domain}. Gli ordini nuovi arrivano automaticamente nel WMS.`
+                  : "Inserisci il dominio myshopify.com e premi Collega Shopify. Shopify chiederà al proprietario di autorizzare l'accesso."}
+              </div>
+            </div>
+          </div>
+        )}
         <div className="mt-4 flex flex-wrap gap-2">
           <Button onClick={connectShopify} disabled={connecting || !clienteId || !shopDomain} data-testid="shopify-connect-btn">
             {connecting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link2 className="mr-2 h-4 w-4" />}
-            Collega Shopify
+            {selectedConnection ? "Ricollega Shopify" : "Collega Shopify"}
           </Button>
-          <Button variant="outline" onClick={() => run(true)} disabled={loading} data-testid="shopify-test-btn">
+          <Button variant="outline" onClick={() => run(true)} disabled={loading || !clienteId || !shopDomain} data-testid="shopify-test-btn">
             {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
             Test + anteprima
           </Button>
-          <Button onClick={() => run(false)} disabled={loading} data-testid="shopify-import-btn">
+          <Button onClick={() => run(false)} disabled={loading || !clienteId || !shopDomain} data-testid="shopify-import-btn">
             {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <DownloadCloud className="mr-2 h-4 w-4" />}
             Importa referenze
           </Button>
-          <Button variant="outline" onClick={() => importOrders(true)} disabled={ordersLoading} data-testid="shopify-orders-test-btn">
+          <Button variant="outline" onClick={() => importOrders(true)} disabled={ordersLoading || !clienteId || !shopDomain} data-testid="shopify-orders-test-btn">
             {ordersLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShoppingCart className="mr-2 h-4 w-4" />}
             Anteprima ordini
           </Button>
-          <Button onClick={() => importOrders(false)} disabled={ordersLoading} data-testid="shopify-orders-import-btn">
+          <Button onClick={() => importOrders(false)} disabled={ordersLoading || !clienteId || !shopDomain} data-testid="shopify-orders-import-btn">
             {ordersLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShoppingCart className="mr-2 h-4 w-4" />}
             Importa ordini
           </Button>
