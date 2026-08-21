@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import Papa from "papaparse";
 import { api } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,10 +9,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
-import { Download, Loader2, MapPin, PackageCheck, Pencil, RefreshCw, ShoppingCart, Truck, TriangleAlert } from "lucide-react";
+import { Download, FileCheck2, FileSpreadsheet, Loader2, MapPin, PackageCheck, Pencil, RefreshCw, ShoppingCart, Truck, TriangleAlert, Upload } from "lucide-react";
 
 const WMS_STATI = [
   { key: "tutti", label: "Tutti" },
@@ -31,6 +35,7 @@ const statusLabel = {
 
 export default function AdminOrdiniWms() {
   const [orders, setOrders] = useState(null);
+  const [clients, setClients] = useState([]);
   const [shipments, setShipments] = useState([]);
   const [view, setView] = useState("da_preparare");
   const [creatingShipment, setCreatingShipment] = useState(null);
@@ -39,14 +44,23 @@ export default function AdminOrdiniWms() {
   const [editingShipment, setEditingShipment] = useState(null);
   const [shipmentForm, setShipmentForm] = useState(defaultShipmentForm());
   const [savingShipment, setSavingShipment] = useState(false);
+  const [csvOpen, setCsvOpen] = useState(false);
+  const [csvClientId, setCsvClientId] = useState("");
+  const [csvRows, setCsvRows] = useState([]);
+  const [csvFileName, setCsvFileName] = useState("");
+  const [csvPreview, setCsvPreview] = useState(null);
+  const [checkingCsv, setCheckingCsv] = useState(false);
+  const [importingCsv, setImportingCsv] = useState(false);
 
   const load = async () => {
-    const [ordersResponse, shipmentsResponse] = await Promise.all([
+    const [ordersResponse, shipmentsResponse, clientsResponse] = await Promise.all([
       api.get("/shopify/orders"),
       api.get("/wms/spedizioni"),
+      api.get("/clienti"),
     ]);
     setOrders(ordersResponse.data || []);
     setShipments(shipmentsResponse.data || []);
+    setClients(clientsResponse.data || []);
   };
   useEffect(() => { load(); }, []);
 
@@ -185,6 +199,87 @@ export default function AdminOrdiniWms() {
     }
   };
 
+  const resetCsvImport = () => {
+    setCsvClientId("");
+    setCsvRows([]);
+    setCsvFileName("");
+    setCsvPreview(null);
+  };
+
+  const handleCsvFile = (file) => {
+    setCsvPreview(null);
+    setCsvRows([]);
+    setCsvFileName(file?.name || "");
+    if (!file) return;
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: "greedy",
+      transformHeader: (header) => header.trim(),
+      complete: ({ data, errors }) => {
+        if (errors.length) {
+          toast.error(`CSV non leggibile: ${errors[0].message}`);
+          return;
+        }
+        setCsvRows(data || []);
+      },
+      error: (error) => toast.error(error.message || "Impossibile leggere il CSV"),
+    });
+  };
+
+  const handleCheckCsv = async () => {
+    if (!csvClientId) return toast.error("Seleziona il cliente");
+    if (!csvRows.length) return toast.error("Seleziona un file CSV");
+    setCheckingCsv(true);
+    try {
+      const { data } = await api.post("/wms/ordini/import-csv", {
+        cliente_id: csvClientId,
+        rows: csvRows,
+        dry_run: true,
+      });
+      setCsvPreview(data);
+      if (data.valid) toast.success("CSV controllato: pronto per l'importazione");
+    } catch (error) {
+      toast.error(error.response?.data?.detail || error.message || "Impossibile controllare il CSV");
+    } finally {
+      setCheckingCsv(false);
+    }
+  };
+
+  const handleImportCsv = async () => {
+    if (!csvPreview?.valid) return;
+    setImportingCsv(true);
+    try {
+      const { data } = await api.post("/wms/ordini/import-csv", {
+        cliente_id: csvClientId,
+        rows: csvRows,
+        dry_run: false,
+      });
+      toast.success(`${data.imported} ${data.imported === 1 ? "ordine importato" : "ordini importati"}`);
+      setCsvOpen(false);
+      resetCsvImport();
+      await load();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || error.message || "Impossibile importare gli ordini");
+    } finally {
+      setImportingCsv(false);
+    }
+  };
+
+  const downloadCsvTemplate = () => {
+    const headers = [
+      "numero_ordine", "ean", "sku", "quantita", "titolo", "data_ordine", "destinatario",
+      "azienda", "indirizzo", "cap", "citta", "provincia", "codice_paese", "telefono", "email", "note",
+    ];
+    const sample = ["ORD-1001", "8050000000000", "SKU-001", "2", "Prodotto esempio", "2026-08-21", "Mario Rossi", "", "Via Roma 1", "00100", "Roma", "RM", "IT", "", "", ""];
+    const csv = Papa.unparse([Object.fromEntries(headers.map((header, index) => [header, sample[index]]))]);
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "modello-ordini-wms.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-6" data-testid="admin-ordini-wms">
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
@@ -195,12 +290,17 @@ export default function AdminOrdiniWms() {
             </div>
             <h1 className="font-heading text-3xl font-black tracking-tight">Ordini WMS</h1>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Ordini Shopify importati e pronti per picking, controllo referenze e preparazione.
+              Ordini Shopify e CSV pronti per picking, controllo referenze e preparazione.
             </p>
           </div>
-          <Button variant="outline" onClick={load}>
-            <RefreshCw className="mr-2 h-4 w-4" /> Aggiorna
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => setCsvOpen(true)}>
+              <Upload className="mr-2 h-4 w-4" /> Importa ordini CSV
+            </Button>
+            <Button variant="outline" onClick={load}>
+              <RefreshCw className="mr-2 h-4 w-4" /> Aggiorna
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -238,7 +338,7 @@ export default function AdminOrdiniWms() {
                   <TableHead>Destinazione</TableHead>
                   <TableHead>Righe</TableHead>
                   <TableHead>Pezzi</TableHead>
-                  <TableHead>Shopify</TableHead>
+                  <TableHead>Sorgente</TableHead>
                   <TableHead>WMS</TableHead>
                   <TableHead>Spedizione</TableHead>
                   <TableHead>Data</TableHead>
@@ -268,7 +368,7 @@ export default function AdminOrdiniWms() {
                   <TableRow key={order.id} data-testid={`wms-order-${order.id}`}>
                     <TableCell>
                       <div className="font-heading text-base font-black">{order.order_name}</div>
-                      <div className="mt-1 font-mono text-[11px] text-muted-foreground">{order.shop_domain}</div>
+                      <div className="mt-1 font-mono text-[11px] text-muted-foreground">{order.shop_domain === "csv-import" ? "Importazione manuale" : order.shop_domain}</div>
                       {missing > 0 && (
                         <div className="mt-2 inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-[11px] font-bold text-amber-700">
                           <TriangleAlert className="h-3 w-3" /> {missing} righe senza referenza
@@ -301,8 +401,9 @@ export default function AdminOrdiniWms() {
                     <TableCell>{order.items?.length || 0}</TableCell>
                     <TableCell>{pezzi}</TableCell>
                     <TableCell>
-                      <div className="text-sm">{order.financial_status || "-"}</div>
-                      <div className="text-xs text-muted-foreground">{order.fulfillment_status || "-"}</div>
+                      <span className={`inline-flex rounded-md px-2 py-1 text-xs font-black uppercase ${order.shop_domain === "csv-import" ? "bg-sky-50 text-sky-700" : "bg-emerald-50 text-emerald-700"}`}>
+                        {order.shop_domain === "csv-import" ? "CSV" : "Shopify"}
+                      </span>
                     </TableCell>
                     <TableCell>
                       <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">
@@ -404,6 +505,57 @@ export default function AdminOrdiniWms() {
         )}
       </Card>
 
+      <Dialog open={csvOpen} onOpenChange={(open) => { setCsvOpen(open); if (!open) resetCsvImport(); }}>
+        <DialogContent className="max-w-5xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><FileSpreadsheet className="h-5 w-5 text-teal-700" /> Importa ordini CSV</DialogTitle>
+            <DialogDescription>
+              Le righe con lo stesso numero ordine diventano un unico lavoro di picking. Lo stesso ordine si puo aggiornare finche il picking non e iniziato.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
+            <div className="space-y-4">
+              <div>
+                <Label>Cliente proprietario degli ordini</Label>
+                <Select value={csvClientId} onValueChange={(value) => { setCsvClientId(value); setCsvPreview(null); }}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="Seleziona cliente" /></SelectTrigger>
+                  <SelectContent>{clients.map((client) => <SelectItem key={client.id} value={client.id}>{client.ragione_sociale}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label>File ordini</Label>
+                <label className="mt-1 flex min-h-28 cursor-pointer flex-col items-center justify-center rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 text-center hover:border-teal-400 hover:bg-teal-50/40">
+                  <FileSpreadsheet className="h-7 w-7 text-teal-700" />
+                  <span className="mt-2 text-sm font-bold">{csvFileName || "Scegli file CSV"}</span>
+                  <span className="mt-1 text-xs text-muted-foreground">Numero ordine, quantita e almeno EAN, SKU o FNSKU</span>
+                  <input className="sr-only" type="file" accept=".csv,text/csv" onChange={(event) => handleCsvFile(event.target.files?.[0])} />
+                </label>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={downloadCsvTemplate}><Download className="mr-2 h-4 w-4" /> Scarica modello</Button>
+                <Button onClick={handleCheckCsv} disabled={checkingCsv || !csvClientId || !csvRows.length}>
+                  {checkingCsv ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileCheck2 className="mr-2 h-4 w-4" />}
+                  Controlla file
+                </Button>
+              </div>
+            </div>
+
+            <CsvPreview preview={csvPreview} />
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCsvOpen(false)}>Annulla</Button>
+            <Button onClick={handleImportCsv} disabled={!csvPreview?.valid || importingCsv}>
+              {importingCsv ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+              Importa nel picking
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={Boolean(editingShipment)} onOpenChange={(open) => !open && setEditingShipment(null)}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
@@ -437,6 +589,54 @@ export default function AdminOrdiniWms() {
       </Dialog>
     </div>
   );
+}
+
+function CsvPreview({ preview }) {
+  if (!preview) {
+    return (
+      <div className="flex min-h-72 flex-col items-center justify-center rounded-md border border-slate-200 bg-slate-50 p-8 text-center">
+        <FileCheck2 className="h-8 w-8 text-slate-400" />
+        <h3 className="mt-3 font-black">Anteprima importazione</h3>
+        <p className="mt-1 max-w-sm text-sm text-muted-foreground">Seleziona cliente e CSV, poi controlla il file prima di importarlo.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="min-w-0 space-y-3">
+      <div className="grid grid-cols-4 gap-2">
+        <ImportMetric label="Ordini" value={preview.totals?.orders || 0} />
+        <ImportMetric label="Righe" value={preview.totals?.rows || 0} />
+        <ImportMetric label="Pezzi" value={preview.totals?.pieces || 0} />
+        <ImportMetric label="Da collegare" value={preview.totals?.unmatched || 0} warn={preview.totals?.unmatched > 0} />
+      </div>
+      {preview.errors?.length > 0 && (
+        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+          <div className="mb-2 flex items-center gap-2 font-black"><TriangleAlert className="h-4 w-4" /> Correggi il CSV</div>
+          {preview.errors.slice(0, 8).map((error) => <div key={error}>{error}</div>)}
+          {preview.errors.length > 8 && <div className="mt-1 font-bold">Altri {preview.errors.length - 8} errori</div>}
+        </div>
+      )}
+      <div className="max-h-72 overflow-auto rounded-md border border-slate-200">
+        <Table>
+          <TableHeader><TableRow><TableHead>Ordine</TableHead><TableHead>Righe</TableHead><TableHead>Pezzi</TableHead><TableHead>Esito</TableHead></TableRow></TableHeader>
+          <TableBody>
+            {(preview.orders || []).map((order) => (
+              <TableRow key={order.order_number}>
+                <TableCell><div className="font-bold">{order.order_number}</div>{order.destination && <div className="text-xs text-muted-foreground">{order.destination}</div>}</TableCell>
+                <TableCell>{order.rows}</TableCell>
+                <TableCell>{order.pieces}</TableCell>
+                <TableCell>{order.unmatched ? <span className="text-xs font-bold text-amber-700">{order.unmatched} da collegare</span> : <span className="text-xs font-bold text-emerald-700">Pronto</span>}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
+
+function ImportMetric({ label, value, warn }) {
+  return <div className={`rounded-md border p-3 ${warn ? "border-amber-200 bg-amber-50 text-amber-800" : "border-slate-200 bg-white"}`}><div className="text-xl font-black">{value}</div><div className="text-[9px] font-black uppercase text-muted-foreground">{label}</div></div>;
 }
 
 function defaultShipmentForm() {

@@ -2030,6 +2030,263 @@ async function listShopifyOrders(params) {
   return ok(await enrichShopifyOrders(data || []));
 }
 
+const CSV_ORDER_FIELD_ALIASES = {
+  order_number: ["numero_ordine", "ordine", "order", "order_number", "numeroordine"],
+  quantity: ["quantita", "qta", "qty", "quantity", "pezzi"],
+  ean: ["ean", "barcode", "codice_barre", "codicebarre"],
+  sku: ["sku", "codice_sku", "codicesku"],
+  fnsku: ["fnsku", "codice_fnsku", "codicefnsku"],
+  title: ["titolo", "prodotto", "nome_prodotto", "product", "title"],
+  processed_at: ["data_ordine", "data", "order_date", "processed_at"],
+  recipient: ["destinatario", "nome_destinatario", "cliente_finale", "recipient"],
+  company: ["azienda", "ragione_sociale", "company"],
+  address1: ["indirizzo", "indirizzo_1", "address", "address1"],
+  address2: ["indirizzo_2", "address2"],
+  zip: ["cap", "zip", "postal_code"],
+  city: ["citta", "city"],
+  province: ["provincia", "province"],
+  country: ["paese", "country"],
+  country_code: ["codice_paese", "country_code"],
+  phone: ["telefono", "phone"],
+  email: ["email", "e_mail"],
+  note: ["note", "nota"],
+};
+
+function csvHeaderKey(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function csvField(row, field) {
+  const normalized = Object.fromEntries(Object.entries(row || {}).map(([key, value]) => [csvHeaderKey(key), value]));
+  for (const alias of CSV_ORDER_FIELD_ALIASES[field] || []) {
+    const value = normalized[alias];
+    if (String(value ?? "").trim()) return String(value).trim();
+  }
+  return "";
+}
+
+function csvOrderIdentifier(orderNumber) {
+  return `csv:${String(orderNumber).trim().toLowerCase()}`;
+}
+
+function csvItemIdentifier(item, index) {
+  const key = normalizedText(item.ean || item.sku || item.fnsku || item.title).replace(/[^a-z0-9]+/g, "-").slice(0, 80);
+  return `csv:${index + 1}:${key || "riga"}`;
+}
+
+function normalizeCsvOrders(rows = []) {
+  const errors = [];
+  const grouped = new Map();
+
+  rows.forEach((sourceRow, index) => {
+    const rowNumber = index + 2;
+    const orderNumber = csvField(sourceRow, "order_number");
+    const ean = csvField(sourceRow, "ean");
+    const sku = csvField(sourceRow, "sku");
+    const fnsku = csvField(sourceRow, "fnsku");
+    const rawQuantity = csvField(sourceRow, "quantity").replace(",", ".");
+    const quantity = Number(rawQuantity);
+
+    if (!orderNumber) errors.push(`Riga ${rowNumber}: numero ordine mancante.`);
+    if (!ean && !sku && !fnsku) errors.push(`Riga ${rowNumber}: inserisci almeno EAN, SKU o FNSKU.`);
+    if (!Number.isInteger(quantity) || quantity <= 0) errors.push(`Riga ${rowNumber}: quantita non valida.`);
+    if (!orderNumber || (!ean && !sku && !fnsku) || !Number.isInteger(quantity) || quantity <= 0) return;
+
+    if (!grouped.has(orderNumber)) {
+      grouped.set(orderNumber, {
+        order_number: orderNumber,
+        processed_at: csvField(sourceRow, "processed_at"),
+        recipient: csvField(sourceRow, "recipient"),
+        company: csvField(sourceRow, "company"),
+        address1: csvField(sourceRow, "address1"),
+        address2: csvField(sourceRow, "address2"),
+        zip: csvField(sourceRow, "zip"),
+        city: csvField(sourceRow, "city"),
+        province: csvField(sourceRow, "province"),
+        country: csvField(sourceRow, "country"),
+        country_code: csvField(sourceRow, "country_code"),
+        phone: csvField(sourceRow, "phone"),
+        email: csvField(sourceRow, "email"),
+        note: csvField(sourceRow, "note"),
+        items: new Map(),
+      });
+    }
+
+    const order = grouped.get(orderNumber);
+    const itemKey = `${normalizedText(ean)}|${normalizedText(sku)}|${normalizedText(fnsku)}`;
+    const existing = order.items.get(itemKey);
+    if (existing) {
+      existing.quantity += quantity;
+      return;
+    }
+    order.items.set(itemKey, {
+      ean,
+      sku,
+      fnsku,
+      title: csvField(sourceRow, "title"),
+      quantity,
+      source_row: rowNumber,
+    });
+  });
+
+  return {
+    errors,
+    orders: [...grouped.values()].map((order) => ({ ...order, items: [...order.items.values()] })),
+  };
+}
+
+function csvDateOrNow(value) {
+  if (!value) return nowIso();
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? nowIso() : parsed.toISOString();
+}
+
+async function importCsvWmsOrders(payload = {}) {
+  await assertWmsStaff();
+  const clienteId = String(payload.cliente_id || "").trim();
+  if (!clienteId) fail("Seleziona il cliente degli ordini CSV");
+  if (!Array.isArray(payload.rows) || !payload.rows.length) fail("Il file CSV non contiene righe");
+
+  const normalized = normalizeCsvOrders(payload.rows);
+  const { data: references, error: referencesError } = await requireSupabase()
+    .from("referenze")
+    .select("id,titolo,ean,sku,fnsku")
+    .eq("cliente_id", clienteId);
+  if (referencesError) fail(referencesError.message);
+
+  const byEan = new Map();
+  const bySku = new Map();
+  const byFnsku = new Map();
+  for (const reference of references || []) {
+    if (normalizedText(reference.ean)) byEan.set(normalizedText(reference.ean), reference);
+    if (normalizedText(reference.sku)) bySku.set(normalizedText(reference.sku), reference);
+    if (normalizedText(reference.fnsku)) byFnsku.set(normalizedText(reference.fnsku), reference);
+  }
+
+  const orders = normalized.orders.map((order) => {
+    const items = order.items.map((item) => {
+      const reference = byEan.get(normalizedText(item.ean))
+        || bySku.get(normalizedText(item.sku))
+        || byFnsku.get(normalizedText(item.fnsku))
+        || null;
+      return {
+        ...item,
+        reference,
+        title: item.title || reference?.titolo || item.ean || item.sku || item.fnsku,
+      };
+    });
+    return {
+      ...order,
+      items,
+      pieces: items.reduce((sum, item) => sum + item.quantity, 0),
+      unmatched: items.filter((item) => !item.reference).length,
+    };
+  });
+
+  const preview = {
+    valid: normalized.errors.length === 0 && orders.length > 0,
+    errors: normalized.errors,
+    orders: orders.map((order) => ({
+      order_number: order.order_number,
+      rows: order.items.length,
+      pieces: order.pieces,
+      unmatched: order.unmatched,
+      destination: [order.zip, order.city].filter(Boolean).join(" "),
+    })),
+    totals: {
+      orders: orders.length,
+      rows: orders.reduce((sum, order) => sum + order.items.length, 0),
+      pieces: orders.reduce((sum, order) => sum + order.pieces, 0),
+      unmatched: orders.reduce((sum, order) => sum + order.unmatched, 0),
+    },
+  };
+
+  if (payload.dry_run !== false) return ok(preview);
+  if (!preview.valid) fail("Correggi gli errori del CSV prima di importare");
+
+  const identifiers = orders.map((order) => csvOrderIdentifier(order.order_number));
+  const { data: existingOrders, error: existingError } = await requireSupabase()
+    .from("shopify_orders")
+    .select("id,shopify_order_id,wms_status,order_name")
+    .eq("cliente_id", clienteId)
+    .eq("shop_domain", "csv-import")
+    .in("shopify_order_id", identifiers);
+  if (existingError) fail(existingError.message);
+  const existingByIdentifier = new Map((existingOrders || []).map((order) => [order.shopify_order_id, order]));
+  const locked = (existingOrders || []).filter((order) => order.wms_status !== "da_preparare");
+  if (locked.length) {
+    fail(`Non posso aggiornare ${locked.map((order) => order.order_name).join(", ")}: picking gia avviato.`);
+  }
+
+  let imported = 0;
+  for (const order of orders) {
+    const identifier = csvOrderIdentifier(order.order_number);
+    const existing = existingByIdentifier.get(identifier);
+    const orderRow = {
+      cliente_id: clienteId,
+      shop_domain: "csv-import",
+      shopify_order_id: identifier,
+      order_name: order.order_number,
+      financial_status: "csv",
+      fulfillment_status: "unfulfilled",
+      wms_status: "da_preparare",
+      processed_at: csvDateOrNow(order.processed_at),
+      note: order.note || null,
+      customer_email: order.email || null,
+      customer_phone: order.phone || null,
+      ship_name: order.recipient || null,
+      ship_company: order.company || null,
+      ship_address1: order.address1 || null,
+      ship_address2: order.address2 || null,
+      ship_zip: order.zip || null,
+      ship_city: order.city || null,
+      ship_province: order.province || null,
+      ship_country: order.country || null,
+      ship_country_code: order.country_code || null,
+      raw: { source: "csv", imported_at: nowIso() },
+      updated_at: nowIso(),
+    };
+
+    let savedOrder;
+    if (existing) {
+      const { data, error } = await requireSupabase().from("shopify_orders").update(orderRow).eq("id", existing.id).select().single();
+      if (error) fail(error.message);
+      savedOrder = data;
+      const { error: deleteError } = await requireSupabase().from("shopify_order_items").delete().eq("order_id", existing.id);
+      if (deleteError) fail(deleteError.message);
+    } else {
+      const { data, error } = await requireSupabase().from("shopify_orders").insert(orderRow).select().single();
+      if (error) fail(error.message);
+      savedOrder = data;
+    }
+
+    const itemRows = order.items.map((item, index) => ({
+      order_id: savedOrder.id,
+      shopify_line_item_id: csvItemIdentifier(item, index),
+      referenza_id: item.reference?.id || null,
+      sku: item.sku || item.reference?.sku || null,
+      ean: item.ean || item.reference?.ean || null,
+      titolo: item.title,
+      quantita: item.quantity,
+      fulfillable_quantity: item.quantity,
+      fulfillment_status: null,
+      raw: { source: "csv", source_row: item.source_row, fnsku: item.fnsku || null },
+      updated_at: nowIso(),
+    }));
+    const { error: itemsError } = await requireSupabase().from("shopify_order_items").insert(itemRows);
+    if (itemsError) fail(itemsError.message);
+    imported += 1;
+  }
+
+  return ok({ ...preview, imported });
+}
+
 async function enrichShopifyOrders(orders) {
   const ids = orders.map((order) => order.id);
   const { data: items, error: itemsError } = ids.length
@@ -4166,6 +4423,7 @@ export const api = {
     if (path === "/clienti") return createCliente(payload);
     if (path === "/shopify/import") return importShopify(payload);
     if (path === "/shopify/orders/import") return importShopifyOrders(payload);
+    if (path === "/wms/ordini/import-csv") return importCsvWmsOrders(payload);
     if (path === "/shopify/oauth/start") return startShopifyOAuth(payload);
     if (path === "/shippypro/label") return createShippyProLabel(payload);
     if (path === "/shippypro/carriers") return listShippyProCarriers(payload);

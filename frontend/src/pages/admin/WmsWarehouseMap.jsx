@@ -5,7 +5,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
   AlertTriangle, Box, Boxes, Eye, Grid3X3, Loader2, MapPinned, Move3D,
-  PackageOpen, RotateCcw, Route, Save, ScanLine, Sparkles, Warehouse,
+  PackageOpen, RotateCcw, Route, Save, ScanLine, Sparkles, Undo2, Warehouse,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -66,6 +66,39 @@ function mapSnapshot(locations, map) {
   });
 }
 
+function locationAxes(location) {
+  const radians = THREE.MathUtils.degToRad(Number(location.map_rotation || 0));
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  return [
+    { x: cos, z: -sin },
+    { x: sin, z: cos },
+  ];
+}
+
+function projectedRadius(location, axis) {
+  const [widthAxis, depthAxis] = locationAxes(location);
+  return Math.abs(widthAxis.x * axis.x + widthAxis.z * axis.z) * location.map_width / 2
+    + Math.abs(depthAxis.x * axis.x + depthAxis.z * axis.z) * location.map_depth / 2;
+}
+
+function locationsOverlap(left, right, padding = 0.08) {
+  const delta = { x: right.map_x - left.map_x, z: right.map_z - left.map_z };
+  const axes = [...locationAxes(left), ...locationAxes(right)];
+  return axes.every((axis) => {
+    const distance = Math.abs(delta.x * axis.x + delta.z * axis.z);
+    return distance < projectedRadius(left, axis) + projectedRadius(right, axis) + padding;
+  });
+}
+
+function rotatedHalfExtents(location) {
+  const [widthAxis, depthAxis] = locationAxes(location);
+  return {
+    x: Math.abs(widthAxis.x) * location.map_width / 2 + Math.abs(depthAxis.x) * location.map_depth / 2,
+    z: Math.abs(widthAxis.z) * location.map_width / 2 + Math.abs(depthAxis.z) * location.map_depth / 2,
+  };
+}
+
 function collisionIds(locations) {
   const rows = locations.filter((row) => Number.isFinite(row.map_x) && Number.isFinite(row.map_z));
   const collisions = new Set();
@@ -73,9 +106,7 @@ function collisionIds(locations) {
     for (let j = i + 1; j < rows.length; j += 1) {
       const left = rows[i];
       const right = rows[j];
-      const xLimit = (left.map_width + right.map_width) / 2 + 0.08;
-      const zLimit = (left.map_depth + right.map_depth) / 2 + 0.08;
-      if (Math.abs(left.map_x - right.map_x) < xLimit && Math.abs(left.map_z - right.map_z) < zLimit) {
+      if (locationsOverlap(left, right)) {
         collisions.add(left.id);
         collisions.add(right.id);
       }
@@ -133,15 +164,15 @@ function createTextSprite(text, { background = "#ffffff", color = "#0f172a", sca
 }
 
 const WarehouseScene = forwardRef(function WarehouseScene({
-  locations, setLocations, selectedId, setSelectedId, mode, snap, map, routeData, collisions,
+  locations, onMoveCommit, onDragStateChange, selectedId, setSelectedId, mode, snap, map, routeData, collisions,
 }, ref) {
   const containerRef = useRef(null);
   const stateRef = useRef(null);
   const locationsRef = useRef(locations);
-  const propsRef = useRef({ setLocations, setSelectedId, mode, snap, map });
+  const propsRef = useRef({ onMoveCommit, onDragStateChange, setSelectedId, mode, snap, map });
 
   locationsRef.current = locations;
-  propsRef.current = { setLocations, setSelectedId, mode, snap, map };
+  propsRef.current = { onMoveCommit, onDragStateChange, setSelectedId, mode, snap, map };
 
   useImperativeHandle(ref, () => ({
     topView() {
@@ -256,7 +287,14 @@ const WarehouseScene = forwardRef(function WarehouseScene({
       mesh.receiveShadow = true;
       mesh.userData.locationId = location.id;
       scene.add(mesh);
-      clickMeshes.push(mesh);
+
+      const hitMesh = new THREE.Mesh(
+        new THREE.BoxGeometry(location.map_width * 1.12, Math.max(height, 0.58), location.map_depth * 1.18),
+        new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+      );
+      hitMesh.userData.locationId = location.id;
+      mesh.add(hitMesh);
+      clickMeshes.push(hitMesh);
 
       const edge = new THREE.LineSegments(
         new THREE.EdgesGeometry(geometry),
@@ -266,20 +304,89 @@ const WarehouseScene = forwardRef(function WarehouseScene({
       const label = createTextSprite(location.codice, { scale: location.tipo === "slot" ? 0.76 : 0.86 });
       label.position.set(0, height / 2 + 0.48, 0);
       mesh.add(label);
-      meshes.set(location.id, { mesh, label, material, height });
+      meshes.set(location.id, { mesh, hitMesh, label, material, height });
     });
 
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
     const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     const planeHit = new THREE.Vector3();
-    const drag = { active: false, start: null, origins: null, ids: [] };
+    const drag = {
+      active: false,
+      start: null,
+      origins: null,
+      ids: [],
+      pointerId: null,
+      previewLocations: null,
+      invalidIds: new Set(),
+      styleSnapshots: null,
+    };
 
     const pointerPosition = (event) => {
       const rect = renderer.domElement.getBoundingClientRect();
       pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
       raycaster.setFromCamera(pointer, camera);
+    };
+
+    const restoreDragVisuals = () => {
+      if (!drag.origins) return;
+      drag.ids.forEach((id) => {
+        const item = meshes.get(id);
+        const origin = drag.origins.get(id);
+        const style = drag.styleSnapshots?.get(id);
+        if (!item || !origin) return;
+        item.mesh.position.x = origin.x;
+        item.mesh.position.z = origin.z;
+        if (style) {
+          item.material.color.copy(style.color);
+          item.material.emissive.copy(style.emissive);
+          item.material.emissiveIntensity = style.emissiveIntensity;
+        }
+      });
+    };
+
+    const resetDrag = () => {
+      drag.active = false;
+      drag.start = null;
+      drag.origins = null;
+      drag.ids = [];
+      drag.pointerId = null;
+      drag.previewLocations = null;
+      drag.invalidIds = new Set();
+      drag.styleSnapshots = null;
+      controls.enabled = propsRef.current.mode === "explore";
+      renderer.domElement.style.cursor = propsRef.current.mode.startsWith("move") ? "grab" : "default";
+      propsRef.current.onDragStateChange?.({ active: false, invalid: false, count: 0 });
+    };
+
+    const releasePointer = (pointerId) => {
+      if (pointerId != null && renderer.domElement.hasPointerCapture(pointerId)) {
+        renderer.domElement.releasePointerCapture(pointerId);
+      }
+    };
+
+    const finishDrag = (event, { cancel = false } = {}) => {
+      if (!drag.active) return;
+      const pointerId = event?.pointerId ?? drag.pointerId;
+      const invalid = drag.invalidIds.size > 0;
+      const nextLocations = drag.previewLocations;
+      if (cancel || invalid || !nextLocations) {
+        restoreDragVisuals();
+        if (invalid && !cancel) toast.error("Posizione non valida: l'ubicazione si sovrappone a un'altra");
+      } else {
+        drag.ids.forEach((id) => {
+          const item = meshes.get(id);
+          const style = drag.styleSnapshots?.get(id);
+          if (!item || !style) return;
+          item.material.color.copy(style.color);
+          item.material.emissive.copy(style.emissive);
+          item.material.emissiveIntensity = style.emissiveIntensity;
+        });
+        propsRef.current.onMoveCommit(nextLocations);
+      }
+      releasePointer(pointerId);
+      resetDrag();
     };
 
     const onPointerDown = (event) => {
@@ -293,15 +400,29 @@ const WarehouseScene = forwardRef(function WarehouseScene({
       const selected = locationsRef.current.find((row) => row.id === locationId);
       if (!selected || !OPERATIONAL_TYPES.has(selected.tipo)) return;
       if (!raycaster.ray.intersectPlane(dragPlane, planeHit)) return;
+      event.preventDefault();
+      event.stopPropagation();
       drag.active = true;
       drag.start = planeHit.clone();
       drag.ids = propsRef.current.mode === "move-zone"
         ? locationsRef.current.filter((row) => row.tipo === selected.tipo).map((row) => row.id)
         : [locationId];
       drag.origins = new Map(locationsRef.current.filter((row) => drag.ids.includes(row.id)).map((row) => [row.id, { x: row.map_x, z: row.map_z }]));
+      drag.pointerId = event.pointerId;
+      drag.previewLocations = locationsRef.current;
+      drag.invalidIds = new Set();
+      drag.styleSnapshots = new Map(drag.ids.map((id) => {
+        const item = meshes.get(id);
+        return [id, {
+          color: item.material.color.clone(),
+          emissive: item.material.emissive.clone(),
+          emissiveIntensity: item.material.emissiveIntensity,
+        }];
+      }));
       controls.enabled = false;
       renderer.domElement.setPointerCapture(event.pointerId);
       renderer.domElement.style.cursor = "grabbing";
+      propsRef.current.onDragStateChange?.({ active: true, invalid: false, count: drag.ids.length });
     };
 
     const onPointerMove = (event) => {
@@ -316,35 +437,60 @@ const WarehouseScene = forwardRef(function WarehouseScene({
       const step = propsRef.current.snap ? 0.25 : 0.01;
       const rawDx = planeHit.x - drag.start.x;
       const rawDz = planeHit.z - drag.start.z;
-      const dx = Math.round(rawDx / step) * step;
-      const dz = Math.round(rawDz / step) * step;
       const halfWidth = propsRef.current.map.width / 2;
       const halfDepth = propsRef.current.map.depth / 2;
-      propsRef.current.setLocations((previous) => previous.map((location) => {
+      const movingRows = locationsRef.current.filter((row) => drag.origins.has(row.id));
+      let minDx = -Infinity;
+      let maxDx = Infinity;
+      let minDz = -Infinity;
+      let maxDz = Infinity;
+      movingRows.forEach((location) => {
         const origin = drag.origins.get(location.id);
-        if (!origin) return location;
-        return {
-          ...location,
-          map_x: Math.max(-halfWidth + 0.5, Math.min(halfWidth - 0.5, origin.x + dx)),
-          map_z: Math.max(-halfDepth + 0.5, Math.min(halfDepth - 0.5, origin.z + dz)),
-        };
-      }));
+        const extents = rotatedHalfExtents(location);
+        minDx = Math.max(minDx, -halfWidth + extents.x - origin.x);
+        maxDx = Math.min(maxDx, halfWidth - extents.x - origin.x);
+        minDz = Math.max(minDz, -halfDepth + extents.z - origin.z);
+        maxDz = Math.min(maxDz, halfDepth - extents.z - origin.z);
+      });
+      const anchor = drag.origins.get(drag.ids[0]);
+      const snappedDx = Math.round((anchor.x + rawDx) / step) * step - anchor.x;
+      const snappedDz = Math.round((anchor.z + rawDz) / step) * step - anchor.z;
+      const dx = Math.max(minDx, Math.min(maxDx, snappedDx));
+      const dz = Math.max(minDz, Math.min(maxDz, snappedDz));
+      const previewLocations = locationsRef.current.map((location) => {
+        const origin = drag.origins.get(location.id);
+        return origin ? { ...location, map_x: origin.x + dx, map_z: origin.z + dz } : location;
+      });
+      const previewCollisions = collisionIds(previewLocations);
+      const invalidIds = new Set(drag.ids.filter((id) => previewCollisions.has(id)));
+      const previewById = new Map(previewLocations.map((location) => [location.id, location]));
+      drag.ids.forEach((id) => {
+        const item = meshes.get(id);
+        const location = previewById.get(id);
+        if (!item || !location) return;
+        item.mesh.position.x = location.map_x;
+        item.mesh.position.z = location.map_z;
+        item.material.color.set(invalidIds.size ? "#e11d48" : "#0891b2");
+        item.material.emissive.set(invalidIds.size ? "#4c0519" : "#164e63");
+        item.material.emissiveIntensity = 0.28;
+      });
+      drag.previewLocations = previewLocations;
+      drag.invalidIds = invalidIds;
+      propsRef.current.onDragStateChange?.({ active: true, invalid: invalidIds.size > 0, count: drag.ids.length });
     };
 
-    const finishDrag = (event) => {
-      if (!drag.active) return;
-      drag.active = false;
-      drag.origins = null;
-      drag.ids = [];
-      controls.enabled = true;
-      renderer.domElement.style.cursor = "default";
-      if (renderer.domElement.hasPointerCapture(event.pointerId)) renderer.domElement.releasePointerCapture(event.pointerId);
+    const onPointerUp = (event) => finishDrag(event);
+    const onPointerCancel = (event) => finishDrag(event, { cancel: true });
+    const onKeyDown = (event) => {
+      if (event.key === "Escape" && drag.active) finishDrag(null, { cancel: true });
     };
 
-    renderer.domElement.addEventListener("pointerdown", onPointerDown);
+    renderer.domElement.style.touchAction = "none";
+    renderer.domElement.addEventListener("pointerdown", onPointerDown, true);
     renderer.domElement.addEventListener("pointermove", onPointerMove);
-    renderer.domElement.addEventListener("pointerup", finishDrag);
-    renderer.domElement.addEventListener("pointercancel", finishDrag);
+    renderer.domElement.addEventListener("pointerup", onPointerUp);
+    renderer.domElement.addEventListener("pointercancel", onPointerCancel);
+    window.addEventListener("keydown", onKeyDown);
 
     const resize = () => {
       const width = container.clientWidth;
@@ -369,10 +515,11 @@ const WarehouseScene = forwardRef(function WarehouseScene({
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
-      renderer.domElement.removeEventListener("pointerdown", onPointerDown);
+      renderer.domElement.removeEventListener("pointerdown", onPointerDown, true);
       renderer.domElement.removeEventListener("pointermove", onPointerMove);
-      renderer.domElement.removeEventListener("pointerup", finishDrag);
-      renderer.domElement.removeEventListener("pointercancel", finishDrag);
+      renderer.domElement.removeEventListener("pointerup", onPointerUp);
+      renderer.domElement.removeEventListener("pointercancel", onPointerCancel);
+      window.removeEventListener("keydown", onKeyDown);
       controls.dispose();
       renderer.dispose();
       scene.traverse((object) => {
@@ -426,6 +573,13 @@ const WarehouseScene = forwardRef(function WarehouseScene({
     }
   }, [collisions, locations, map.entrance_x, map.entrance_z, routeData.locations, selectedId]);
 
+  useEffect(() => {
+    const state = stateRef.current;
+    if (!state) return;
+    state.controls.enabled = mode === "explore";
+    state.renderer.domElement.style.cursor = mode.startsWith("move") ? "grab" : "default";
+  }, [mode]);
+
   return <div ref={containerRef} className="absolute inset-0" />;
 });
 
@@ -438,6 +592,8 @@ export default function WmsWarehouseMap() {
   const [mode, setMode] = useState("explore");
   const [snap, setSnap] = useState(true);
   const [showRoute, setShowRoute] = useState(true);
+  const [moveHistory, setMoveHistory] = useState([]);
+  const [dragState, setDragState] = useState({ active: false, invalid: false, count: 0 });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -450,6 +606,7 @@ export default function WmsWarehouseMap() {
       setLocations(nextLocations);
       setMap(nextMap);
       setInitialSnapshot(mapSnapshot(nextLocations, nextMap));
+      setMoveHistory([]);
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Mappa non disponibile");
     } finally {
@@ -471,11 +628,39 @@ export default function WmsWarehouseMap() {
 
   const updateSelected = (changes) => {
     if (!selectedId) return;
-    setLocations((previous) => previous.map((location) => location.id === selectedId ? { ...location, ...changes } : location));
+    setLocations((previous) => {
+      setMoveHistory((history) => [...history.slice(-9), previous]);
+      return previous.map((location) => location.id === selectedId ? { ...location, ...changes } : location);
+    });
+  };
+
+  const commitMove = useCallback((nextLocations) => {
+    setLocations((previous) => {
+      setMoveHistory((history) => [...history.slice(-9), previous]);
+      return nextLocations;
+    });
+  }, []);
+
+  const undoMove = () => {
+    setMoveHistory((history) => {
+      if (!history.length) return history;
+      setLocations(history[history.length - 1]);
+      setSelectedId(null);
+      return history.slice(0, -1);
+    });
+  };
+
+  const activateMoveMode = (nextMode) => {
+    setMode(nextMode);
+    setDragState({ active: false, invalid: false, count: 0 });
+    window.requestAnimationFrame(() => sceneRef.current?.topView());
   };
 
   const applySmartLayout = () => {
-    setLocations((previous) => smartLocations(previous));
+    setLocations((previous) => {
+      setMoveHistory((history) => [...history.slice(-9), previous]);
+      return smartLocations(previous);
+    });
     setSelectedId(null);
     toast.success("Disposizione intelligente applicata. Salva per confermare.");
   };
@@ -496,6 +681,7 @@ export default function WmsWarehouseMap() {
       setLocations(nextLocations);
       setMap(nextMap);
       setInitialSnapshot(mapSnapshot(nextLocations, nextMap));
+      setMoveHistory([]);
       toast.success("Mappa magazzino salvata");
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Mappa non salvata");
@@ -536,11 +722,21 @@ export default function WmsWarehouseMap() {
       <div className="flex flex-wrap items-center justify-between gap-3 border-y border-slate-200 bg-white px-3 py-3">
         <div className="flex gap-1 rounded-md bg-slate-100 p-1" aria-label="Modalita mappa">
           <ModeButton active={mode === "explore"} onClick={() => setMode("explore")} icon={Eye}>Esplora</ModeButton>
-          <ModeButton active={mode === "move-location"} onClick={() => setMode("move-location")} icon={Move3D}>Sposta ubicazione</ModeButton>
-          <ModeButton active={mode === "move-zone"} onClick={() => setMode("move-zone")} icon={Boxes}>Sposta zona</ModeButton>
+          <ModeButton active={mode === "move-location"} onClick={() => activateMoveMode("move-location")} icon={Move3D}>Sposta ubicazione</ModeButton>
+          <ModeButton active={mode === "move-zone"} onClick={() => activateMoveMode("move-zone")} icon={Boxes}>Sposta zona</ModeButton>
+          <button
+            type="button"
+            onClick={undoMove}
+            disabled={!moveHistory.length}
+            title="Annulla ultimo spostamento"
+            aria-label="Annulla ultimo spostamento"
+            className="flex h-9 w-9 items-center justify-center rounded text-slate-500 transition hover:bg-white hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-35"
+          >
+            <Undo2 className="h-4 w-4" />
+          </button>
         </div>
         <div className="flex flex-wrap items-center gap-4 text-sm font-semibold">
-          <label className="flex items-center gap-2"><Switch checked={snap} onCheckedChange={setSnap} /><Grid3X3 className="h-4 w-4" /> Griglia</label>
+          <label className="flex items-center gap-2"><Switch checked={snap} onCheckedChange={setSnap} /><Grid3X3 className="h-4 w-4" /> Aggancio griglia</label>
           <label className="flex items-center gap-2"><Switch checked={showRoute} onCheckedChange={setShowRoute} /><Route className="h-4 w-4" /> Percorso</label>
           <div className="text-slate-500">{routeData.locations.length} tappe · {routeData.distance.toFixed(1)} m</div>
         </div>
@@ -550,7 +746,8 @@ export default function WmsWarehouseMap() {
         <WarehouseScene
           ref={sceneRef}
           locations={locations}
-          setLocations={setLocations}
+          onMoveCommit={commitMove}
+          onDragStateChange={setDragState}
           selectedId={selectedId}
           setSelectedId={setSelectedId}
           mode={mode}
@@ -559,6 +756,24 @@ export default function WmsWarehouseMap() {
           routeData={routeData}
           collisions={collisions}
         />
+
+        {mode.startsWith("move") && (
+          <div className={`pointer-events-none absolute left-1/2 top-4 z-10 -translate-x-1/2 border px-4 py-2 text-sm font-bold shadow-sm backdrop-blur ${
+            dragState.invalid
+              ? "border-rose-300 bg-rose-50/95 text-rose-800"
+              : dragState.active
+                ? "border-cyan-300 bg-cyan-50/95 text-cyan-900"
+                : "border-slate-200 bg-white/95 text-slate-700"
+          }`}>
+            {dragState.invalid
+              ? "Posizione occupata: scegli un'area libera"
+              : dragState.active
+                ? `Spostamento di ${dragState.count} ${dragState.count === 1 ? "ubicazione" : "ubicazioni"}`
+                : mode === "move-zone"
+                  ? "Trascina un pallet o uno slot per spostare tutta la zona"
+                  : "Trascina l'ubicazione nella nuova posizione"}
+          </div>
+        )}
 
         <div className="absolute left-4 top-4 flex gap-1 border border-slate-200 bg-white/95 p-1 shadow-sm backdrop-blur">
           <Button size="sm" variant="ghost" onClick={() => sceneRef.current?.topView()}><Grid3X3 className="mr-2 h-4 w-4" /> Alto</Button>
