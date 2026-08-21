@@ -14,7 +14,7 @@ import {
 import { toast } from "sonner";
 import {
   AlertTriangle, ArrowRight, Boxes, CheckCircle2, ChevronRight, ClipboardCheck,
-  Download, Loader2, PackageCheck, PackageOpen, RefreshCw, RotateCcw, ScanLine,
+  Download, Loader2, MapPinned, PackageCheck, PackageOpen, RefreshCw, RotateCcw, ScanLine,
   Truck, Warehouse,
 } from "lucide-react";
 
@@ -113,7 +113,10 @@ export default function WmsControl() {
           <h1 className="font-heading text-3xl font-black tracking-tight">WMS</h1>
           <p className="mt-1 text-sm text-muted-foreground">Inbound, picking, packing e outbound.</p>
         </div>
-        <Button variant="outline" onClick={load}><RefreshCw className="mr-2 h-4 w-4" /> Aggiorna</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => navigate("/admin/wms/mappa")}><MapPinned className="mr-2 h-4 w-4" /> Mappa 3D</Button>
+          <Button variant="outline" onClick={load}><RefreshCw className="mr-2 h-4 w-4" /> Aggiorna</Button>
+        </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

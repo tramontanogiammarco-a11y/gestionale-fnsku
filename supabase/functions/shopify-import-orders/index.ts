@@ -113,6 +113,8 @@ Deno.serve(async (req) => {
       return json({ detail: "Aggiungi lo scope read_orders su Shopify e ricollega l'app" }, 400);
     }
 
+    const webhookResult = await registerOrderWebhooks(shopDomain, token, `${supabaseUrl}/functions/v1/shopify-orders-webhook`);
+
     const shopifyOrders = await fetchShopifyOrders(shopDomain, token);
     const referenceMap = await buildReferenceMap(adminClient, clienteId);
     const mapped = shopifyOrders.map((order) => mapOrder(order, clienteId, shopDomain, referenceMap));
@@ -126,6 +128,7 @@ Deno.serve(async (req) => {
         ordini: mapped.length,
         righe: mapped.reduce((sum, order) => sum + order.items.length, 0),
         righe_collegate: mapped.reduce((sum, order) => sum + order.items.filter((item) => item.referenza_id).length, 0),
+        webhooks: webhookResult,
         anteprima: mapped.slice(0, 8).map(({ items, ...order }) => ({ ...order, righe: items.length })),
       });
     }
@@ -168,6 +171,7 @@ Deno.serve(async (req) => {
       update,
       righe: itemCount,
       errori: errors.slice(0, 20),
+      webhooks: webhookResult,
     });
   } catch (error) {
     console.error("shopify-import-orders", error);
@@ -181,6 +185,30 @@ function normalizeShopDomain(value: string) {
     .replace(/^https?:\/\//i, "")
     .replace(/\/.*$/, "")
     .toLowerCase();
+}
+
+async function registerOrderWebhooks(shopDomain: string, token: string, address: string) {
+  const endpoint = `https://${shopDomain}/admin/api/2026-07/webhooks.json`;
+  const listResponse = await fetch(endpoint, { headers: { "X-Shopify-Access-Token": token } });
+  const listBody = await listResponse.json().catch(() => ({}));
+  if (!listResponse.ok) throw new Error(`Lettura webhook Shopify HTTP ${listResponse.status}`);
+  const existing = Array.isArray(listBody.webhooks) ? listBody.webhooks : [];
+  let created = 0;
+  let active = 0;
+  for (const topic of ["orders/create", "orders/updated"]) {
+    if (existing.some((webhook: { topic?: string; address?: string }) => webhook.topic === topic && webhook.address === address)) {
+      active += 1;
+      continue;
+    }
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
+      body: JSON.stringify({ webhook: { topic, address, format: "json" } }),
+    });
+    if (!response.ok) throw new Error(`Registrazione ${topic} HTTP ${response.status}`);
+    created += 1;
+  }
+  return { active: active + created, created, address };
 }
 
 async function fetchShopifyOrders(shopDomain: string, token: string) {

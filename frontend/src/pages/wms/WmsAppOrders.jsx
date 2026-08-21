@@ -75,7 +75,15 @@ export default function WmsAppOrders() {
         {visible.length ? <div className="space-y-3">{visible.map((order) => <OrderRow key={order.id} order={order} onClick={() => setSelected(order)} />)}</div> : <EmptyOrders next={tab === "prossima"} />}
       </section>
 
-      <OrderSheet order={selected} open={Boolean(selected)} onOpenChange={(open) => { if (!open) setSelected(null); }} />
+      <OrderSheet
+        order={selected}
+        open={Boolean(selected)}
+        onOpenChange={(open) => { if (!open) setSelected(null); }}
+        onOperate={(order) => {
+          setSelected(null);
+          navigate(order.wms_status === "pronto" ? `/wms-app/packing/${order.id}` : `/wms-app/picking/${order.id}`);
+        }}
+      />
     </div>
   );
 }
@@ -96,8 +104,10 @@ function OrderRow({ order, onClick }) {
   );
 }
 
-function OrderSheet({ order, open, onOpenChange }) {
-  return <Sheet open={open} onOpenChange={onOpenChange}><SheetContent side="bottom" className="mx-auto max-h-[88dvh] w-full max-w-3xl overflow-y-auto rounded-t-lg border-0 bg-white p-0"><SheetHeader className="border-b border-slate-100 px-5 pb-4 pt-6 text-left"><SheetTitle className="text-xl font-black">Ordine {order?.order_name}</SheetTitle><SheetDescription>{order?.cliente_ragione_sociale} · {order ? formatDateTime(order.processed_at) : ""}</SheetDescription></SheetHeader>{order && <div className="pb-[max(24px,env(safe-area-inset-bottom))]"><div className="grid grid-cols-3 gap-2 p-5"><Metric label="Righe" value={order.items?.length || 0} tone="slate" /><Metric label="Pezzi" value={(order.items || []).reduce((sum, item) => sum + Number(item.quantita || 0), 0)} tone="teal" /><Metric label="Giornata" value={formatDay(order.operational_date)} tone="blue" small /></div><div className="divide-y divide-slate-100 border-y border-slate-100">{(order.items || []).map((item) => <div key={item.id} className="flex items-start gap-3 p-4"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-100"><Boxes className="h-4 w-4" /></span><div className="min-w-0 flex-1"><strong className="block">{item.titolo}</strong><span className="mt-1 block break-all font-mono text-xs text-slate-500">SKU {item.sku || "assente"} · EAN {item.ean || "assente"}</span></div><strong className="shrink-0">×{item.quantita}</strong></div>)}</div></div>}</SheetContent></Sheet>;
+function OrderSheet({ order, open, onOpenChange, onOperate }) {
+  const missing = (order?.items || []).filter((item) => !item.referenza_id).length;
+  const actionLabel = order?.wms_status === "pronto" ? "Apri packing station" : order?.wms_status === "in_preparazione" ? "Continua picking" : "Avvia picking";
+  return <Sheet open={open} onOpenChange={onOpenChange}><SheetContent side="bottom" className="mx-auto max-h-[88dvh] w-full max-w-3xl overflow-y-auto rounded-t-lg border-0 bg-white p-0"><SheetHeader className="border-b border-slate-100 px-5 pb-4 pt-6 text-left"><SheetTitle className="text-xl font-black">Ordine {order?.order_name}</SheetTitle><SheetDescription>{order?.cliente_ragione_sociale} · {order ? formatDateTime(order.processed_at) : ""}</SheetDescription></SheetHeader>{order && <div className="pb-[max(24px,env(safe-area-inset-bottom))]"><div className="grid grid-cols-3 gap-2 p-5"><Metric label="Righe" value={order.items?.length || 0} tone="slate" /><Metric label="Pezzi" value={(order.items || []).reduce((sum, item) => sum + Number(item.quantita || 0), 0)} tone="teal" /><Metric label="Giornata" value={formatDay(order.operational_date)} tone="blue" small /></div><div className="divide-y divide-slate-100 border-y border-slate-100">{(order.items || []).map((item) => <div key={item.id} className="flex items-start gap-3 p-4"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-100"><Boxes className="h-4 w-4" /></span><div className="min-w-0 flex-1"><strong className="block">{item.titolo}</strong><span className="mt-1 block break-all font-mono text-xs text-slate-500">SKU {item.sku || "assente"} · EAN {item.ean || "assente"}</span></div><strong className="shrink-0">×{item.quantita}</strong></div>)}</div>{order.wms_status !== "spedito" && <div className="p-5"><Button className="h-14 w-full text-base font-black" disabled={missing > 0} onClick={() => onOperate(order)}>{order.wms_status === "pronto" ? <PackageCheck className="mr-2 h-5 w-5" /> : <ShoppingCart className="mr-2 h-5 w-5" />}{actionLabel}</Button>{missing > 0 && <p className="mt-3 text-center text-xs font-bold text-amber-700">Collega prima tutte le righe alle referenze.</p>}</div>}</div>}</SheetContent></Sheet>;
 }
 
 function Metric({ label, value, tone, small }) {

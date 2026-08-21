@@ -3,7 +3,7 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
 import {
-  Archive, Barcode, Boxes, ChevronRight, CircleHelp,
+  Archive, Barcode, Boxes, ChevronRight, CircleHelp, PackageCheck,
   LayoutGrid, LogOut, Menu, PackageOpen, Printer, Search, Settings,
   ShoppingCart, SlidersHorizontal, UserRound, Warehouse,
 } from "lucide-react";
@@ -67,7 +67,7 @@ export default function WmsAppLayout() {
     : (entries || []).filter((entry) => entry.cliente_id === clientId);
 
   const focusScanner = () => {
-    if (location.pathname.includes("/wms-app/inbound/") || /^\/wms-app\/inventario\/[^/]+$/.test(location.pathname)) {
+    if (location.pathname.includes("/wms-app/inbound/") || location.pathname.includes("/wms-app/picking/") || location.pathname.includes("/wms-app/packing/") || /^\/wms-app\/inventario\/[^/]+$/.test(location.pathname)) {
       window.dispatchEvent(new Event("wms-focus-scanner"));
       return;
     }
@@ -146,7 +146,7 @@ export default function WmsAppLayout() {
             <MenuLink icon={Archive} label="Inventario" active={location.pathname.includes("/inventario")} onClick={() => { setMenuOpen(false); navigate("/wms-app/inventario"); }} />
             <MenuLink icon={ShoppingCart} label="Ordini" active={location.pathname.includes("/ordini")} onClick={() => { setMenuOpen(false); navigate("/wms-app/ordini"); }} />
             <MenuLink icon={Search} label="Cerca prodotto" active={location.pathname.includes("/cerca-prodotto")} onClick={() => { setMenuOpen(false); navigate("/wms-app/cerca-prodotto"); }} />
-            <MenuLink icon={Boxes} label="Picking e packing" soon />
+            <MenuLink icon={Boxes} label="Picking e packing" active={location.pathname.includes("/picking") || location.pathname.includes("/packing")} onClick={() => { setMenuOpen(false); navigate("/wms-app/packing"); }} />
             <MenuLink icon={SlidersHorizontal} label="Strumenti" active={location.pathname.includes("/strumenti")} onClick={() => { setMenuOpen(false); navigate("/wms-app/strumenti"); }} />
             <MenuLink icon={Settings} label="Configurazione" active={location.pathname.includes("/configurazione")} onClick={() => { setMenuOpen(false); navigate("/wms-app/configurazione"); }} />
           </nav>
@@ -178,7 +178,7 @@ function BottomNavigation() {
     { label: "Arrivi", icon: PackageOpen, active: location.pathname.includes("/arrivi") || location.pathname.includes("/inbound/"), action: () => navigate("/wms-app/arrivi") },
     { label: "Stock", icon: Warehouse, active: location.pathname.includes("/ubicazioni"), action: () => navigate("/wms-app/ubicazioni") },
     { label: "Inventario", icon: Archive, active: location.pathname.includes("/inventario"), action: () => navigate("/wms-app/inventario") },
-    { label: "Strumenti", icon: SlidersHorizontal, active: location.pathname.includes("/strumenti"), action: () => navigate("/wms-app/strumenti") },
+    { label: "Packing", icon: PackageCheck, active: location.pathname.includes("/picking") || location.pathname.includes("/packing"), action: () => navigate("/wms-app/packing") },
   ];
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-3xl border-t border-slate-200 bg-white/96 px-2 pb-[max(10px,env(safe-area-inset-bottom))] pt-2 backdrop-blur" aria-label="Navigazione WMS">

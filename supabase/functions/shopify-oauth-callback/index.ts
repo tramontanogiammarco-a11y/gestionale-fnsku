@@ -73,6 +73,9 @@ Deno.serve(async (req) => {
   );
   if (upsertError) return html(`Token ricevuto, ma salvataggio fallito: ${upsertError.message}`, false, 400);
 
+  await registerOrderWebhooks(shopDomain, tokenBody.access_token, `${supabaseUrl}/functions/v1/shopify-orders-webhook`)
+    .catch((webhookError) => console.error("shopify webhook registration", webhookError));
+
   const redirect = new URL("/admin/integrazioni", frontendUrl);
   redirect.searchParams.set("shopify", "connected");
   redirect.searchParams.set("shop", shopDomain);
@@ -85,6 +88,23 @@ function normalizeShopDomain(value: string) {
     .replace(/^https?:\/\//i, "")
     .replace(/\/.*$/, "")
     .toLowerCase();
+}
+
+async function registerOrderWebhooks(shopDomain: string, token: string, address: string) {
+  const endpoint = `https://${shopDomain}/admin/api/2026-07/webhooks.json`;
+  const listResponse = await fetch(endpoint, { headers: { "X-Shopify-Access-Token": token } });
+  const listBody = await listResponse.json().catch(() => ({}));
+  if (!listResponse.ok) throw new Error(`Lettura webhook Shopify HTTP ${listResponse.status}`);
+  const existing = Array.isArray(listBody.webhooks) ? listBody.webhooks : [];
+  for (const topic of ["orders/create", "orders/updated"]) {
+    if (existing.some((webhook: { topic?: string; address?: string }) => webhook.topic === topic && webhook.address === address)) continue;
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
+      body: JSON.stringify({ webhook: { topic, address, format: "json" } }),
+    });
+    if (!response.ok) throw new Error(`Registrazione ${topic} HTTP ${response.status}`);
+  }
 }
 
 async function verifyShopifyHmac(params: URLSearchParams, secret: string) {

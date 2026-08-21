@@ -1,4 +1,5 @@
 import "@/App.css";
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
@@ -43,9 +44,13 @@ import WmsAppInventory from "@/pages/wms/WmsAppInventory";
 import WmsAppInventoryCount from "@/pages/wms/WmsAppInventoryCount";
 import WmsAppLocations from "@/pages/wms/WmsAppLocations";
 import WmsAppOrders from "@/pages/wms/WmsAppOrders";
+import WmsAppPicking from "@/pages/wms/WmsAppPicking";
+import WmsAppPacking from "@/pages/wms/WmsAppPacking";
 import WmsAppProductSearch from "@/pages/wms/WmsAppProductSearch";
 import WmsAppTools from "@/pages/wms/WmsAppTools";
 import WmsAppSettings from "@/pages/wms/WmsAppSettings";
+
+const AdminWmsWarehouseMap = lazy(() => import("@/pages/admin/WmsWarehouseMap"));
 
 // Reindirizza dalla root all'area corretta
 function RootRedirect() {
@@ -88,6 +93,9 @@ function App() {
               <Route path="inventario/:id" element={<WmsAppInventoryCount />} />
               <Route path="ubicazioni" element={<WmsAppLocations />} />
               <Route path="ordini" element={<WmsAppOrders />} />
+              <Route path="picking/:orderId" element={<WmsAppPicking />} />
+              <Route path="packing" element={<WmsAppPacking />} />
+              <Route path="packing/:orderId" element={<WmsAppPacking />} />
               <Route path="cerca-prodotto" element={<WmsAppProductSearch />} />
               <Route path="strumenti" element={<WmsAppTools />} />
               <Route path="configurazione" element={<WmsAppSettings />} />
@@ -117,6 +125,7 @@ function App() {
               <Route path="fatturazione" element={<AdminFatturazione />} />
               <Route path="integrazioni" element={<AdminIntegrazioni />} />
               <Route path="wms" element={<AdminWmsControl />} />
+              <Route path="wms/mappa" element={<Suspense fallback={<div className="flex min-h-[70vh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>}><AdminWmsWarehouseMap /></Suspense>} />
               <Route path="wms/inbound/:id" element={<AdminWmsInbound />} />
               <Route path="ordini-wms" element={<AdminOrdiniWms />} />
             </Route>
