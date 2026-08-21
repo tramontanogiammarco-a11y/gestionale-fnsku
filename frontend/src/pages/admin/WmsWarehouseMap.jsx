@@ -5,15 +5,16 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
   AlertTriangle, Box, Boxes, Eye, Grid3X3, Loader2, MapPinned, Move3D,
-  PackageOpen, RotateCcw, Route, Save, ScanLine, Sparkles, Undo2, Warehouse,
+  PackageOpen, RotateCcw, Route, Save, ScanLine, Sparkles, Trash2, Undo2, Warehouse, Waypoints,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { calculateWarehouseRoute, normalizeAisles } from "@/lib/wmsRouting";
 
-const DEFAULT_MAP = { width: 34, depth: 24, entrance_x: 0, entrance_z: 10.5 };
+const DEFAULT_MAP = { width: 34, depth: 24, entrance_x: 0, entrance_z: 10.5, aisles: [] };
 const OPERATIONAL_TYPES = new Set(["pallet", "slot"]);
 
 function locationNumber(code) {
@@ -55,14 +56,19 @@ function normalizeLocations(rows = []) {
       map_rotation: Number(row.map_rotation || 0),
       map_width: Number(row.map_width || (row.tipo === "pallet" ? 1.6 : row.tipo === "slot" ? 0.92 : 3)),
       map_depth: Number(row.map_depth || (row.tipo === "pallet" ? 0.72 : row.tipo === "slot" ? 0.62 : 1.6)),
+      access_side: row.access_side || "front",
     };
   });
 }
 
+function normalizeMap(value = {}) {
+  return { ...DEFAULT_MAP, ...value, aisles: normalizeAisles(value.aisles) };
+}
+
 function mapSnapshot(locations, map) {
   return JSON.stringify({
-    locations: locations.map(({ id, map_x, map_z, map_rotation }) => [id, map_x, map_z, map_rotation]),
-    map: [map.width, map.depth, map.entrance_x, map.entrance_z],
+    locations: locations.map(({ id, map_x, map_z, map_rotation, access_side }) => [id, map_x, map_z, map_rotation, access_side]),
+    map: [map.width, map.depth, map.entrance_x, map.entrance_z, map.aisles],
   });
 }
 
@@ -115,29 +121,6 @@ function collisionIds(locations) {
   return collisions;
 }
 
-function calculateRoute(locations, map) {
-  const pending = locations.filter((location) => location.occupata && OPERATIONAL_TYPES.has(location.tipo));
-  const ordered = [];
-  let current = { map_x: Number(map.entrance_x), map_z: Number(map.entrance_z) };
-  let distance = 0;
-  while (pending.length) {
-    let bestIndex = 0;
-    let bestDistance = Infinity;
-    pending.forEach((location, index) => {
-      const nextDistance = Math.hypot(location.map_x - current.map_x, location.map_z - current.map_z);
-      if (nextDistance < bestDistance) {
-        bestDistance = nextDistance;
-        bestIndex = index;
-      }
-    });
-    const [next] = pending.splice(bestIndex, 1);
-    ordered.push(next);
-    distance += bestDistance;
-    current = next;
-  }
-  return { locations: ordered, distance };
-}
-
 function createTextSprite(text, { background = "#ffffff", color = "#0f172a", scale = 1 } = {}) {
   const canvas = document.createElement("canvas");
   canvas.width = 320;
@@ -164,15 +147,15 @@ function createTextSprite(text, { background = "#ffffff", color = "#0f172a", sca
 }
 
 const WarehouseScene = forwardRef(function WarehouseScene({
-  locations, onMoveCommit, onDragStateChange, selectedId, setSelectedId, mode, snap, map, routeData, collisions,
+  locations, onMoveCommit, onDragStateChange, onAislePoint, selectedId, setSelectedId, mode, snap, map, routeData, collisions, draftAislePoints,
 }, ref) {
   const containerRef = useRef(null);
   const stateRef = useRef(null);
   const locationsRef = useRef(locations);
-  const propsRef = useRef({ onMoveCommit, onDragStateChange, setSelectedId, mode, snap, map });
+  const propsRef = useRef({ onMoveCommit, onDragStateChange, onAislePoint, setSelectedId, mode, snap, map });
 
   locationsRef.current = locations;
-  propsRef.current = { onMoveCommit, onDragStateChange, setSelectedId, mode, snap, map };
+  propsRef.current = { onMoveCommit, onDragStateChange, onAislePoint, setSelectedId, mode, snap, map };
 
   useImperativeHandle(ref, () => ({
     topView() {
@@ -304,7 +287,13 @@ const WarehouseScene = forwardRef(function WarehouseScene({
       const label = createTextSprite(location.codice, { scale: location.tipo === "slot" ? 0.76 : 0.86 });
       label.position.set(0, height / 2 + 0.48, 0);
       mesh.add(label);
-      meshes.set(location.id, { mesh, hitMesh, label, material, height });
+      const accessMarker = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.18, 0.18, 0.06, 24),
+        new THREE.MeshStandardMaterial({ color: "#0891b2", emissive: "#164e63", emissiveIntensity: 0.2 })
+      );
+      accessMarker.position.y = -height / 2 + 0.08;
+      mesh.add(accessMarker);
+      meshes.set(location.id, { mesh, hitMesh, label, material, height, accessMarker });
     });
 
     const raycaster = new THREE.Raycaster();
@@ -392,6 +381,19 @@ const WarehouseScene = forwardRef(function WarehouseScene({
     const onPointerDown = (event) => {
       if (event.button !== 0) return;
       pointerPosition(event);
+      if (propsRef.current.mode === "draw-aisle") {
+        if (!raycaster.ray.intersectPlane(dragPlane, planeHit)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const step = propsRef.current.snap ? 0.25 : 0.01;
+        const halfWidth = propsRef.current.map.width / 2;
+        const halfDepth = propsRef.current.map.depth / 2;
+        propsRef.current.onAislePoint?.({
+          x: Math.max(-halfWidth, Math.min(halfWidth, Math.round(planeHit.x / step) * step)),
+          z: Math.max(-halfDepth, Math.min(halfDepth, Math.round(planeHit.z / step) * step)),
+        });
+        return;
+      }
       const hit = raycaster.intersectObjects(clickMeshes, false)[0];
       if (!hit) return;
       const locationId = hit.object.userData.locationId;
@@ -427,6 +429,10 @@ const WarehouseScene = forwardRef(function WarehouseScene({
 
     const onPointerMove = (event) => {
       if (!drag.active) {
+        if (propsRef.current.mode === "draw-aisle") {
+          renderer.domElement.style.cursor = "crosshair";
+          return;
+        }
         pointerPosition(event);
         const hovering = raycaster.intersectObjects(clickMeshes, false).length > 0;
         renderer.domElement.style.cursor = propsRef.current.mode.startsWith("move") && hovering ? "grab" : "default";
@@ -511,7 +517,7 @@ const WarehouseScene = forwardRef(function WarehouseScene({
     };
     animate();
 
-    stateRef.current = { scene, camera, renderer, controls, meshes, entrance, routeLine: null };
+    stateRef.current = { scene, camera, renderer, controls, meshes, entrance, routeLine: null, corridorGroup: null };
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
@@ -541,6 +547,10 @@ const WarehouseScene = forwardRef(function WarehouseScene({
       if (!item) return;
       item.mesh.position.set(location.map_x, item.height / 2, location.map_z);
       item.mesh.rotation.y = THREE.MathUtils.degToRad(location.map_rotation || 0);
+      const side = location.access_side || "front";
+      const accessOffset = side === "left" || side === "right" ? location.map_width / 2 + 0.65 : location.map_depth / 2 + 0.65;
+      item.accessMarker.position.x = side === "left" ? -accessOffset : side === "right" ? accessOffset : 0;
+      item.accessMarker.position.z = side === "back" ? -accessOffset : side === "front" ? accessOffset : 0;
       const selected = location.id === selectedId;
       const colliding = collisions.has(location.id);
       const color = colliding ? "#dc2626"
@@ -552,6 +562,7 @@ const WarehouseScene = forwardRef(function WarehouseScene({
       item.material.color.set(color);
       item.material.emissive.set(selected ? "#0c4a6e" : colliding ? "#450a0a" : "#000000");
       item.material.emissiveIntensity = selected || colliding ? 0.22 : 0;
+      item.accessMarker.visible = selected;
       const ordinal = locationNumber(location.codice);
       item.label.visible = selected || location.occupata || ordinal % 10 === 0 || !OPERATIONAL_TYPES.has(location.tipo);
     });
@@ -562,22 +573,55 @@ const WarehouseScene = forwardRef(function WarehouseScene({
       state.routeLine.material.dispose();
       state.routeLine = null;
     }
-    if (routeData.locations.length) {
-      const points = [new THREE.Vector3(map.entrance_x, 0.22, map.entrance_z)];
-      routeData.locations.forEach((location) => points.push(new THREE.Vector3(location.map_x, 0.22, location.map_z)));
+    if (routeData.pathPoints.length >= 2) {
+      const points = routeData.pathPoints.map((routePoint) => new THREE.Vector3(routePoint.x, 0.22, routePoint.z));
       const geometry = new THREE.BufferGeometry().setFromPoints(points);
       const material = new THREE.LineBasicMaterial({ color: "#2563eb", linewidth: 2 });
       state.routeLine = new THREE.Line(geometry, material);
       state.routeLine.renderOrder = 10;
       state.scene.add(state.routeLine);
     }
-  }, [collisions, locations, map.entrance_x, map.entrance_z, routeData.locations, selectedId]);
+
+    if (state.corridorGroup) {
+      state.scene.remove(state.corridorGroup);
+      state.corridorGroup.traverse((object) => {
+        object.geometry?.dispose?.();
+        object.material?.dispose?.();
+      });
+    }
+    const corridorGroup = new THREE.Group();
+    const renderAisle = (aisle, draft = false) => {
+      aisle.points.slice(0, -1).forEach((start, index) => {
+        const end = aisle.points[index + 1];
+        const length = Math.hypot(end.x - start.x, end.z - start.z);
+        const segment = new THREE.Mesh(
+          new THREE.BoxGeometry(length, 0.035, draft ? 0.42 : 0.58),
+          new THREE.MeshBasicMaterial({ color: draft ? "#f59e0b" : "#22d3ee", transparent: true, opacity: draft ? 0.82 : 0.38, depthWrite: false })
+        );
+        segment.position.set((start.x + end.x) / 2, 0.07, (start.z + end.z) / 2);
+        segment.rotation.y = -Math.atan2(end.z - start.z, end.x - start.x);
+        corridorGroup.add(segment);
+      });
+      aisle.points.forEach((aislePoint) => {
+        const marker = new THREE.Mesh(
+          new THREE.CylinderGeometry(draft ? 0.13 : 0.09, draft ? 0.13 : 0.09, 0.05, 18),
+          new THREE.MeshBasicMaterial({ color: draft ? "#f59e0b" : "#0891b2" })
+        );
+        marker.position.set(aislePoint.x, 0.1, aislePoint.z);
+        corridorGroup.add(marker);
+      });
+    };
+    normalizeAisles(map.aisles).forEach((aisle) => renderAisle(aisle));
+    if (draftAislePoints.length) renderAisle({ points: draftAislePoints }, true);
+    state.corridorGroup = corridorGroup;
+    state.scene.add(corridorGroup);
+  }, [collisions, draftAislePoints, locations, map.aisles, map.entrance_x, map.entrance_z, routeData.pathPoints, selectedId]);
 
   useEffect(() => {
     const state = stateRef.current;
     if (!state) return;
     state.controls.enabled = mode === "explore";
-    state.renderer.domElement.style.cursor = mode.startsWith("move") ? "grab" : "default";
+    state.renderer.domElement.style.cursor = mode.startsWith("move") ? "grab" : mode === "draw-aisle" ? "crosshair" : "default";
   }, [mode]);
 
   return <div ref={containerRef} className="absolute inset-0" />;
@@ -592,6 +636,8 @@ export default function WmsWarehouseMap() {
   const [mode, setMode] = useState("explore");
   const [snap, setSnap] = useState(true);
   const [showRoute, setShowRoute] = useState(true);
+  const [draftAislePoints, setDraftAislePoints] = useState([]);
+  const [selectedAisleId, setSelectedAisleId] = useState(null);
   const [moveHistory, setMoveHistory] = useState([]);
   const [dragState, setDragState] = useState({ active: false, invalid: false, count: 0 });
   const [loading, setLoading] = useState(true);
@@ -602,7 +648,7 @@ export default function WmsWarehouseMap() {
     try {
       const response = await api.get("/wms/mappa");
       const nextLocations = normalizeLocations(response.data.locations || []);
-      const nextMap = { ...DEFAULT_MAP, ...(response.data.map || {}) };
+      const nextMap = normalizeMap(response.data.map || {});
       setLocations(nextLocations);
       setMap(nextMap);
       setInitialSnapshot(mapSnapshot(nextLocations, nextMap));
@@ -618,7 +664,9 @@ export default function WmsWarehouseMap() {
 
   const selected = useMemo(() => locations.find((location) => location.id === selectedId) || null, [locations, selectedId]);
   const collisions = useMemo(() => collisionIds(locations), [locations]);
-  const routeData = useMemo(() => showRoute ? calculateRoute(locations, map) : { locations: [], distance: 0 }, [locations, map, showRoute]);
+  const routeData = useMemo(() => showRoute
+    ? calculateWarehouseRoute(locations.filter((location) => location.occupata && OPERATIONAL_TYPES.has(location.tipo)), map)
+    : { locations: [], distance: 0, pathPoints: [], mode: "direct" }, [locations, map, showRoute]);
   const dirty = useMemo(() => Boolean(initialSnapshot) && mapSnapshot(locations, map) !== initialSnapshot, [initialSnapshot, locations, map]);
   const stats = useMemo(() => ({
     pallets: locations.filter((row) => row.tipo === "pallet").length,
@@ -652,8 +700,53 @@ export default function WmsWarehouseMap() {
 
   const activateMoveMode = (nextMode) => {
     setMode(nextMode);
+    setDraftAislePoints([]);
     setDragState({ active: false, invalid: false, count: 0 });
     window.requestAnimationFrame(() => sceneRef.current?.topView());
+  };
+
+  const activateAisleMode = () => {
+    setMode("draw-aisle");
+    setSelectedId(null);
+    setSelectedAisleId(null);
+    setDraftAislePoints([]);
+    window.requestAnimationFrame(() => sceneRef.current?.topView());
+  };
+
+  const appendAislePoint = useCallback((nextPoint) => {
+    setDraftAislePoints((previous) => {
+      const last = previous[previous.length - 1];
+      return last && last.x === nextPoint.x && last.z === nextPoint.z ? previous : [...previous, nextPoint];
+    });
+  }, []);
+
+  const finishAisle = () => {
+    if (draftAislePoints.length < 2) {
+      toast.error("Indica almeno due punti per creare il corridoio");
+      return;
+    }
+    const id = globalThis.crypto?.randomUUID?.() || `aisle-${Date.now()}`;
+    const nextAisle = { id, name: `Corridoio ${map.aisles.length + 1}`, points: draftAislePoints };
+    setMap((previous) => ({ ...previous, aisles: [...previous.aisles, nextAisle] }));
+    setSelectedAisleId(id);
+    setDraftAislePoints([]);
+    setMode("explore");
+    toast.success("Corridoio aggiunto. Salva la mappa per confermare.");
+  };
+
+  const removeAisle = (aisleId) => {
+    setMap((previous) => ({ ...previous, aisles: previous.aisles.filter((aisle) => aisle.id !== aisleId) }));
+    setSelectedAisleId((previous) => previous === aisleId ? null : previous);
+  };
+
+  const updateAislePoint = (aisleId, pointIndex, changes) => {
+    setMap((previous) => ({
+      ...previous,
+      aisles: previous.aisles.map((aisle) => aisle.id !== aisleId ? aisle : {
+        ...aisle,
+        points: aisle.points.map((aislePoint, index) => index === pointIndex ? { ...aislePoint, ...changes } : aislePoint),
+      }),
+    }));
   };
 
   const applySmartLayout = () => {
@@ -673,11 +766,11 @@ export default function WmsWarehouseMap() {
     setSaving(true);
     try {
       const response = await api.put("/wms/mappa", {
-        locations: locations.map(({ id, map_x, map_z, map_rotation }) => ({ id, map_x, map_z, map_rotation })),
-        map: { width: map.width, depth: map.depth, entrance_x: map.entrance_x, entrance_z: map.entrance_z },
+        locations: locations.map(({ id, map_x, map_z, map_rotation, access_side }) => ({ id, map_x, map_z, map_rotation, access_side })),
+        map: { width: map.width, depth: map.depth, entrance_x: map.entrance_x, entrance_z: map.entrance_z, aisles: map.aisles },
       });
       const nextLocations = normalizeLocations(response.data.locations || []);
-      const nextMap = { ...DEFAULT_MAP, ...(response.data.map || {}) };
+      const nextMap = normalizeMap(response.data.map || {});
       setLocations(nextLocations);
       setMap(nextMap);
       setInitialSnapshot(mapSnapshot(nextLocations, nextMap));
@@ -724,6 +817,7 @@ export default function WmsWarehouseMap() {
           <ModeButton active={mode === "explore"} onClick={() => setMode("explore")} icon={Eye}>Esplora</ModeButton>
           <ModeButton active={mode === "move-location"} onClick={() => activateMoveMode("move-location")} icon={Move3D}>Sposta ubicazione</ModeButton>
           <ModeButton active={mode === "move-zone"} onClick={() => activateMoveMode("move-zone")} icon={Boxes}>Sposta zona</ModeButton>
+          <ModeButton active={mode === "draw-aisle"} onClick={activateAisleMode} icon={Waypoints}>Disegna corridoio</ModeButton>
           <button
             type="button"
             onClick={undoMove}
@@ -738,7 +832,7 @@ export default function WmsWarehouseMap() {
         <div className="flex flex-wrap items-center gap-4 text-sm font-semibold">
           <label className="flex items-center gap-2"><Switch checked={snap} onCheckedChange={setSnap} /><Grid3X3 className="h-4 w-4" /> Aggancio griglia</label>
           <label className="flex items-center gap-2"><Switch checked={showRoute} onCheckedChange={setShowRoute} /><Route className="h-4 w-4" /> Percorso</label>
-          <div className="text-slate-500">{routeData.locations.length} tappe · {routeData.distance.toFixed(1)} m</div>
+          <div className="text-slate-500">{routeData.locations.length} tappe · {routeData.distance.toFixed(1)} m · {routeData.mode === "aisles" ? "su corridoi" : "diretto"}</div>
         </div>
       </div>
 
@@ -748,6 +842,7 @@ export default function WmsWarehouseMap() {
           locations={locations}
           onMoveCommit={commitMove}
           onDragStateChange={setDragState}
+          onAislePoint={appendAislePoint}
           selectedId={selectedId}
           setSelectedId={setSelectedId}
           mode={mode}
@@ -755,6 +850,7 @@ export default function WmsWarehouseMap() {
           map={map}
           routeData={routeData}
           collisions={collisions}
+          draftAislePoints={draftAislePoints}
         />
 
         {mode.startsWith("move") && (
@@ -775,6 +871,14 @@ export default function WmsWarehouseMap() {
           </div>
         )}
 
+        {mode === "draw-aisle" && (
+          <div className="absolute left-1/2 top-4 z-10 flex -translate-x-1/2 items-center gap-2 border border-cyan-200 bg-white/95 px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm backdrop-blur">
+            <span>{draftAislePoints.length ? `${draftAislePoints.length} punti: tocca il pavimento per continuare` : "Tocca il pavimento per iniziare il corridoio"}</span>
+            <Button size="sm" onClick={finishAisle} disabled={draftAislePoints.length < 2}>Termina</Button>
+            <Button size="sm" variant="ghost" onClick={() => { setDraftAislePoints([]); setMode("explore"); }}>Annulla</Button>
+          </div>
+        )}
+
         <div className="absolute left-4 top-4 flex gap-1 border border-slate-200 bg-white/95 p-1 shadow-sm backdrop-blur">
           <Button size="sm" variant="ghost" onClick={() => sceneRef.current?.topView()}><Grid3X3 className="mr-2 h-4 w-4" /> Alto</Button>
           <Button size="sm" variant="ghost" onClick={() => sceneRef.current?.perspectiveView()}><Box className="mr-2 h-4 w-4" /> 3D</Button>
@@ -782,7 +886,7 @@ export default function WmsWarehouseMap() {
         </div>
 
         <div className="absolute bottom-4 left-4 flex flex-wrap gap-3 border border-slate-200 bg-white/95 px-3 py-2 text-xs font-semibold shadow-sm backdrop-blur">
-          <Legend color="#f0b86e" label="Pallet" /><Legend color="#76c7bc" label="Slot" /><Legend color="#d97706" label="Occupata" /><Legend color="#e11d48" label="Bloccata" />
+          <Legend color="#f0b86e" label="Pallet" /><Legend color="#76c7bc" label="Slot" /><Legend color="#22d3ee" label="Corridoio" /><Legend color="#d97706" label="Occupata" /><Legend color="#e11d48" label="Bloccata" />
         </div>
 
         <aside className={`absolute right-4 overflow-y-auto border border-slate-200 bg-white/95 p-4 shadow-lg backdrop-blur max-md:left-4 max-md:top-auto max-md:w-auto max-md:max-h-[46%] ${selected ? "bottom-4 top-4 w-[320px]" : "top-4 w-[280px]"}`}>
@@ -799,6 +903,26 @@ export default function WmsWarehouseMap() {
                 <div><div className="mb-1 text-xs font-bold text-slate-500">Stato</div><div className="flex h-10 items-center font-semibold capitalize">{selected.stato}</div></div>
               </div>
               <Button variant="outline" className="w-full" onClick={() => updateSelected({ map_rotation: (selected.map_rotation + 90) % 360 })}><RotateCcw className="mr-2 h-4 w-4" /> Ruota 90°</Button>
+              {OPERATIONAL_TYPES.has(selected.tipo) && (
+                <div className="mt-4 border-t border-slate-200 pt-4">
+                  <div className="mb-2 text-xs font-bold uppercase text-slate-500">Lato di prelievo</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      ["front", "Fronte"], ["back", "Retro"], ["left", "Sinistra"], ["right", "Destra"],
+                    ].map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => updateSelected({ access_side: value })}
+                        className={`h-9 border text-sm font-semibold transition ${selected.access_side === value ? "border-cyan-600 bg-cyan-50 text-cyan-900" : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-2 text-xs text-slate-500">Il punto azzurro indica da quale lato l’operatore può raggiungere la merce.</div>
+                </div>
+              )}
               <div className="mt-5 border-t border-slate-200 pt-4">
                 <div className="flex items-center justify-between"><span className="text-xs font-bold uppercase text-slate-500">Contenuto</span><span className="text-lg font-black">{selected.quantita || 0}</span></div>
                 <div className="mt-3 space-y-2">
@@ -813,10 +937,42 @@ export default function WmsWarehouseMap() {
               </div>
             </>
           ) : (
-            <div className="flex min-h-32 flex-col items-center justify-center text-center">
-              <MapPinned className="h-8 w-8 text-slate-300" />
-              <div className="mt-3 font-bold">Nessuna ubicazione selezionata</div>
-              <div className="mt-1 text-sm text-slate-500">Seleziona un pallet o uno slot.</div>
+            <div>
+              <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                <div><div className="text-xs font-bold uppercase text-slate-500">Viabilità</div><h2 className="mt-1 text-lg font-black">Corridoi</h2></div>
+                <Badge variant="outline">{map.aisles.length}</Badge>
+              </div>
+              {!map.aisles.length ? (
+                <div className="flex min-h-36 flex-col items-center justify-center text-center">
+                  <Waypoints className="h-8 w-8 text-slate-300" />
+                  <div className="mt-3 font-bold">Nessun corridoio</div>
+                  <div className="mt-1 text-sm text-slate-500">Usa “Disegna corridoio” e indica i passaggi percorribili.</div>
+                </div>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {map.aisles.map((aisle) => (
+                    <div key={aisle.id} className={`border p-2 ${selectedAisleId === aisle.id ? "border-cyan-500 bg-cyan-50" : "border-slate-200"}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <button type="button" className="min-w-0 flex-1 text-left text-sm font-bold" onClick={() => setSelectedAisleId((current) => current === aisle.id ? null : aisle.id)}>{aisle.name}</button>
+                        <button type="button" title="Elimina corridoio" aria-label={`Elimina ${aisle.name}`} className="flex h-8 w-8 items-center justify-center text-rose-600 hover:bg-rose-50" onClick={() => removeAisle(aisle.id)}><Trash2 className="h-4 w-4" /></button>
+                      </div>
+                      {selectedAisleId === aisle.id && (
+                        <div className="mt-2 space-y-2 border-t border-cyan-200 pt-2">
+                          {aisle.points.map((aislePoint, index) => (
+                            <div key={`${aisle.id}-${index}`} className="grid grid-cols-[32px_1fr_1fr] items-end gap-2">
+                              <span className="pb-2 text-xs font-bold text-slate-500">{index + 1}</span>
+                              <MapInput label="X" value={aislePoint.x} onChange={(value) => updateAislePoint(aisle.id, index, { x: value })} />
+                              <MapInput label="Z" value={aislePoint.z} onChange={(value) => updateAislePoint(aisle.id, index, { z: value })} />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <Button variant="outline" className="mt-3 w-full" onClick={activateAisleMode}><Waypoints className="mr-2 h-4 w-4" /> Nuovo corridoio</Button>
+              {routeData.mode !== "aisles" && <div className="mt-3 border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900">Finché non disegni i corridoi, la rotta resta una stima diretta.</div>}
             </div>
           )}
         </aside>

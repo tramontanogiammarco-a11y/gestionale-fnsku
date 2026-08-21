@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { requireSupabase, supabase, supabaseAnonKey, supabaseUrl } from "@/lib/supabase";
+import { calculateWarehouseRoute, normalizeAisles } from "@/lib/wmsRouting";
 
 const BUCKET = "gestionale-files";
 
@@ -1409,10 +1410,12 @@ async function updateWmsWarehouseMap(payload = {}) {
     const mapX = finiteMapNumber(location.map_x, "Coordinata X");
     const mapZ = finiteMapNumber(location.map_z, "Coordinata Z");
     const mapRotation = finiteMapNumber(location.map_rotation || 0, "Rotazione");
+    const accessSide = optionalText(location.access_side) || "front";
+    if (!["front", "back", "left", "right"].includes(accessSide)) fail("Lato di prelievo non valido");
     if (Math.abs(mapX) > 50 || Math.abs(mapZ) > 50) fail("Le ubicazioni devono restare entro 50 metri dal centro");
     return requireSupabase()
       .from("wms_locations")
-      .update({ map_x: mapX, map_z: mapZ, map_rotation: mapRotation, map_updated_at: nowIso() })
+      .update({ map_x: mapX, map_z: mapZ, map_rotation: mapRotation, access_side: accessSide, map_updated_at: nowIso() })
       .eq("id", id);
   });
 
@@ -1428,6 +1431,12 @@ async function updateWmsWarehouseMap(payload = {}) {
     if (width < 10 || width > 100 || depth < 10 || depth > 100) {
       fail("La mappa deve misurare tra 10 e 100 metri");
     }
+    const aisles = normalizeAisles(payload.map.aisles);
+    if (aisles.length > 50 || aisles.reduce((sum, aisle) => sum + aisle.points.length, 0) > 300) {
+      fail("La mappa contiene troppi corridoi o punti");
+    }
+    const outsideMap = aisles.some((aisle) => aisle.points.some((point) => Math.abs(point.x) > width / 2 || Math.abs(point.z) > depth / 2));
+    if (outsideMap) fail("I corridoi devono restare dentro il perimetro del magazzino");
     const { error } = await requireSupabase()
       .from("wms_warehouse_map")
       .update({
@@ -1435,6 +1444,7 @@ async function updateWmsWarehouseMap(payload = {}) {
         depth,
         entrance_x: entranceX,
         entrance_z: entranceZ,
+        aisles,
         updated_by: profile.id,
         updated_at: nowIso(),
       })
@@ -3174,27 +3184,6 @@ function pickingProductKey(row = {}) {
   return fnsku ? `fnsku:${fnsku}` : ean ? `ean:${ean}` : sku ? `sku:${sku}` : null;
 }
 
-function nearestLocationOrder(locations, start) {
-  const pending = [...locations];
-  const result = [];
-  let current = { x: Number(start.x || 0), z: Number(start.z || 0) };
-  while (pending.length) {
-    let bestIndex = 0;
-    let bestDistance = Infinity;
-    pending.forEach((location, index) => {
-      const distance = Math.hypot(Number(location.map_x || 0) - current.x, Number(location.map_z || 0) - current.z);
-      if (distance < bestDistance) {
-        bestIndex = index;
-        bestDistance = distance;
-      }
-    });
-    const [next] = pending.splice(bestIndex, 1);
-    result.push({ ...next, route_distance: bestDistance });
-    current = { x: Number(next.map_x || 0), z: Number(next.map_z || 0) };
-  }
-  return result;
-}
-
 async function wmsPickingPlan(order, items) {
   const missingReferences = (items || []).filter((item) => !item.referenza_id);
   if (missingReferences.length) {
@@ -3211,7 +3200,7 @@ async function wmsPickingPlan(order, items) {
     requireSupabase().from("referenze").select("id,cliente_id,titolo,ean,fnsku,sku").in("id", referenceIds),
     wmsStock(new URLSearchParams({ cliente_id: order.cliente_id })),
     requireSupabase().from("wms_pick_tasks").select("id").in("stato", ["da_prelevare", "in_corso"]),
-    requireSupabase().from("wms_warehouse_map").select("entrance_x,entrance_z").eq("id", true).single(),
+    requireSupabase().from("wms_warehouse_map").select("*").eq("id", true).single(),
   ]);
   const firstError = referencesError || activeTasksError || mapError;
   if (firstError) fail(firstError.message);
@@ -3412,8 +3401,8 @@ async function startWmsPicking(orderId) {
   const { allocations, locationMap, mapSettings } = plan;
 
   const uniqueLocations = [...new Set(allocations.map((allocation) => allocation.location_id))].map((id) => locationMap[id]).filter(Boolean);
-  const route = nearestLocationOrder(uniqueLocations, { x: mapSettings.entrance_x, z: mapSettings.entrance_z });
-  const sequenceMap = Object.fromEntries(route.map((location, index) => [location.id, index + 1]));
+  const route = calculateWarehouseRoute(uniqueLocations, mapSettings);
+  const sequenceMap = Object.fromEntries(route.locations.map((location, index) => [location.id, index + 1]));
   allocations.sort((left, right) => sequenceMap[left.location_id] - sequenceMap[right.location_id]);
 
   const { data: task, error: taskError } = await requireSupabase().from("wms_pick_tasks").insert({
