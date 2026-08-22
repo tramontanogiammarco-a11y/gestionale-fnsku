@@ -137,6 +137,15 @@ export default function WmsAppPicking() {
   if (loading) return <div className="flex min-h-[65dvh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-teal-700" /></div>;
   if (!data) return null;
   const complete = data.task?.stato === "completata";
+  const scannerContext = needsLocation && current ? {
+    location: current.location?.codice,
+    title: current.titolo,
+    requested: remaining,
+    completedLines: (data.lines || []).filter((line) => Number(line.quantita_prelevata || 0) >= Number(line.quantita_attesa || 0)).length,
+    totalLines: (data.lines || []).length,
+    picked: data.summary.picked,
+    expected: data.summary.expected,
+  } : null;
 
   return (
     <div className="space-y-5 pb-24" data-testid="wms-picking-mission">
@@ -218,7 +227,7 @@ export default function WmsAppPicking() {
         </section>
       )}
 
-      <CameraScanner open={cameraOpen} onOpenChange={setCameraOpen} purpose={bagConfirmation ? "universal" : "location"} onDetected={(value) => { setCameraOpen(false); if (bagConfirmation) confirmBag(value); else scan(value); }} />
+      <CameraScanner open={cameraOpen} onOpenChange={setCameraOpen} purpose={bagConfirmation ? "universal" : "location"} context={scannerContext} onDetected={(value) => { setCameraOpen(false); if (bagConfirmation) confirmBag(value); else scan(value); }} />
     </div>
   );
 }

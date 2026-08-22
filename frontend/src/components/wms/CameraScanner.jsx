@@ -6,7 +6,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 
-export default function CameraScanner({ open, onOpenChange, purpose = "universal", onDetected }) {
+export default function CameraScanner({ open, onOpenChange, purpose = "universal", onDetected, context = null }) {
   const controlsRef = useRef(null);
   const onDetectedRef = useRef(onDetected);
   const [videoElement, setVideoElement] = useState(null);
@@ -71,6 +71,17 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
+        {context && <section className="overflow-hidden rounded-md border border-slate-200 bg-white">
+          <div className="grid grid-cols-2 divide-x divide-slate-200 border-b border-slate-200">
+            <div className="p-3"><span className="block text-xs font-bold uppercase text-slate-500">Prodotti</span><strong className="mt-1 block text-2xl font-black">{context.completedLines}<span className="text-base text-slate-400">/{context.totalLines}</span></strong></div>
+            <div className="p-3"><span className="block text-xs font-bold uppercase text-slate-500">Quantità</span><strong className="mt-1 block text-2xl font-black">{context.picked}<span className="text-base text-slate-400">/{context.expected}</span></strong></div>
+          </div>
+          <div className="p-4">
+            <span className="text-xs font-black uppercase text-teal-700">Scansiona la posizione</span>
+            <div className="mt-2 flex items-end justify-between gap-3"><strong className="font-mono text-4xl font-black tracking-wide text-slate-950">{context.location}</strong><span className="rounded-md bg-teal-700 px-2 py-1 text-xs font-black text-white">{context.requested} pz</span></div>
+            <p className="mt-2 truncate text-sm font-semibold text-slate-600">{context.title}</p>
+          </div>
+        </section>}
         <div className="relative aspect-[4/5] max-h-[62dvh] overflow-hidden rounded-md bg-slate-950">
           <video ref={setVideoElement} className="h-full w-full object-cover" autoPlay muted playsInline onPlaying={() => { setPreviewReady(true); setStarting(false); }} />
           <div className="pointer-events-none absolute inset-x-[12%] top-1/2 h-28 -translate-y-1/2 rounded-md border-2 border-white shadow-[0_0_0_999px_rgba(0,0,0,0.28)]" />
