@@ -1,24 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
-  ArrowLeft, Barcode, Box, Camera, CheckCircle2, ChevronRight, Loader2,
-  PackageCheck, Play, ScanLine,
+  ArrowLeft, Barcode, Box, Camera, CheckCircle2, ChevronRight, ImageIcon, Loader2,
+  PackageCheck, Play, ScanLine, ShoppingBag,
 } from "lucide-react";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
+import { api, fileUrl } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import CameraScanner from "@/components/wms/CameraScanner";
 
 export default function WmsAppPacking() {
-  const { orderId } = useParams();
-  return orderId ? <PackingStation orderId={orderId} /> : <PackingQueue />;
+  const { orderId, bagCode } = useParams();
+  return bagCode ? <BagPacking bagCode={bagCode} /> : orderId ? <PackingStation orderId={orderId} /> : <PackingQueue />;
 }
 
 function PackingQueue() {
   const navigate = useNavigate();
   const [sessions, setSessions] = useState(null);
+  const [bagCode, setBagCode] = useState("");
   const load = useCallback(async () => {
     try { const response = await api.get("/wms/packing"); setSessions(response.data || []); }
     catch (error) { toast.error(error.response?.data?.detail || "Packing non disponibile"); setSessions([]); }
@@ -27,7 +28,19 @@ function PackingQueue() {
   if (!sessions) return <div className="flex min-h-[65dvh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-teal-700" /></div>;
   const active = sessions.filter((session) => session.stato !== "completata");
   const completed = sessions.filter((session) => session.stato === "completata");
-  return <div className="space-y-5 pb-24" data-testid="wms-packing-queue"><header><p className="text-xs font-black uppercase text-teal-700">Outbound</p><h1 className="mt-1 text-3xl font-black">Packing station</h1><p className="mt-2 text-sm text-slate-500">{active.length} ordini da verificare e imballare.</p></header><section className="space-y-3">{active.length ? active.map((session) => <PackingCard key={session.id} session={session} onClick={() => navigate(`/wms-app/packing/${session.order_id}`)} />) : <div className="rounded-md border border-dashed border-slate-300 bg-white py-14 text-center"><PackageCheck className="mx-auto h-9 w-9 text-emerald-600" /><h2 className="mt-3 font-black">Nessun ordine da imballare</h2></div>}</section>{completed.length > 0 && <section><h2 className="mb-3 text-lg font-black">Completati</h2><div className="space-y-2">{completed.slice(0, 10).map((session) => <PackingCard key={session.id} session={session} onClick={() => navigate(`/wms-app/packing/${session.order_id}`)} />)}</div></section>}</div>;
+  return <div className="space-y-5 pb-24" data-testid="wms-packing-queue"><header><p className="text-xs font-black uppercase text-teal-700">Outbound</p><h1 className="mt-1 text-3xl font-black">Packing station</h1><p className="mt-2 text-sm text-slate-500">{active.length} ordini da verificare e imballare.</p></header><section className="rounded-md border-2 border-slate-950 bg-white p-5"><div className="flex items-center gap-3"><span className="flex h-12 w-12 items-center justify-center rounded-md bg-slate-950 text-white"><ShoppingBag className="h-6 w-6" /></span><div><p className="text-xs font-black uppercase text-slate-500">Packing Massivo</p><h2 className="text-xl font-black">Scansiona la bag</h2></div></div><form className="mt-4 flex gap-2" onSubmit={(event) => { event.preventDefault(); if (/^[0-9]{6}$/.test(bagCode)) navigate(`/wms-app/packing/bag/${bagCode}`); else toast.error("Il codice bag deve avere 6 cifre"); }}><Input value={bagCode} onChange={(event) => setBagCode(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" placeholder="000000" className="h-14 flex-1 font-mono text-2xl tracking-widest" autoFocus /><Button type="submit" className="h-14 px-5" disabled={bagCode.length !== 6}><Barcode className="h-5 w-5" /></Button></form></section><section className="space-y-3">{active.length ? active.filter((session) => !session.mass_batch_id).map((session) => <PackingCard key={session.id} session={session} onClick={() => navigate(`/wms-app/packing/${session.order_id}`)} />) : <div className="rounded-md border border-dashed border-slate-300 bg-white py-14 text-center"><PackageCheck className="mx-auto h-9 w-9 text-emerald-600" /><h2 className="mt-3 font-black">Nessun ordine da imballare</h2></div>}</section>{completed.length > 0 && <section><h2 className="mb-3 text-lg font-black">Completati</h2><div className="space-y-2">{completed.slice(0, 10).map((session) => <PackingCard key={session.id} session={session} onClick={() => navigate(`/wms-app/packing/${session.order_id}`)} />)}</div></section>}</div>;
+}
+
+function BagPacking({ bagCode }) {
+  const navigate = useNavigate();
+  const [data, setData] = useState(null);
+  const load = useCallback(async () => {
+    try { const response = await api.get(`/wms/packing/bag/${bagCode}`); setData(response.data); }
+    catch (error) { toast.error(error.response?.data?.detail || "Bag non trovata"); }
+  }, [bagCode]);
+  useEffect(() => { load(); }, [load]);
+  if (!data) return <div className="flex min-h-[65dvh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-teal-700" /></div>;
+  return <div className="space-y-5 pb-24" data-testid="wms-bag-packing"><header><button type="button" onClick={() => navigate("/wms-app/packing")} className="mb-4 flex h-10 w-10 items-center justify-center rounded-md border border-slate-200 bg-white"><ArrowLeft className="h-5 w-5" /></button><div className="flex items-center gap-3"><span className="flex h-16 min-w-24 flex-col items-center justify-center rounded-md bg-slate-950 text-white"><ShoppingBag className="h-5 w-5" /><strong className="mt-1 font-mono">{bagCode}</strong></span><div><p className="text-xs font-black uppercase text-teal-700">Packing Massivo</p><h1 className="mt-1 text-3xl font-black">{data.summary.orders} ordini</h1><p className="mt-1 text-sm text-slate-500">{data.summary.completed} completati</p></div></div></header><Progress value={data.summary.orders ? (data.summary.completed / data.summary.orders) * 100 : 0} className="h-2" /><section className="space-y-3">{data.sessions.map((session) => <article key={session.id} className={`rounded-md border p-4 ${session.stato === "completata" ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-white"}`}><div className="flex items-center gap-3"><span className={`flex h-10 w-10 items-center justify-center rounded-full font-black ${session.stato === "completata" ? "bg-emerald-600 text-white" : "bg-slate-950 text-white"}`}>{session.stato === "completata" ? <CheckCircle2 className="h-5 w-5" /> : session.packing_sequence}</span><span className="min-w-0 flex-1"><strong className="block text-lg">Ordine {session.order?.order_name}</strong><span className="text-xs text-slate-500">{session.lines.length} prodotti</span></span></div><div className="mt-4 grid grid-cols-3 gap-2">{session.lines.map((line) => <div key={line.id} className="min-w-0 rounded-md border border-slate-200 bg-white p-2 text-center">{line.foto_url ? <img src={fileUrl(line.foto_url)} alt="" className="mx-auto h-16 w-full object-contain" /> : <span className="mx-auto flex h-16 w-full items-center justify-center bg-slate-50 text-slate-300"><ImageIcon className="h-6 w-6" /></span>}<strong className="mt-2 block truncate text-[11px]">{line.titolo}</strong><span className="mt-1 block text-xs font-black">×{line.quantita_attesa}</span></div>)}</div><Button className="mt-4 h-13 w-full font-black" variant={session.stato === "completata" ? "outline" : "default"} onClick={() => navigate(`/wms-app/packing/${session.order_id}`)}>{session.stato === "completata" ? "Rivedi ordine" : "Imballa questo ordine"}<ChevronRight className="ml-2 h-4 w-4" /></Button></article>)}</section></div>;
 }
 
 function PackingCard({ session, onClick }) {

@@ -45,6 +45,7 @@ import WmsAppInventoryCount from "@/pages/wms/WmsAppInventoryCount";
 import WmsAppLocations from "@/pages/wms/WmsAppLocations";
 import WmsAppOrders from "@/pages/wms/WmsAppOrders";
 import WmsAppPicking from "@/pages/wms/WmsAppPicking";
+import WmsAppMassPicking from "@/pages/wms/WmsAppMassPicking";
 import WmsAppPacking from "@/pages/wms/WmsAppPacking";
 import WmsAppProductSearch from "@/pages/wms/WmsAppProductSearch";
 import WmsAppTools from "@/pages/wms/WmsAppTools";
@@ -94,7 +95,10 @@ function App() {
               <Route path="ubicazioni" element={<WmsAppLocations />} />
               <Route path="ordini" element={<WmsAppOrders />} />
               <Route path="picking/:orderId" element={<WmsAppPicking />} />
+              <Route path="picking-massivo" element={<WmsAppMassPicking />} />
+              <Route path="picking-massivo/:batchId" element={<WmsAppMassPicking />} />
               <Route path="packing" element={<WmsAppPacking />} />
+              <Route path="packing/bag/:bagCode" element={<WmsAppPacking />} />
               <Route path="packing/:orderId" element={<WmsAppPacking />} />
               <Route path="cerca-prodotto" element={<WmsAppProductSearch />} />
               <Route path="strumenti" element={<WmsAppTools />} />

@@ -385,7 +385,7 @@ const WarehouseScene = forwardRef(function WarehouseScene({
         if (!raycaster.ray.intersectPlane(dragPlane, planeHit)) return;
         event.preventDefault();
         event.stopPropagation();
-        const step = propsRef.current.snap ? 0.25 : 0.01;
+        const step = propsRef.current.snap ? 0.5 : 0.01;
         const halfWidth = propsRef.current.map.width / 2;
         const halfDepth = propsRef.current.map.depth / 2;
         propsRef.current.onAislePoint?.({
@@ -440,7 +440,7 @@ const WarehouseScene = forwardRef(function WarehouseScene({
       }
       pointerPosition(event);
       if (!raycaster.ray.intersectPlane(dragPlane, planeHit)) return;
-      const step = propsRef.current.snap ? 0.25 : 0.01;
+      const step = propsRef.current.snap ? 0.5 : 0.01;
       const rawDx = planeHit.x - drag.start.x;
       const rawDz = planeHit.z - drag.start.z;
       const halfWidth = propsRef.current.map.width / 2;
@@ -665,7 +665,7 @@ export default function WmsWarehouseMap() {
   const selected = useMemo(() => locations.find((location) => location.id === selectedId) || null, [locations, selectedId]);
   const collisions = useMemo(() => collisionIds(locations), [locations]);
   const routeData = useMemo(() => showRoute
-    ? calculateWarehouseRoute(locations.filter((location) => location.occupata && OPERATIONAL_TYPES.has(location.tipo)), map)
+    ? calculateWarehouseRoute(locations.filter((location) => location.occupata && OPERATIONAL_TYPES.has(location.tipo)), { ...map, obstacles: locations })
     : { locations: [], distance: 0, pathPoints: [], mode: "direct" }, [locations, map, showRoute]);
   const dirty = useMemo(() => Boolean(initialSnapshot) && mapSnapshot(locations, map) !== initialSnapshot, [initialSnapshot, locations, map]);
   const stats = useMemo(() => ({
@@ -812,6 +812,12 @@ export default function WmsWarehouseMap() {
         </div>
       )}
 
+      {routeData.unreachable?.length > 0 && (
+        <div className="flex items-center gap-3 border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+          <AlertTriangle className="h-4 w-4" /> Passaggio bloccato verso: {routeData.unreachable.map((location) => location.codice).join(", ")}. Lascia almeno una casella libera.
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-3 border-y border-slate-200 bg-white px-3 py-3">
         <div className="flex gap-1 rounded-md bg-slate-100 p-1" aria-label="Modalita mappa">
           <ModeButton active={mode === "explore"} onClick={() => setMode("explore")} icon={Eye}>Esplora</ModeButton>
@@ -830,9 +836,9 @@ export default function WmsWarehouseMap() {
           </button>
         </div>
         <div className="flex flex-wrap items-center gap-4 text-sm font-semibold">
-          <label className="flex items-center gap-2"><Switch checked={snap} onCheckedChange={setSnap} /><Grid3X3 className="h-4 w-4" /> Aggancio griglia</label>
+          <label className="flex items-center gap-2"><Switch checked={snap} onCheckedChange={setSnap} /><Grid3X3 className="h-4 w-4" /> Caselle 50 cm</label>
           <label className="flex items-center gap-2"><Switch checked={showRoute} onCheckedChange={setShowRoute} /><Route className="h-4 w-4" /> Percorso</label>
-          <div className="text-slate-500">{routeData.locations.length} tappe · {routeData.distance.toFixed(1)} m · {routeData.mode === "aisles" ? "su corridoi" : "diretto"}</div>
+          <div className="text-slate-500">{routeData.locations.length} tappe · {routeData.distance.toFixed(1)} m · {routeData.mode === "grid" ? "su caselle libere" : routeData.mode === "aisles" ? "su corridoi" : "diretto"}</div>
         </div>
       </div>
 

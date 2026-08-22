@@ -103,6 +103,129 @@ export function locationAccessPoint(location = {}) {
   };
 }
 
+function gridRoute(locations, map) {
+  const cellSize = Number(map.grid_size || 0.5);
+  const width = Number(map.width || 34);
+  const depth = Number(map.depth || 24);
+  const cols = Math.max(1, Math.floor(width / cellSize));
+  const rows = Math.max(1, Math.floor(depth / cellSize));
+  const minX = -width / 2;
+  const minZ = -depth / 2;
+  const key = (col, row) => `${col}:${row}`;
+  const cellPoint = (col, row) => ({ x: minX + (col + 0.5) * cellSize, z: minZ + (row + 0.5) * cellSize });
+  const pointCell = (value) => ({
+    col: Math.max(0, Math.min(cols - 1, Math.floor((value.x - minX) / cellSize))),
+    row: Math.max(0, Math.min(rows - 1, Math.floor((value.z - minZ) / cellSize))),
+  });
+  const blocked = new Set();
+  for (const obstacle of map.obstacles || []) {
+    if (!["pallet", "slot", "terra", "quarantena"].includes(obstacle.tipo)) continue;
+    const center = { x: Number(obstacle.map_x || 0), z: Number(obstacle.map_z || 0) };
+    const radians = -Number(obstacle.map_rotation || 0) * Math.PI / 180;
+    const cos = Math.cos(radians);
+    const sin = Math.sin(radians);
+    const halfWidth = Number(obstacle.map_width || 1) / 2 + 0.08;
+    const halfDepth = Number(obstacle.map_depth || 1) / 2 + 0.08;
+    for (let col = 0; col < cols; col += 1) {
+      for (let row = 0; row < rows; row += 1) {
+        const current = cellPoint(col, row);
+        const dx = current.x - center.x;
+        const dz = current.z - center.z;
+        const localX = dx * cos - dz * sin;
+        const localZ = dx * sin + dz * cos;
+        if (Math.abs(localX) <= halfWidth && Math.abs(localZ) <= halfDepth) blocked.add(key(col, row));
+      }
+    }
+  }
+
+  const nearestFree = (value) => {
+    const origin = pointCell(value);
+    if (!blocked.has(key(origin.col, origin.row))) return origin;
+    for (let radius = 1; radius < Math.max(cols, rows); radius += 1) {
+      const candidates = [];
+      for (let dx = -radius; dx <= radius; dx += 1) {
+        candidates.push({ col: origin.col + dx, row: origin.row - radius }, { col: origin.col + dx, row: origin.row + radius });
+      }
+      for (let dz = -radius + 1; dz < radius; dz += 1) {
+        candidates.push({ col: origin.col - radius, row: origin.row + dz }, { col: origin.col + radius, row: origin.row + dz });
+      }
+      const valid = candidates.filter((cell) => cell.col >= 0 && cell.col < cols && cell.row >= 0 && cell.row < rows && !blocked.has(key(cell.col, cell.row)));
+      if (valid.length) return valid.sort((a, b) => distance(cellPoint(a.col, a.row), value) - distance(cellPoint(b.col, b.row), value))[0];
+    }
+    return null;
+  };
+
+  const findPath = (start, target) => {
+    if (!start || !target) return null;
+    const startKey = key(start.col, start.row);
+    const targetKey = key(target.col, target.row);
+    const open = new Set([startKey]);
+    const cells = new Map([[startKey, start], [targetKey, target]]);
+    const cameFrom = new Map();
+    const scores = new Map([[startKey, 0]]);
+    const estimates = new Map([[startKey, Math.abs(start.col - target.col) + Math.abs(start.row - target.row)]]);
+    while (open.size) {
+      let currentKey = null;
+      let best = Infinity;
+      open.forEach((candidate) => {
+        const score = estimates.get(candidate) ?? Infinity;
+        if (score < best) { best = score; currentKey = candidate; }
+      });
+      if (currentKey === targetKey) {
+        const path = [];
+        let cursor = currentKey;
+        while (cursor) {
+          const cell = cells.get(cursor);
+          path.unshift(cellPoint(cell.col, cell.row));
+          cursor = cameFrom.get(cursor);
+        }
+        return { path, distance: Math.max(0, path.length - 1) * cellSize };
+      }
+      open.delete(currentKey);
+      const current = cells.get(currentKey);
+      for (const next of [
+        { col: current.col + 1, row: current.row }, { col: current.col - 1, row: current.row },
+        { col: current.col, row: current.row + 1 }, { col: current.col, row: current.row - 1 },
+      ]) {
+        if (next.col < 0 || next.col >= cols || next.row < 0 || next.row >= rows) continue;
+        const nextKey = key(next.col, next.row);
+        if (blocked.has(nextKey)) continue;
+        cells.set(nextKey, next);
+        const tentative = Number(scores.get(currentKey) || 0) + 1;
+        if (tentative >= (scores.get(nextKey) ?? Infinity)) continue;
+        cameFrom.set(nextKey, currentKey);
+        scores.set(nextKey, tentative);
+        estimates.set(nextKey, tentative + Math.abs(next.col - target.col) + Math.abs(next.row - target.row));
+        open.add(nextKey);
+      }
+    }
+    return null;
+  };
+
+  let current = nearestFree({ x: Number(map.entrance_x || 0), z: Number(map.entrance_z || 0) });
+  const pending = locations.map((location) => ({ location, access: nearestFree(locationAccessPoint(location)) }));
+  const ordered = [];
+  const pathPoints = current ? [cellPoint(current.col, current.row)] : [];
+  let total = 0;
+  while (pending.length && current) {
+    let bestIndex = -1;
+    let bestPath = null;
+    pending.forEach((candidate, index) => {
+      const result = findPath(current, candidate.access);
+      if (result && (!bestPath || result.distance < bestPath.distance)) { bestIndex = index; bestPath = result; }
+    });
+    if (bestIndex < 0) return { locations: ordered, distance: total, pathPoints, mode: "grid", unreachable: pending.map((item) => item.location) };
+    const [next] = pending.splice(bestIndex, 1);
+    const points = [...bestPath.path];
+    if (pathPoints.length) points.shift();
+    pathPoints.push(...points);
+    ordered.push({ ...next.location, route_distance: bestPath.distance });
+    total += bestPath.distance;
+    current = next.access;
+  }
+  return { locations: ordered, distance: total, pathPoints, mode: "grid", unreachable: [] };
+}
+
 function buildGraph(aisles, attachments) {
   const segments = [];
   normalizeAisles(aisles).forEach((aisle) => {
@@ -152,6 +275,7 @@ function buildGraph(aisles, attachments) {
 }
 
 export function calculateWarehouseRoute(locations = [], map = {}) {
+  if (Array.isArray(map.obstacles) && map.obstacles.length) return gridRoute(locations, map);
   const allLocations = [...locations];
   const pending = [...allLocations];
   const entrance = { x: Number(map.entrance_x || 0), z: Number(map.entrance_z || 0) };

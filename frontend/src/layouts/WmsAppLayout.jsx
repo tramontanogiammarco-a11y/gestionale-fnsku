@@ -67,7 +67,7 @@ export default function WmsAppLayout() {
     : (entries || []).filter((entry) => entry.cliente_id === clientId);
 
   const focusScanner = () => {
-    if (location.pathname.includes("/wms-app/inbound/") || location.pathname.includes("/wms-app/picking/") || location.pathname.includes("/wms-app/packing/") || /^\/wms-app\/inventario\/[^/]+$/.test(location.pathname)) {
+    if (location.pathname.includes("/wms-app/inbound/") || location.pathname.includes("/wms-app/picking/") || location.pathname.includes("/wms-app/picking-massivo/") || location.pathname.includes("/wms-app/packing/") || /^\/wms-app\/inventario\/[^/]+$/.test(location.pathname)) {
       window.dispatchEvent(new Event("wms-focus-scanner"));
       return;
     }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
-import { AlertTriangle, Boxes, ChevronRight, Clock3, Loader2, PackageCheck, RefreshCw, Settings, ShoppingCart } from "lucide-react";
+import { AlertTriangle, Boxes, ChevronRight, Clock3, Layers3, Loader2, PackageCheck, RefreshCw, Settings, ShoppingCart } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -17,6 +17,7 @@ export default function WmsAppOrders() {
   const navigate = useNavigate();
   const { clientId } = useOutletContext();
   const [data, setData] = useState(null);
+  const [massData, setMassData] = useState(null);
   const [tab, setTab] = useState("oggi");
   const [selected, setSelected] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -26,8 +27,13 @@ export default function WmsAppOrders() {
     try {
       const query = new URLSearchParams();
       if (clientId && clientId !== "all") query.set("cliente_id", clientId);
-      const response = await api.get(`/wms/ordini${query.toString() ? `?${query.toString()}` : ""}`);
+      const suffix = query.toString() ? `?${query.toString()}` : "";
+      const [response, massResponse] = await Promise.all([
+        api.get(`/wms/ordini${suffix}`),
+        api.get(`/wms/picking-massivo${suffix}`),
+      ]);
       setData(response.data);
+      setMassData(massResponse.data);
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Ordini non disponibili");
     } finally {
@@ -39,8 +45,10 @@ export default function WmsAppOrders() {
 
   const visible = useMemo(() => {
     const orders = data?.orders || [];
-    return tab === "oggi" ? orders.filter((order) => order.wave !== "prossima") : orders.filter((order) => order.wave === "prossima");
-  }, [data, tab]);
+    const massOrderIds = new Set((massData?.groups || []).flatMap((group) => group.orders.map((order) => order.id)));
+    const individual = orders.filter((order) => !massOrderIds.has(order.id));
+    return tab === "oggi" ? individual.filter((order) => order.wave !== "prossima") : individual.filter((order) => order.wave === "prossima");
+  }, [data, massData, tab]);
 
   if (!data) return <div className="flex min-h-[65dvh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-teal-700" /></div>;
 
@@ -58,6 +66,14 @@ export default function WmsAppOrders() {
         <span className="min-w-0 flex-1"><strong className="block">Orario limite {settings.cutoff_time}</strong><span className="mt-1 block text-xs text-teal-800">{settings.cutoff_passed ? "Limite di oggi superato: i nuovi ordini passano alla prossima giornata." : "I nuovi ordini entrano ancora nella giornata di oggi."}</span></span>
         <Settings className="h-5 w-5" />
       </button>
+
+      <section>
+        <div className="mb-3"><p className="text-xs font-black uppercase text-slate-500">Modalità di preparazione</p><h2 className="mt-1 text-xl font-black">Prepara ordini</h2></div>
+        <div className="grid grid-cols-2 gap-3">
+          <button type="button" onClick={() => navigate("/wms-app/picking-massivo")} className="min-h-40 rounded-md border border-teal-200 bg-teal-50 p-4 text-left text-teal-950"><Layers3 className="h-7 w-7" /><h3 className="mt-5 text-xl font-black">Massivo</h3><p className="mt-1 text-xs text-teal-800">{(massData?.groups || []).reduce((sum, group) => sum + group.numero_ordini, 0)} ordini identici</p></button>
+          <div className="min-h-40 rounded-md border border-slate-200 bg-white p-4"><ShoppingCart className="h-7 w-7 text-slate-500" /><h3 className="mt-5 text-xl font-black">1x1</h3><p className="mt-1 text-xs text-slate-500">{massData?.separate_orders ?? visible.length} ordini singoli</p></div>
+        </div>
+      </section>
 
       <section className="grid grid-cols-3 gap-2">
         <Metric label="Arretrati" value={summary.arretrati || 0} tone={summary.arretrati ? "amber" : "slate"} />
