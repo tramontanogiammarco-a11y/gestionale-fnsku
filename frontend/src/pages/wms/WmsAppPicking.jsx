@@ -19,6 +19,7 @@ export default function WmsAppPicking() {
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
   const [code, setCode] = useState("");
+  const [bagCode, setBagCode] = useState("");
   const [quantity, setQuantity] = useState(1);
   const [cameraOpen, setCameraOpen] = useState(false);
 
@@ -41,7 +42,7 @@ export default function WmsAppPicking() {
   }, []);
 
   const current = data?.current_line || null;
-  const scanPurpose = current?.location_confirmed_at ? "product" : "location";
+  const needsLocation = current && !current.location_confirmed_at;
   const remaining = current ? Number(current.quantita_attesa || 0) - Number(current.quantita_prelevata || 0) : 0;
   useEffect(() => { setQuantity(Math.max(1, remaining)); setCode(""); }, [current?.id, current?.location_confirmed_at, remaining]);
 
@@ -95,12 +96,12 @@ export default function WmsAppPicking() {
     try {
       const response = await api.post(`/wms/picking/${data.task.id}/scan`, {
         codice: value,
-        quantita: scanPurpose === "product" ? Number(quantity) : undefined,
+        quantita: needsLocation ? undefined : Number(quantity),
       });
       setData(response.data);
       setCode("");
       if (navigator.vibrate) navigator.vibrate([60, 35, 60]);
-      toast.success(scanPurpose === "location" ? "Posizione confermata" : "Prelievo registrato");
+      toast.success(needsLocation ? "Posizione confermata" : "Prelievo registrato");
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Scansione non valida");
       if (navigator.vibrate) navigator.vibrate(180);
@@ -109,10 +110,25 @@ export default function WmsAppPicking() {
       setWorking(false);
     }
   };
+  const confirmBag = async () => {
+    if (!data?.task || bagCode.length !== 6) return;
+    setWorking(true);
+    try {
+      const response = await api.post(`/wms/picking/${data.task.id}/scan`, { codice: bagCode });
+      setData(response.data);
+      setBagCode("");
+      toast.success("Bag confermata: ordine inviato al packing");
+      if (navigator.vibrate) navigator.vibrate([60, 35, 60]);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Bag non valida");
+      if (navigator.vibrate) navigator.vibrate(180);
+    } finally { setWorking(false); }
+  };
 
   if (loading) return <div className="flex min-h-[65dvh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-teal-700" /></div>;
   if (!data) return null;
   const complete = data.task?.stato === "completata";
+  const bagConfirmation = data.task?.stato === "da_confermare_bag";
 
   return (
     <div className="space-y-5 pb-24" data-testid="wms-picking-mission">
@@ -161,6 +177,12 @@ export default function WmsAppPicking() {
           <p className="mt-2 text-sm text-emerald-800">{data.summary.picked} pezzi pronti alla packing station.</p>
           <Button className="mt-5 h-14 w-full" onClick={() => navigate(`/wms-app/packing/${orderId}`)}><PackageCheck className="mr-2 h-5 w-5" /> Vai al packing</Button>
         </section>
+      ) : bagConfirmation ? (
+        <section className="border-2 border-slate-950 bg-white p-5 shadow-sm">
+          <div className="flex items-center gap-3"><span className="flex h-12 w-12 items-center justify-center rounded-md bg-slate-950 text-white"><Barcode className="h-6 w-6" /></span><div><p className="text-xs font-black uppercase text-teal-700">Prelievo completato</p><h2 className="text-xl font-black">Scansiona la bag</h2></div></div>
+          <p className="mt-3 text-sm text-slate-600">Metti tutti i prodotti dell'ordine nella bag, poi scansiona il suo barcode a sei cifre per inviarla alla packing station.</p>
+          <form onSubmit={(event) => { event.preventDefault(); confirmBag(); }} className="mt-4 flex gap-2"><Input value={bagCode} onChange={(event) => setBagCode(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" placeholder="000000" className="h-14 flex-1 font-mono text-xl tracking-widest" autoFocus /><Button type="submit" className="h-14 px-5" disabled={bagCode.length !== 6 || working}><Barcode className="h-5 w-5" /></Button></form>
+        </section>
       ) : (
         <>
           <section className="rounded-md border border-slate-200 bg-white p-4">
@@ -172,12 +194,10 @@ export default function WmsAppPicking() {
           {current && (
             <section className="border-2 border-teal-500 bg-white p-5 shadow-sm">
               <div className="flex items-center gap-3">
-                <span className="flex h-12 w-12 items-center justify-center rounded-md bg-teal-50 text-teal-800">{scanPurpose === "location" ? <MapPin className="h-6 w-6" /> : <Boxes className="h-6 w-6" />}</span>
-                <div className="min-w-0 flex-1"><div className="text-xs font-black uppercase text-teal-700">{scanPurpose === "location" ? "Prossima posizione" : "Prodotto da prelevare"}</div><h2 className="mt-1 truncate text-xl font-black">{scanPurpose === "location" ? current.location?.codice : current.titolo}</h2></div>
+                <span className="flex h-12 w-12 items-center justify-center rounded-md bg-teal-50 text-teal-800">{needsLocation ? <MapPin className="h-6 w-6" /> : <Boxes className="h-6 w-6" />}</span>
+                <div className="min-w-0 flex-1"><div className="text-xs font-black uppercase text-teal-700">{needsLocation ? "Prossima posizione" : "Prodotto da prelevare"}</div><h2 className="mt-1 truncate text-xl font-black">{needsLocation ? current.location?.codice : current.titolo}</h2></div>
               </div>
-              {scanPurpose === "product" && <div className="mt-4 grid grid-cols-[1fr_110px] gap-3"><div className="rounded-md bg-slate-50 p-3"><div className="font-mono text-xs text-slate-500">{current.fnsku || current.ean || current.sku}</div><div className="mt-1 text-sm font-bold">Da prelevare: {remaining}</div></div><label><span className="mb-1 block text-[10px] font-black uppercase text-slate-500">Quantità</span><Input type="number" min="1" max={remaining} value={quantity} onChange={(event) => setQuantity(event.target.value)} className="h-12 text-lg font-black" /></label></div>}
-              <Button className="mt-4 h-16 w-full text-base font-black" onClick={() => setCameraOpen(true)} disabled={working}><Camera className="mr-2 h-6 w-6" /> {scanPurpose === "location" ? "Scansiona posizione" : "Scansiona prodotto"}</Button>
-              <form onSubmit={(event) => { event.preventDefault(); scan(); }} className="mt-3 flex gap-2"><Input ref={inputRef} value={code} onChange={(event) => setCode(event.target.value)} placeholder={scanPurpose === "location" ? current.location?.codice : "EAN, FNSKU o SKU"} className="h-12 flex-1 font-mono" autoComplete="off" /><Button type="submit" size="icon" variant="outline" className="h-12 w-12" disabled={!code.trim() || working} aria-label="Conferma scansione"><Barcode className="h-5 w-5" /></Button></form>
+              {needsLocation ? <><Button className="mt-4 h-16 w-full text-base font-black" onClick={() => setCameraOpen(true)} disabled={working}><Camera className="mr-2 h-6 w-6" /> Scansiona posizione</Button><form onSubmit={(event) => { event.preventDefault(); scan(); }} className="mt-3 flex gap-2"><Input ref={inputRef} value={code} onChange={(event) => setCode(event.target.value)} placeholder={current.location?.codice} className="h-12 flex-1 font-mono" autoComplete="off" /><Button type="submit" size="icon" variant="outline" className="h-12 w-12" disabled={!code.trim() || working} aria-label="Conferma posizione"><Barcode className="h-5 w-5" /></Button></form></> : <><div className="mt-4 grid grid-cols-[1fr_110px] gap-3"><div className="rounded-md bg-slate-50 p-3"><div className="font-mono text-xs text-slate-500">{current.fnsku || current.ean || current.sku}</div><div className="mt-1 text-sm font-bold">Da prelevare: {remaining}</div></div><label><span className="mb-1 block text-[10px] font-black uppercase text-slate-500">Quantità</span><Input type="number" min="1" max={remaining} value={quantity} onChange={(event) => setQuantity(event.target.value)} className="h-12 text-lg font-black" /></label></div><Button className="mt-4 h-14 w-full text-base font-black" onClick={() => scan("")} disabled={working || Number(quantity) < 1 || Number(quantity) > remaining}><PackageCheck className="mr-2 h-5 w-5" /> Conferma prelievo</Button></>}
             </section>
           )}
         </>
@@ -190,7 +210,7 @@ export default function WmsAppPicking() {
         </section>
       )}
 
-      <CameraScanner open={cameraOpen} onOpenChange={setCameraOpen} purpose={scanPurpose} onDetected={(value) => { setCameraOpen(false); scan(value); }} />
+      <CameraScanner open={cameraOpen} onOpenChange={setCameraOpen} purpose="location" onDetected={(value) => { setCameraOpen(false); scan(value); }} />
     </div>
   );
 }

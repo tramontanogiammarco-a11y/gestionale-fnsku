@@ -103,7 +103,7 @@ function MassMission({ batchId }) {
     if (!selectedQuantity || !current) return;
     setWorking(true);
     try {
-      const response = await api.post(`/wms/picking-massivo/${batchId}/scan`, { codice: current.fnsku || current.ean || current.sku, quantita: selectedQuantity });
+      const response = await api.post(`/wms/picking-massivo/${batchId}/scan`, { quantita: selectedQuantity });
       setData(response.data); setSelectedQuantity(0); toast.success(`${selectedQuantity} pezzi prelevati`);
       if (navigator.vibrate) navigator.vibrate([60, 35, 60]);
     } catch (error) { toast.error(error.response?.data?.detail || "Quantità non registrata"); }
