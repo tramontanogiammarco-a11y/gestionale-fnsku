@@ -1,6 +1,6 @@
--- A dedicated Massivo demo: six equal orders with four references deliberately
--- placed in distant slots. The picking route is still calculated from the live
--- warehouse map and its walkable aisles; these positions make that route visible.
+-- A second independent Massivo fixture: six matching orders, four products and
+-- four distant slots. It intentionally has a different product signature from
+-- the first group, so the Massivo queue keeps it as a separate mission.
 do $$
 declare
   demo_client_id uuid;
@@ -10,21 +10,21 @@ declare
   entry_line_id uuid;
   reference_ids uuid[] := array[]::uuid[];
   location_ids uuid[] := array[]::uuid[];
-  target_codes text[] := array['S1+A20', 'S1+A37', 'S1+A54', 'S1+A88'];
-  route_names text[] := array[
-    'Rotta Massivo 01 · ingresso',
-    'Rotta Massivo 02 · corsia centrale',
-    'Rotta Massivo 03 · corsia lunga',
-    'Rotta Massivo 04 · fondo magazzino'
+  target_codes text[] := array['S1+A12', 'S1+A31', 'S1+A66', 'S1+A96'];
+  product_names text[] := array[
+    'Massivo percorso B · ingresso',
+    'Massivo percorso B · corsia uno',
+    'Massivo percorso B · corsia tre',
+    'Massivo percorso B · fondo magazzino'
   ];
-  route_eans text[] := array[
-    'ROUTE-EAN-001', 'ROUTE-EAN-002', 'ROUTE-EAN-003', 'ROUTE-EAN-004'
+  product_eans text[] := array[
+    'ROUTE-B-EAN-001', 'ROUTE-B-EAN-002', 'ROUTE-B-EAN-003', 'ROUTE-B-EAN-004'
   ];
-  route_fnskus text[] := array[
-    'ROUTE-FNSKU-001', 'ROUTE-FNSKU-002', 'ROUTE-FNSKU-003', 'ROUTE-FNSKU-004'
+  product_fnskus text[] := array[
+    'ROUTE-B-FNSKU-001', 'ROUTE-B-FNSKU-002', 'ROUTE-B-FNSKU-003', 'ROUTE-B-FNSKU-004'
   ];
-  route_skus text[] := array[
-    'ROUTE-SKU-001', 'ROUTE-SKU-002', 'ROUTE-SKU-003', 'ROUTE-SKU-004'
+  product_skus text[] := array[
+    'ROUTE-B-SKU-001', 'ROUTE-B-SKU-002', 'ROUTE-B-SKU-003', 'ROUTE-B-SKU-004'
   ];
   reference_row record;
   target_location_id uuid;
@@ -41,27 +41,25 @@ begin
     raise exception 'Cliente demo WMS non trovato';
   end if;
 
-  -- Keep the fixture repeatable when a development database is reset.
   for route_index in 1..4 loop
     select id into reference_id
     from public.referenze
     where cliente_id = demo_client_id
-      and fnsku = route_fnskus[route_index]
+      and fnsku = product_fnskus[route_index]
     limit 1;
 
     if reference_id is null then
       insert into public.referenze (cliente_id, titolo, ean, sku, fnsku, origine)
       values (
         demo_client_id,
-        route_names[route_index],
-        route_eans[route_index],
-        route_skus[route_index],
-        route_fnskus[route_index],
+        product_names[route_index],
+        product_eans[route_index],
+        product_skus[route_index],
+        product_fnskus[route_index],
         'wms-route-demo'
       )
       returning id into reference_id;
     end if;
-
     reference_ids := array_append(reference_ids, reference_id);
 
     select id into target_location_id
@@ -73,11 +71,8 @@ begin
     if target_location_id is null then
       raise exception 'Slot demo % non disponibile', target_codes[route_index];
     end if;
-
     location_ids := array_append(location_ids, target_location_id);
 
-    -- These slots contain only the isolated WMS demo fixture. Clear that fixture
-    -- before placing the route product, keeping each physical slot single-product.
     if exists (
       select 1
       from public.wms_inbound_movements movement
@@ -102,12 +97,12 @@ begin
   insert into public.entrate (
     cliente_id, tipo, colli, ddt, corriere, tracking, stato, data_annuncio, data_ricezione, note
   ) values (
-    demo_client_id, 'pallet', 4, 'WMS-ROUTE-DEMO-001', 'Demo', 'WMS-ROUTE-DEMO-001',
-    'ricevuto', now(), now(), 'Fixture Massivo: 4 referenze sparse per verificare la rotta di picking'
+    demo_client_id, 'pallet', 4, 'WMS-ROUTE-DEMO-002', 'Demo', 'WMS-ROUTE-DEMO-002',
+    'ricevuto', now(), now(), 'Fixture Massivo B: 4 referenze distanti per verificare la rotta di picking'
   ) returning id into demo_entry_id;
 
   insert into public.wms_inbound_sessions (entrata_id, stato, started_at, completed_at, note)
-  values (demo_entry_id, 'completata', now(), now(), 'Ubicazione demo per percorso Massivo')
+  values (demo_entry_id, 'completata', now(), now(), 'Ubicazione automatica demo Massivo B')
   returning id into demo_session_id;
 
   for route_index in 1..4 loop
@@ -127,7 +122,7 @@ begin
   for order_index in 1..6 loop
     if exists (
       select 1 from public.shopify_orders
-      where shopify_order_id = 'WMS-ROUTE-' || lpad(order_index::text, 3, '0')
+      where shopify_order_id = 'WMS-ROUTE-B-' || lpad(order_index::text, 3, '0')
     ) then
       continue;
     end if;
@@ -137,10 +132,10 @@ begin
       fulfillment_status, wms_status, processed_at, raw
     ) values (
       demo_client_id, 'wms-route-demo.aimago.local',
-      'WMS-ROUTE-' || lpad(order_index::text, 3, '0'),
-      '#WMS-ROUTE-' || lpad(order_index::text, 3, '0'),
+      'WMS-ROUTE-B-' || lpad(order_index::text, 3, '0'),
+      '#WMS-ROUTE-B-' || lpad(order_index::text, 3, '0'),
       'paid', null, 'da_preparare', now() - make_interval(mins => 6 - order_index),
-      jsonb_build_object('source', 'wms_route_demo', 'group', 'six-orders-four-scattered-references')
+      jsonb_build_object('source', 'wms_route_demo', 'group', 'second-six-orders-four-scattered-references')
     ) returning id into demo_order_id;
 
     for route_index in 1..4 loop
@@ -150,7 +145,7 @@ begin
         quantita, fulfillable_quantity, raw
       ) values (
         demo_order_id,
-        'WMS-ROUTE-' || lpad(order_index::text, 3, '0') || '-' || route_index,
+        'WMS-ROUTE-B-' || lpad(order_index::text, 3, '0') || '-' || route_index,
         reference_row.id, reference_row.sku, reference_row.ean, reference_row.titolo,
         1, 1, jsonb_build_object('source', 'wms_route_demo', 'fnsku', reference_row.fnsku)
       );
