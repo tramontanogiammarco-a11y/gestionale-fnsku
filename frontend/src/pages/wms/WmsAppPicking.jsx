@@ -43,8 +43,12 @@ export default function WmsAppPicking() {
 
   const current = data?.current_line || null;
   const needsLocation = current && !current.location_confirmed_at;
+  const bagConfirmation = data?.task?.stato === "da_confermare_bag";
   const remaining = current ? Number(current.quantita_attesa || 0) - Number(current.quantita_prelevata || 0) : 0;
   useEffect(() => { setQuantity(Math.max(1, remaining)); setCode(""); }, [current?.id, current?.location_confirmed_at, remaining]);
+  useEffect(() => {
+    if (needsLocation || bagConfirmation) setCameraOpen(true);
+  }, [needsLocation, bagConfirmation, current?.id]);
 
   const routeStops = useMemo(() => {
     const stops = [];
@@ -110,11 +114,12 @@ export default function WmsAppPicking() {
       setWorking(false);
     }
   };
-  const confirmBag = async () => {
-    if (!data?.task || bagCode.length !== 6) return;
+  const confirmBag = async (rawCode) => {
+    const value = String(rawCode || bagCode).trim();
+    if (!data?.task || value.length !== 6) return;
     setWorking(true);
     try {
-      const response = await api.post(`/wms/picking/${data.task.id}/scan`, { codice: bagCode });
+      const response = await api.post(`/wms/picking/${data.task.id}/scan`, { codice: value });
       setData(response.data);
       setBagCode("");
       toast.success("Bag confermata: ordine inviato al packing");
@@ -128,7 +133,6 @@ export default function WmsAppPicking() {
   if (loading) return <div className="flex min-h-[65dvh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-teal-700" /></div>;
   if (!data) return null;
   const complete = data.task?.stato === "completata";
-  const bagConfirmation = data.task?.stato === "da_confermare_bag";
 
   return (
     <div className="space-y-5 pb-24" data-testid="wms-picking-mission">
@@ -210,7 +214,7 @@ export default function WmsAppPicking() {
         </section>
       )}
 
-      <CameraScanner open={cameraOpen} onOpenChange={setCameraOpen} purpose="location" onDetected={(value) => { setCameraOpen(false); scan(value); }} />
+      <CameraScanner open={cameraOpen} onOpenChange={setCameraOpen} purpose={bagConfirmation ? "universal" : "location"} onDetected={(value) => { setCameraOpen(false); if (bagConfirmation) confirmBag(value); else scan(value); }} />
     </div>
   );
 }
