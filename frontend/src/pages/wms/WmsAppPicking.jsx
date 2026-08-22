@@ -98,14 +98,18 @@ export default function WmsAppPicking() {
     if (!value || !data?.task) return;
     setWorking(true);
     try {
-      const response = await api.post(`/wms/picking/${data.task.id}/scan`, {
+      const locationResponse = await api.post(`/wms/picking/${data.task.id}/scan`, {
         codice: value,
         quantita: needsLocation ? undefined : Number(quantity),
       });
+      let response = locationResponse;
+      if (needsLocation && locationResponse.data.current_line?.id === current?.id && locationResponse.data.current_line.location_confirmed_at) {
+        response = await api.post(`/wms/picking/${data.task.id}/scan`, { quantita: remaining });
+      }
       setData(response.data);
       setCode("");
       if (navigator.vibrate) navigator.vibrate([60, 35, 60]);
-      toast.success(needsLocation ? "Posizione confermata" : "Prelievo registrato");
+      toast.success(needsLocation ? `Prelevati ${remaining} pezzi, vai al prossimo slot` : "Prelievo registrato");
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Scansione non valida");
       if (navigator.vibrate) navigator.vibrate(180);
@@ -116,7 +120,7 @@ export default function WmsAppPicking() {
   };
   const confirmBag = async (rawCode) => {
     const value = String(rawCode || bagCode).trim();
-    if (!data?.task || value.length !== 6) return;
+    if (!data?.task || !/^B-[0-9]{5}$/.test(value)) return;
     setWorking(true);
     try {
       const response = await api.post(`/wms/picking/${data.task.id}/scan`, { codice: value });
@@ -184,8 +188,8 @@ export default function WmsAppPicking() {
       ) : bagConfirmation ? (
         <section className="border-2 border-slate-950 bg-white p-5 shadow-sm">
           <div className="flex items-center gap-3"><span className="flex h-12 w-12 items-center justify-center rounded-md bg-slate-950 text-white"><Barcode className="h-6 w-6" /></span><div><p className="text-xs font-black uppercase text-teal-700">Prelievo completato</p><h2 className="text-xl font-black">Scansiona la bag</h2></div></div>
-          <p className="mt-3 text-sm text-slate-600">Metti tutti i prodotti dell'ordine nella bag, poi scansiona il suo barcode a sei cifre per inviarla alla packing station.</p>
-          <form onSubmit={(event) => { event.preventDefault(); confirmBag(); }} className="mt-4 flex gap-2"><Input value={bagCode} onChange={(event) => setBagCode(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" placeholder="000000" className="h-14 flex-1 font-mono text-xl tracking-widest" autoFocus /><Button type="submit" className="h-14 px-5" disabled={bagCode.length !== 6 || working}><Barcode className="h-5 w-5" /></Button></form>
+          <p className="mt-3 text-sm text-slate-600">Metti tutti i prodotti dell'ordine in una bag libera e scansionala per inviarla alla packing station.</p>
+          <form onSubmit={(event) => { event.preventDefault(); confirmBag(); }} className="mt-4 flex gap-2"><Input value={bagCode} onChange={(event) => setBagCode(event.target.value.toUpperCase().replace(/[^B0-9-]/g, "").slice(0, 7))} placeholder="B-73846" className="h-14 flex-1 font-mono text-xl tracking-widest" autoFocus /><Button type="submit" className="h-14 px-5" disabled={!/^B-[0-9]{5}$/.test(bagCode) || working}><Barcode className="h-5 w-5" /></Button></form>
         </section>
       ) : (
         <>

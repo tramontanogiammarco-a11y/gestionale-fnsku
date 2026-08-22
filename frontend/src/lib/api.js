@@ -3466,14 +3466,37 @@ async function listWmsMassPicking(params = new URLSearchParams()) {
   });
 }
 
-async function uniqueBagCode() {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const value = String(Math.floor(100000 + Math.random() * 900000));
-    const { data, error } = await requireSupabase().from("wms_mass_pick_batches").select("id").eq("bag_code", value).maybeSingle();
-    if (error) fail(error.message);
-    if (!data) return value;
-  }
-  fail("Non riesco a generare un codice bag univoco. Riprova.");
+async function claimWmsBag(rawCode) {
+  const code = normalizedText(rawCode);
+  if (!/^B-[0-9]{5}$/.test(code)) fail("Scansiona una bag nel formato B-12345.");
+  const { data: bag, error } = await requireSupabase().from("wms_bags").select("*").eq("codice", code).maybeSingle();
+  if (error || !bag) fail(error?.message || "Bag non censita.", 404);
+  if (bag.stato !== "disponibile") fail(`La bag ${code} e gia in uso.`, 409);
+  const { data: claimed, error: claimError } = await requireSupabase().from("wms_bags").update({ stato: "in_packing", updated_at: nowIso() }).eq("id", bag.id).eq("stato", "disponibile").select().maybeSingle();
+  if (claimError || !claimed) fail(claimError?.message || "La bag e stata appena usata da un altro operatore.", 409);
+  return claimed;
+}
+
+async function releaseWmsBag(bagId) {
+  if (!bagId) return;
+  const { error } = await requireSupabase().from("wms_bags").update({ stato: "disponibile", updated_at: nowIso() }).eq("id", bagId);
+  if (error) fail(error.message);
+}
+
+async function listWmsBags() {
+  await assertWmsStaff();
+  const { data, error } = await requireSupabase().from("wms_bags").select("*").order("codice");
+  if (error) fail(error.message);
+  return ok(data || []);
+}
+
+async function wmsBagsPdf() {
+  const response = await listWmsBags();
+  return ok(generateLabelsPdfBlob({
+    formato: "50x30",
+    mostra_titolo: true,
+    items: response.data.map((bag) => ({ fnsku: bag.codice, titolo: "Bag WMS", copie: 1 })),
+  }));
 }
 
 async function wmsMassPickSnapshot(batchId) {
@@ -3526,10 +3549,8 @@ async function startWmsMassPicking(payload = {}) {
   const uniqueLocations = [...new Set(plan.allocations.map((allocation) => allocation.location_id))].map((id) => plan.locationMap[id]).filter(Boolean);
   const route = calculateWarehouseRoute(uniqueLocations, plan.mapSettings);
   if (route.unreachable?.length) fail(`Mappa bloccata: ${route.unreachable.map((location) => location.codice).join(", ")} non e raggiungibile. Lascia almeno una casella libera di passaggio.`);
-  const bagCode = await uniqueBagCode();
   const { data: batch, error: batchError } = await requireSupabase().from("wms_mass_pick_batches").insert({
     cliente_id: group.cliente_id,
-    bag_code: bagCode,
     signature,
     stato: "in_corso",
     operatore_id: profile.id,
@@ -3570,16 +3591,16 @@ async function scanWmsMassPicking(batchId, payload = {}) {
   const batch = snapshot.data.batch;
   const code = normalizedText(payload.codice || payload.code);
   if (batch.stato === "da_confermare_bag") {
-    if (code !== normalizedText(batch.bag_code)) fail(`Scansiona la bag ${batch.bag_code} per chiudere il picking.`);
+    const bag = await claimWmsBag(code);
     const completedAt = nowIso();
     const orderIds = snapshot.data.orders.map((item) => item.order_id);
     const [{ error: batchUpdateError }, { error: orderUpdateError }] = await Promise.all([
-      requireSupabase().from("wms_mass_pick_batches").update({ stato: "completata", completed_at: completedAt, bag_confirmed_at: completedAt, updated_at: completedAt }).eq("id", batchId),
+      requireSupabase().from("wms_mass_pick_batches").update({ stato: "completata", bag_id: bag.id, bag_code: bag.codice, completed_at: completedAt, bag_confirmed_at: completedAt, updated_at: completedAt }).eq("id", batchId),
       requireSupabase().from("shopify_orders").update({ wms_status: "pronto", updated_at: completedAt }).in("id", orderIds),
     ]);
     if (batchUpdateError || orderUpdateError) fail((batchUpdateError || orderUpdateError).message);
     for (const item of snapshot.data.orders) {
-      await ensurePackingSession(item.order_id, null, { massBatchId: batchId, bagCode: batch.bag_code, packingSequence: item.packing_sequence });
+      await ensurePackingSession(item.order_id, null, { massBatchId: batchId, bagId: bag.id, bagCode: bag.codice, packingSequence: item.packing_sequence });
     }
     return wmsMassPickSnapshot(batchId);
   }
@@ -3681,17 +3702,14 @@ async function scanWmsPicking(taskId, payload = {}) {
   const snapshot = await wmsPickSnapshot(task.order_id);
   const code = normalizedText(payload.codice || payload.code);
   if (task.stato === "da_confermare_bag") {
-    if (!/^\d{6}$/.test(code)) fail("Scansiona il barcode a 6 cifre della bag.");
-    const { data: massBag, error: massBagError } = await requireSupabase().from("wms_mass_pick_batches").select("id").eq("bag_code", code).maybeSingle();
-    if (massBagError) fail(massBagError.message);
-    if (massBag) fail("Questa bag e gia assegnata a un picking Massivo.", 409);
+    const bag = await claimWmsBag(code);
     const completedAt = nowIso();
     const [{ error: taskUpdateError }, { error: orderUpdateError }] = await Promise.all([
-      requireSupabase().from("wms_pick_tasks").update({ stato: "completata", bag_code: code, bag_confirmed_at: completedAt, completed_at: completedAt, updated_at: completedAt }).eq("id", task.id),
+      requireSupabase().from("wms_pick_tasks").update({ stato: "completata", bag_id: bag.id, bag_code: bag.codice, bag_confirmed_at: completedAt, completed_at: completedAt, updated_at: completedAt }).eq("id", task.id),
       requireSupabase().from("shopify_orders").update({ wms_status: "pronto", updated_at: completedAt }).eq("id", task.order_id),
     ]);
     if (taskUpdateError || orderUpdateError) fail((taskUpdateError || orderUpdateError).message);
-    await ensurePackingSession(task.order_id, task.id, { bagCode: code });
+    await ensurePackingSession(task.order_id, task.id, { bagId: bag.id, bagCode: bag.codice });
     return wmsPickSnapshot(task.order_id);
   }
   if (task.stato !== "in_corso") fail("Questa missione non e in corso", 409);
@@ -3743,6 +3761,7 @@ async function ensurePackingSession(orderId, pickTaskId, options = {}) {
     order_id: orderId,
     pick_task_id: pickTaskId,
     mass_batch_id: options.massBatchId || null,
+    bag_id: options.bagId || null,
     bag_code: options.bagCode || null,
     packing_sequence: options.packingSequence || null,
   }).select().single();
@@ -3846,6 +3865,7 @@ async function completeWmsPacking(sessionId) {
   if (snapshot.data.current_line) fail("Verifica tutti i prodotti prima di chiudere il collo");
   const { error } = await requireSupabase().from("wms_packing_sessions").update({ stato: "completata", completed_at: nowIso(), updated_at: nowIso() }).eq("id", sessionId);
   if (error) fail(error.message);
+  let releaseBag = !session.mass_batch_id;
   if (session.mass_batch_id) {
     const { error: linkError } = await requireSupabase().from("wms_mass_pick_orders").update({ stato: "completato" }).eq("batch_id", session.mass_batch_id).eq("order_id", session.order_id);
     if (linkError) fail(linkError.message);
@@ -3853,7 +3873,9 @@ async function completeWmsPacking(sessionId) {
     if (pendingError) fail(pendingError.message);
     const { error: batchError } = await requireSupabase().from("wms_mass_pick_batches").update({ stato: (pending || []).length ? "in_packing" : "completata_packing", updated_at: nowIso() }).eq("id", session.mass_batch_id);
     if (batchError) fail(batchError.message);
+    releaseBag = !(pending || []).length;
   }
+  if (releaseBag) await releaseWmsBag(session.bag_id);
   return wmsPackingSnapshot(session.order_id);
 }
 
@@ -4810,7 +4832,9 @@ export const api = {
     if (path === "/wms/picking-massivo") return listWmsMassPicking(params);
     if (path.match(/^\/wms\/picking-massivo\/[^/]+$/)) return wmsMassPickSnapshot(path.split("/")[3]);
     if (path === "/wms/packing") return listWmsPacking();
-    if (path.match(/^\/wms\/packing\/bag\/[0-9]{6}$/)) return wmsBagPackingSnapshot(path.split("/")[4]);
+    if (path === "/wms/bags") return listWmsBags();
+    if (path === "/wms/bags/pdf" && config.responseType === "blob") return wmsBagsPdf();
+    if (path.match(/^\/wms\/packing\/bag\/B-[0-9]{5}$/)) return wmsBagPackingSnapshot(path.split("/")[4]);
     if (path.match(/^\/wms\/picking\/[^/]+$/)) return wmsPickSnapshot(path.split("/")[3]);
     if (path.match(/^\/wms\/packing\/[^/]+$/)) return wmsPackingSnapshot(path.split("/")[3]);
     if (path === "/wms/inventario") return listWmsInventory();

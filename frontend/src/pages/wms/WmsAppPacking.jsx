@@ -13,7 +13,42 @@ import CameraScanner from "@/components/wms/CameraScanner";
 
 export default function WmsAppPacking() {
   const { orderId, bagCode } = useParams();
-  return bagCode ? <BagPacking bagCode={bagCode} /> : orderId ? <PackingStation orderId={orderId} /> : <PackingQueue />;
+  return bagCode ? <BagPacking bagCode={bagCode} /> : orderId ? <PackingStation orderId={orderId} /> : <PackingQueueV2 />;
+}
+
+function PackingQueueV2() {
+  const navigate = useNavigate();
+  const [sessions, setSessions] = useState(null);
+  const [bagCode, setBagCode] = useState("");
+  const [printing, setPrinting] = useState(false);
+  const load = useCallback(async () => {
+    try { setSessions((await api.get("/wms/packing")).data || []); }
+    catch (error) { toast.error(error.response?.data?.detail || "Packing non disponibile"); setSessions([]); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  const printBags = async () => {
+    setPrinting(true);
+    try {
+      const response = await api.get("/wms/bags/pdf", { responseType: "blob" });
+      const url = URL.createObjectURL(response.data);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "bag-wms-50x30.pdf";
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) { toast.error(error.response?.data?.detail || "PDF bag non disponibile"); }
+    finally { setPrinting(false); }
+  };
+  if (!sessions) return <div className="flex min-h-[65dvh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-teal-700" /></div>;
+  const active = sessions.filter((session) => session.stato !== "completata");
+  const completed = sessions.filter((session) => session.stato === "completata");
+  const isBag = /^B-[0-9]{5}$/.test(bagCode);
+  return <div className="space-y-5 pb-24" data-testid="wms-packing-queue">
+    <header><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black uppercase text-teal-700">Outbound</p><h1 className="mt-1 text-3xl font-black">Packing station</h1><p className="mt-2 text-sm text-slate-500">{active.length} ordini da verificare e imballare.</p></div><Button type="button" variant="outline" className="h-11" onClick={printBags} disabled={printing}><Barcode className="mr-2 h-4 w-4" /> Stampa 50 bag</Button></div></header>
+    <section className="rounded-md border-2 border-slate-950 bg-white p-5"><div className="flex items-center gap-3"><span className="flex h-12 w-12 items-center justify-center rounded-md bg-slate-950 text-white"><ShoppingBag className="h-6 w-6" /></span><div><p className="text-xs font-black uppercase text-slate-500">Bag ordine o Massivo</p><h2 className="text-xl font-black">Scansiona la bag</h2></div></div><form className="mt-4 flex gap-2" onSubmit={(event) => { event.preventDefault(); if (isBag) navigate(`/wms-app/packing/bag/${bagCode}`); else toast.error("Scansiona una bag nel formato B-12345"); }}><Input value={bagCode} onChange={(event) => setBagCode(event.target.value.toUpperCase().replace(/[^B0-9-]/g, "").slice(0, 7))} placeholder="B-73846" className="h-14 flex-1 font-mono text-2xl tracking-widest" autoFocus /><Button type="submit" className="h-14 px-5" disabled={!isBag}><Barcode className="h-5 w-5" /></Button></form></section>
+    <section className="space-y-3">{active.length ? active.filter((session) => !session.mass_batch_id).map((session) => <PackingCard key={session.id} session={session} onClick={() => navigate(`/wms-app/packing/${session.order_id}`)} />) : <div className="rounded-md border border-dashed border-slate-300 bg-white py-14 text-center"><PackageCheck className="mx-auto h-9 w-9 text-emerald-600" /><h2 className="mt-3 font-black">Nessun ordine da imballare</h2></div>}</section>
+    {completed.length > 0 && <section><h2 className="mb-3 text-lg font-black">Completati</h2><div className="space-y-2">{completed.slice(0, 10).map((session) => <PackingCard key={session.id} session={session} onClick={() => navigate(`/wms-app/packing/${session.order_id}`)} />)}</div></section>}
+  </div>;
 }
 
 function PackingQueue() {
