@@ -73,11 +73,11 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
         </DialogHeader>
         {context && <section className="overflow-hidden rounded-md border border-slate-200 bg-white">
           <div className="grid grid-cols-2 divide-x divide-slate-200 border-b border-slate-200">
-            <div className="p-3"><span className="block text-xs font-bold uppercase text-slate-500">Prodotti</span><strong className="mt-1 block text-2xl font-black">{context.completedLines}<span className="text-base text-slate-400">/{context.totalLines}</span></strong></div>
-            <div className="p-3"><span className="block text-xs font-bold uppercase text-slate-500">Quantità</span><strong className="mt-1 block text-2xl font-black">{context.picked}<span className="text-base text-slate-400">/{context.expected}</span></strong></div>
+            <div className="p-3"><span className="block text-xs font-bold uppercase text-slate-500">Referenze</span><strong className="mt-1 block text-2xl font-black">{context.completedLines}<span className="text-base text-slate-400">/{context.totalLines}</span></strong></div>
+            <div className="p-3"><span className="block text-xs font-bold uppercase text-slate-500">Pezzi</span><strong className="mt-1 block text-2xl font-black">{context.picked}<span className="text-base text-slate-400">/{context.expected}</span></strong></div>
           </div>
           <div className="p-4">
-            <span className="text-xs font-black uppercase text-teal-700">Scansiona la posizione</span>
+            <span className="text-xs font-black uppercase text-teal-700">Scansiona lo slot</span>
             <div className="mt-2 flex items-end justify-between gap-3"><strong className="font-mono text-4xl font-black tracking-wide text-slate-950">{context.location}</strong><span className="rounded-md bg-teal-700 px-2 py-1 text-xs font-black text-white">{context.requested} pz</span></div>
             <p className="mt-2 truncate text-sm font-semibold text-slate-600">{context.title}</p>
           </div>
