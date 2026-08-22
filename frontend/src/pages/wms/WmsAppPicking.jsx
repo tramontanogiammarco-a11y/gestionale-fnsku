@@ -119,8 +119,11 @@ export default function WmsAppPicking() {
     }
   };
   const confirmBag = async (rawCode) => {
-    const value = String(rawCode || bagCode).trim();
-    if (!data?.task || !/^B-[0-9]{5}$/.test(value)) return;
+    const value = String(rawCode || bagCode).trim().toUpperCase();
+    if (!data?.task || !/^B-[0-9]{5}$/.test(value)) {
+      toast.error("Scansiona una bag nel formato B-12345.");
+      return;
+    }
     setWorking(true);
     try {
       const response = await api.post(`/wms/picking/${data.task.id}/scan`, { codice: value });
@@ -198,6 +201,7 @@ export default function WmsAppPicking() {
         <section className="border-2 border-slate-950 bg-white p-5 shadow-sm">
           <div className="flex items-center gap-3"><span className="flex h-12 w-12 items-center justify-center rounded-md bg-slate-950 text-white"><Barcode className="h-6 w-6" /></span><div><p className="text-xs font-black uppercase text-teal-700">Prelievo completato</p><h2 className="text-xl font-black">Scansiona la bag</h2></div></div>
           <p className="mt-3 text-sm text-slate-600">Metti tutti i prodotti dell'ordine in una bag libera e scansionala per inviarla alla packing station.</p>
+          <Button type="button" className="mt-4 h-14 w-full text-base font-black" onClick={() => setCameraOpen(true)} disabled={working}><Camera className="mr-2 h-5 w-5" /> Scansiona bag</Button>
           <form onSubmit={(event) => { event.preventDefault(); confirmBag(); }} className="mt-4 flex gap-2"><Input value={bagCode} onChange={(event) => setBagCode(event.target.value.toUpperCase().replace(/[^B0-9-]/g, "").slice(0, 7))} placeholder="B-73846" className="h-14 flex-1 font-mono text-xl tracking-widest" autoFocus /><Button type="submit" className="h-14 px-5" disabled={!/^B-[0-9]{5}$/.test(bagCode) || working}><Barcode className="h-5 w-5" /></Button></form>
         </section>
       ) : (
