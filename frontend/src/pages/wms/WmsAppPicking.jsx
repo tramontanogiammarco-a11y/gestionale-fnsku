@@ -194,8 +194,8 @@ export default function WmsAppPicking() {
         <section className="rounded-md border border-emerald-200 bg-emerald-50 p-6 text-center">
           <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-700" />
           <h2 className="mt-4 text-2xl font-black text-emerald-950">Picking completato</h2>
-          <p className="mt-2 text-sm text-emerald-800">{data.summary.picked} pezzi pronti alla packing station.</p>
-          <Button className="mt-5 h-14 w-full" onClick={() => navigate(`/wms-app/packing/${orderId}`)}><PackageCheck className="mr-2 h-5 w-5" /> Vai al packing</Button>
+          <p className="mt-2 text-sm text-emerald-800">{data.summary.picked} pezzi registrati nella bag {data.task.bag_code}. Il packing li gestisce dalla sua postazione.</p>
+          <Button className="mt-5 h-14 w-full" onClick={() => navigate("/wms-app/bag-storico")}><CheckCircle2 className="mr-2 h-5 w-5" /> Apri storico bag</Button>
         </section>
       ) : bagConfirmation ? (
         <section className="border-2 border-slate-950 bg-white p-5 shadow-sm">

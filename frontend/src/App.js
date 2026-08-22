@@ -47,6 +47,7 @@ import WmsAppOrders from "@/pages/wms/WmsAppOrders";
 import WmsAppPicking from "@/pages/wms/WmsAppPicking";
 import WmsAppMassPicking from "@/pages/wms/WmsAppMassPicking";
 import WmsAppPacking from "@/pages/wms/WmsAppPacking";
+import WmsAppBagHistory from "@/pages/wms/WmsAppBagHistory";
 import WmsAppProductSearch from "@/pages/wms/WmsAppProductSearch";
 import WmsAppTools from "@/pages/wms/WmsAppTools";
 import WmsAppSettings from "@/pages/wms/WmsAppSettings";
@@ -100,6 +101,7 @@ function App() {
               <Route path="packing" element={<WmsAppPacking />} />
               <Route path="packing/bag/:bagCode" element={<WmsAppPacking />} />
               <Route path="packing/:orderId" element={<WmsAppPacking />} />
+              <Route path="bag-storico" element={<WmsAppBagHistory />} />
               <Route path="cerca-prodotto" element={<WmsAppProductSearch />} />
               <Route path="strumenti" element={<WmsAppTools />} />
               <Route path="configurazione" element={<WmsAppSettings />} />
