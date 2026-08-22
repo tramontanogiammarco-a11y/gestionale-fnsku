@@ -16,8 +16,6 @@ import { calculateWarehouseRoute, normalizeAisles } from "@/lib/wmsRouting";
 
 const DEFAULT_MAP = { width: 34, depth: 24, entrance_x: 0, entrance_z: 10.5, aisles: [] };
 const OPERATIONAL_TYPES = new Set(["pallet", "slot"]);
-const HIDDEN_MAP_CODES = new Set(["QUARANTENA-01"]);
-
 function locationLabel(location) {
   if (location.tipo === "outbound" || location.codice === "OUTBOUND-01") return "OUTBOUND";
   if (location.tipo === "packing" || location.codice === "PACK-01") return "PACKING STATION";
@@ -55,9 +53,8 @@ function smartLocations(rows = []) {
 }
 
 function normalizeLocations(rows = []) {
-  const visibleRows = rows.filter((row) => !HIDDEN_MAP_CODES.has(row.codice));
-  const smartRows = smartLocations(visibleRows);
-  return visibleRows.map((row, index) => {
+  const smartRows = smartLocations(rows);
+  return rows.map((row, index) => {
     const fallback = smartRows[index];
     return {
       ...fallback,
