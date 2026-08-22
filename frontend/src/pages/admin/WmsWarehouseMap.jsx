@@ -5,7 +5,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
   AlertTriangle, Box, Boxes, Eye, Grid3X3, Loader2, MapPinned, Move3D,
-  PackageOpen, RotateCcw, Route, Save, ScanLine, Sparkles, Trash2, Undo2, Warehouse, Waypoints,
+  PackageCheck, PackageOpen, RotateCcw, Route, Save, ScanLine, Sparkles, Trash2, Truck, Undo2, Warehouse, Waypoints,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -16,6 +16,14 @@ import { calculateWarehouseRoute, normalizeAisles } from "@/lib/wmsRouting";
 
 const DEFAULT_MAP = { width: 34, depth: 24, entrance_x: 0, entrance_z: 10.5, aisles: [] };
 const OPERATIONAL_TYPES = new Set(["pallet", "slot"]);
+const HIDDEN_MAP_CODES = new Set(["QUARANTENA-01"]);
+
+function locationLabel(location) {
+  if (location.tipo === "outbound" || location.codice === "OUTBOUND-01") return "OUTBOUND";
+  if (location.tipo === "packing" || location.codice === "PACK-01") return "PACKING STATION";
+  if (location.codice === "INBOUND-01") return "INBOUND";
+  return location.codice;
+}
 
 function locationNumber(code) {
   return Number(String(code || "").match(/^[PS]\d+\+A(\d+)$/)?.[1] || 0);
@@ -31,7 +39,8 @@ function smartLocation(location, fallbackIndex = 0) {
     return { ...location, map_x: 2.5 + Math.floor(index / 20) * 2.2, map_z: -9 + (index % 20) * 0.95, map_rotation: 0 };
   }
   if (location.codice === "INBOUND-01") return { ...location, map_x: -4, map_z: 10.8, map_rotation: 0 };
-  if (location.codice === "QUARANTENA-01") return { ...location, map_x: 4, map_z: 10.8, map_rotation: 0 };
+  if (location.codice === "OUTBOUND-01") return { ...location, map_x: 4, map_z: 10.8, map_rotation: 0 };
+  if (location.codice === "PACK-01") return { ...location, map_x: 0, map_z: -10.8, map_rotation: 0 };
   return location;
 }
 
@@ -46,16 +55,17 @@ function smartLocations(rows = []) {
 }
 
 function normalizeLocations(rows = []) {
-  const smartRows = smartLocations(rows);
-  return rows.map((row, index) => {
+  const visibleRows = rows.filter((row) => !HIDDEN_MAP_CODES.has(row.codice));
+  const smartRows = smartLocations(visibleRows);
+  return visibleRows.map((row, index) => {
     const fallback = smartRows[index];
     return {
       ...fallback,
       map_x: Number(row.map_x ?? fallback.map_x ?? 0),
       map_z: Number(row.map_z ?? fallback.map_z ?? 0),
       map_rotation: Number(row.map_rotation || 0),
-      map_width: Number(row.map_width || (row.tipo === "pallet" ? 1.6 : row.tipo === "slot" ? 0.92 : 3)),
-      map_depth: Number(row.map_depth || (row.tipo === "pallet" ? 0.72 : row.tipo === "slot" ? 0.62 : 1.6)),
+      map_width: Number(row.map_width || (row.tipo === "pallet" ? 1.6 : row.tipo === "slot" ? 0.92 : row.tipo === "packing" ? 4.5 : 3)),
+      map_depth: Number(row.map_depth || (row.tipo === "pallet" ? 0.72 : row.tipo === "slot" ? 0.62 : row.tipo === "packing" ? 2.4 : 1.6)),
       access_side: row.access_side || "front",
     };
   });
@@ -284,7 +294,7 @@ const WarehouseScene = forwardRef(function WarehouseScene({
         new THREE.LineBasicMaterial({ color: "#334155", transparent: true, opacity: 0.45 })
       );
       mesh.add(edge);
-      const label = createTextSprite(location.codice, { scale: location.tipo === "slot" ? 0.76 : 0.86 });
+      const label = createTextSprite(locationLabel(location), { scale: location.tipo === "slot" ? 0.76 : location.tipo === "packing" ? 1.12 : 0.86 });
       label.position.set(0, height / 2 + 0.48, 0);
       mesh.add(label);
       const accessMarker = new THREE.Mesh(
@@ -558,7 +568,9 @@ const WarehouseScene = forwardRef(function WarehouseScene({
           : location.stato === "bloccata" ? "#e11d48"
             : location.tipo === "pallet" ? (location.occupata ? "#d97706" : "#f0b86e")
               : location.tipo === "slot" ? (location.occupata ? "#0f766e" : "#76c7bc")
-                : location.tipo === "quarantena" ? "#a855f7" : "#64748b";
+                : location.tipo === "outbound" ? "#22c55e"
+                  : location.tipo === "packing" ? "#38bdf8"
+                    : location.tipo === "quarantena" ? "#a855f7" : "#64748b";
       item.material.color.set(color);
       item.material.emissive.set(selected ? "#0c4a6e" : colliding ? "#450a0a" : "#000000");
       item.material.emissiveIntensity = selected || colliding ? 0.22 : 0;
@@ -794,6 +806,8 @@ export default function WmsWarehouseMap() {
           <div className="mt-2 flex flex-wrap gap-2">
             <Badge variant="outline"><PackageOpen className="mr-1 h-3.5 w-3.5 text-amber-600" /> {stats.pallets} pallet</Badge>
             <Badge variant="outline"><Warehouse className="mr-1 h-3.5 w-3.5 text-teal-700" /> {stats.slots} slot</Badge>
+            <Badge variant="outline"><Truck className="mr-1 h-3.5 w-3.5 text-emerald-600" /> Outbound</Badge>
+            <Badge variant="outline"><PackageCheck className="mr-1 h-3.5 w-3.5 text-sky-600" /> Packing station</Badge>
             <Badge variant="outline"><Boxes className="mr-1 h-3.5 w-3.5 text-sky-700" /> {stats.occupied} occupate</Badge>
             {dirty && <Badge className="bg-amber-100 text-amber-900 hover:bg-amber-100">Modifiche non salvate</Badge>}
           </div>
@@ -892,10 +906,10 @@ export default function WmsWarehouseMap() {
         </div>
 
         <div className="absolute bottom-4 left-4 flex flex-wrap gap-3 border border-slate-200 bg-white/95 px-3 py-2 text-xs font-semibold shadow-sm backdrop-blur">
-          <Legend color="#f0b86e" label="Pallet" /><Legend color="#76c7bc" label="Slot" /><Legend color="#22d3ee" label="Corridoio" /><Legend color="#d97706" label="Occupata" /><Legend color="#e11d48" label="Bloccata" />
+          <Legend color="#f0b86e" label="Pallet" /><Legend color="#76c7bc" label="Slot" /><Legend color="#38bdf8" label="Packing station" /><Legend color="#22c55e" label="Outbound" /><Legend color="#22d3ee" label="Percorso" /><Legend color="#d97706" label="Occupata" /><Legend color="#e11d48" label="Bloccata" />
         </div>
 
-        <aside className={`absolute right-4 overflow-y-auto border border-slate-200 bg-white/95 p-4 shadow-lg backdrop-blur max-md:left-4 max-md:top-auto max-md:w-auto max-md:max-h-[46%] ${selected ? "bottom-4 top-4 w-[320px]" : "top-4 w-[280px]"}`}>
+        <aside className={`absolute right-4 overflow-y-auto border border-slate-200 bg-white/95 p-4 shadow-lg backdrop-blur max-md:hidden ${selected ? "bottom-4 top-4 w-[320px]" : "top-4 w-[280px]"}`}>
           {selected ? (
             <>
               <div className="flex items-start justify-between gap-3 border-b border-slate-200 pb-4">

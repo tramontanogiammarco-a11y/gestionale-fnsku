@@ -45,7 +45,10 @@ export default function WmsAppOrders() {
 
   const visible = useMemo(() => {
     const orders = data?.orders || [];
-    const massOrderIds = new Set((massData?.groups || []).flatMap((group) => group.orders.map((order) => order.id)));
+    const massOrderIds = new Set([
+      ...(massData?.groups || []).flatMap((group) => group.orders.map((order) => order.id)),
+      ...(massData?.batches || []).flatMap((batch) => batch.orders.map((item) => item.order_id)),
+    ]);
     const individual = orders.filter((order) => !massOrderIds.has(order.id));
     return tab === "oggi" ? individual.filter((order) => order.wave !== "prossima") : individual.filter((order) => order.wave === "prossima");
   }, [data, massData, tab]);
@@ -54,6 +57,10 @@ export default function WmsAppOrders() {
 
   const settings = data.settings || {};
   const summary = data.summary || {};
+  const activeMassOrders = (massData?.batches || [])
+    .filter((batch) => ["in_corso", "da_confermare_bag"].includes(batch.stato))
+    .reduce((sum, batch) => sum + (batch.orders?.length || 0), 0);
+  const availableMassOrders = (massData?.groups || []).reduce((sum, group) => sum + group.numero_ordini, 0);
   return (
     <div className="space-y-5" data-testid="wms-orders">
       <header className="flex items-start justify-between gap-3">
@@ -70,7 +77,7 @@ export default function WmsAppOrders() {
       <section>
         <div className="mb-3"><p className="text-xs font-black uppercase text-slate-500">Modalità di preparazione</p><h2 className="mt-1 text-xl font-black">Prepara ordini</h2></div>
         <div className="grid grid-cols-2 gap-3">
-          <button type="button" onClick={() => navigate("/wms-app/picking-massivo")} className="min-h-40 rounded-md border border-teal-200 bg-teal-50 p-4 text-left text-teal-950"><Layers3 className="h-7 w-7" /><h3 className="mt-5 text-xl font-black">Massivo</h3><p className="mt-1 text-xs text-teal-800">{(massData?.groups || []).reduce((sum, group) => sum + group.numero_ordini, 0)} ordini identici</p></button>
+          <button type="button" onClick={() => navigate("/wms-app/picking-massivo")} className="min-h-40 rounded-md border border-teal-200 bg-teal-50 p-4 text-left text-teal-950"><Layers3 className="h-7 w-7" /><h3 className="mt-5 text-xl font-black">Massivo</h3><p className="mt-1 text-xs text-teal-800">{activeMassOrders || availableMassOrders} ordini in un solo compito</p></button>
           <div className="min-h-40 rounded-md border border-slate-200 bg-white p-4"><ShoppingCart className="h-7 w-7 text-slate-500" /><h3 className="mt-5 text-xl font-black">1x1</h3><p className="mt-1 text-xs text-slate-500">{massData?.separate_orders ?? visible.length} ordini singoli</p></div>
         </div>
       </section>

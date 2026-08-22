@@ -1370,7 +1370,7 @@ async function createWmsLocation(payload = {}) {
   const codice = String(payload.codice || "").trim().toUpperCase();
   const tipo = optionalText(payload.tipo) || "scaffale";
   if (!codice) fail("Codice ubicazione obbligatorio");
-  if (!["scaffale", "slot", "pallet", "terra", "quarantena"].includes(tipo)) fail("Tipo ubicazione non valido");
+  if (!["scaffale", "slot", "pallet", "terra", "quarantena", "outbound", "packing"].includes(tipo)) fail("Tipo ubicazione non valido");
   const { data, error } = await requireSupabase()
     .from("wms_locations")
     .insert({ codice, zona: optionalText(payload.zona), tipo, note: optionalText(payload.note) })
@@ -3567,10 +3567,29 @@ async function startWmsMassPicking(payload = {}) {
 async function scanWmsMassPicking(batchId, payload = {}) {
   const profile = await assertWmsStaff();
   const snapshot = await wmsMassPickSnapshot(batchId);
-  if (snapshot.data.batch.stato !== "in_corso") fail("Questa missione Massivo non e in corso", 409);
-  const current = snapshot.data.current_line;
-  if (!current) return snapshot;
+  const batch = snapshot.data.batch;
   const code = normalizedText(payload.codice || payload.code);
+  if (batch.stato === "da_confermare_bag") {
+    if (code !== normalizedText(batch.bag_code)) fail(`Scansiona la bag ${batch.bag_code} per chiudere il picking.`);
+    const completedAt = nowIso();
+    const orderIds = snapshot.data.orders.map((item) => item.order_id);
+    const [{ error: batchUpdateError }, { error: orderUpdateError }] = await Promise.all([
+      requireSupabase().from("wms_mass_pick_batches").update({ stato: "completata", completed_at: completedAt, bag_confirmed_at: completedAt, updated_at: completedAt }).eq("id", batchId),
+      requireSupabase().from("shopify_orders").update({ wms_status: "pronto", updated_at: completedAt }).in("id", orderIds),
+    ]);
+    if (batchUpdateError || orderUpdateError) fail((batchUpdateError || orderUpdateError).message);
+    for (const item of snapshot.data.orders) {
+      await ensurePackingSession(item.order_id, null, { massBatchId: batchId, bagCode: batch.bag_code, packingSequence: item.packing_sequence });
+    }
+    return wmsMassPickSnapshot(batchId);
+  }
+  if (batch.stato !== "in_corso") fail("Questa missione Massivo non e in corso", 409);
+  const current = snapshot.data.current_line;
+  if (!current) {
+    const { error } = await requireSupabase().from("wms_mass_pick_batches").update({ stato: "da_confermare_bag", updated_at: nowIso() }).eq("id", batchId);
+    if (error) fail(error.message);
+    return wmsMassPickSnapshot(batchId);
+  }
   if (!code) fail("Scansiona lo slot o il prodotto");
   if (!current.location_confirmed_at) {
     if (current.location?.tipo !== "slot") fail("Il picking e consentito solo dagli slot.", 409);
@@ -3605,16 +3624,8 @@ async function scanWmsMassPicking(batchId, payload = {}) {
 
   const updated = await wmsMassPickSnapshot(batchId);
   if (!updated.data.current_line) {
-    const completedAt = nowIso();
-    const orderIds = updated.data.orders.map((item) => item.order_id);
-    const [{ error: batchUpdateError }, { error: orderUpdateError }] = await Promise.all([
-      requireSupabase().from("wms_mass_pick_batches").update({ stato: "completata", completed_at: completedAt, updated_at: completedAt }).eq("id", batchId),
-      requireSupabase().from("shopify_orders").update({ wms_status: "pronto", updated_at: completedAt }).in("id", orderIds),
-    ]);
-    if (batchUpdateError || orderUpdateError) fail((batchUpdateError || orderUpdateError).message);
-    for (const item of updated.data.orders) {
-      await ensurePackingSession(item.order_id, null, { massBatchId: batchId, bagCode: updated.data.batch.bag_code, packingSequence: item.packing_sequence });
-    }
+    const { error } = await requireSupabase().from("wms_mass_pick_batches").update({ stato: "da_confermare_bag", updated_at: nowIso() }).eq("id", batchId);
+    if (error) fail(error.message);
     return wmsMassPickSnapshot(batchId);
   }
   return updated;

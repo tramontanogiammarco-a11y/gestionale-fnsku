@@ -119,7 +119,7 @@ function gridRoute(locations, map) {
   });
   const blocked = new Set();
   for (const obstacle of map.obstacles || []) {
-    if (!["pallet", "slot", "terra", "quarantena"].includes(obstacle.tipo)) continue;
+    if (!["pallet", "slot", "terra", "quarantena", "outbound", "packing"].includes(obstacle.tipo)) continue;
     const center = { x: Number(obstacle.map_x || 0), z: Number(obstacle.map_z || 0) };
     const radians = -Number(obstacle.map_rotation || 0) * Math.PI / 180;
     const cos = Math.cos(radians);
