@@ -3654,7 +3654,7 @@ async function scanWmsMassPicking(batchId, payload = {}) {
     const orderIds = snapshot.data.orders.map((item) => item.order_id);
     const [{ error: batchUpdateError }, { error: orderUpdateError }] = await Promise.all([
       requireSupabase().from("wms_mass_pick_batches").update({ stato: "completata", bag_id: bag.id, bag_code: bag.codice, completed_at: completedAt, bag_confirmed_at: completedAt, updated_at: completedAt }).eq("id", batchId),
-      requireSupabase().from("shopify_orders").update({ wms_status: "pronto", updated_at: completedAt }).in("id", orderIds),
+      requireSupabase().from("shopify_orders").update({ wms_status: "in_attesa_packing", updated_at: completedAt }).in("id", orderIds),
     ]);
     if (batchUpdateError || orderUpdateError) fail((batchUpdateError || orderUpdateError).message);
     await Promise.all(snapshot.data.orders.map((item) => (
@@ -3764,7 +3764,7 @@ async function scanWmsPicking(taskId, payload = {}) {
     const completedAt = nowIso();
     const [{ error: taskUpdateError }, { error: orderUpdateError }] = await Promise.all([
       requireSupabase().from("wms_pick_tasks").update({ stato: "completata", bag_id: bag.id, bag_code: bag.codice, bag_confirmed_at: completedAt, completed_at: completedAt, updated_at: completedAt }).eq("id", task.id),
-      requireSupabase().from("shopify_orders").update({ wms_status: "pronto", updated_at: completedAt }).eq("id", task.order_id),
+      requireSupabase().from("shopify_orders").update({ wms_status: "in_attesa_packing", updated_at: completedAt }).eq("id", task.order_id),
     ]);
     if (taskUpdateError || orderUpdateError) fail((taskUpdateError || orderUpdateError).message);
     await ensurePackingSession(task.order_id, task.id, { bagId: bag.id, bagCode: bag.codice });
@@ -3822,6 +3822,7 @@ async function ensurePackingSession(orderId, pickTaskId, options = {}) {
     bag_id: options.bagId || null,
     bag_code: options.bagCode || null,
     packing_sequence: options.packingSequence || null,
+    stato: "in_attesa_packing",
   }).select().single();
   if (sessionError || !session) fail(sessionError?.message || "Sessione packing non creata");
   const { data: items, error: itemsError } = await requireSupabase().from("shopify_order_items").select("*").eq("order_id", orderId);
@@ -3848,6 +3849,156 @@ async function ensurePackingSession(orderId, pickTaskId, options = {}) {
   }));
   if (linesError) fail(linesError.message);
   return session;
+}
+
+function packingLabelCode(sessionId) {
+  return `PK-${String(sessionId || "").replace(/-/g, "").slice(0, 12).toUpperCase()}`;
+}
+
+async function packingStationSnapshot(bagCode) {
+  const snapshot = await wmsBagPackingSnapshot(bagCode);
+  const sessions = snapshot.data.sessions || [];
+  if (!sessions.length) fail("La bag non contiene ordini in attesa di packing", 404);
+  const labels = sessions
+    .filter((session) => session.carrier_label_code)
+    .map((session) => ({
+      session_id: session.id,
+      order_name: session.order?.order_name || session.order_id,
+      code: session.carrier_label_code,
+      scanned: Boolean(session.carrier_label_scanned_at),
+    }));
+  const hasPendingBagCheck = sessions.some((session) => session.stato === "in_verifica_bag");
+  const pendingLabels = labels.filter((label) => !label.scanned);
+  return ok({
+    bag_code: bagCode,
+    batch: snapshot.data.batch || null,
+    sessions,
+    summary: snapshot.data.summary,
+    labels,
+    phase: sessions.every((session) => session.stato === "completata")
+      ? "completed"
+      : hasPendingBagCheck
+        ? "double_check"
+        : pendingLabels.length
+          ? "scan_labels"
+          : "scan_bag",
+  });
+}
+
+async function completePackingLabel(session) {
+  const completedAt = nowIso();
+  const [{ error: sessionError }, { error: orderError }] = await Promise.all([
+    requireSupabase().from("wms_packing_sessions").update({
+      stato: "completata",
+      carrier_label_scanned_at: completedAt,
+      completed_at: completedAt,
+      updated_at: completedAt,
+    }).eq("id", session.id),
+    requireSupabase().from("shopify_orders").update({ wms_status: "imballato", updated_at: completedAt }).eq("id", session.order_id),
+  ]);
+  if (sessionError || orderError) fail((sessionError || orderError).message);
+
+  if (!session.mass_batch_id) {
+    await releaseWmsBag(session.bag_id);
+    return;
+  }
+
+  const { error: linkError } = await requireSupabase()
+    .from("wms_mass_pick_orders")
+    .update({ stato: "completato" })
+    .eq("batch_id", session.mass_batch_id)
+    .eq("order_id", session.order_id);
+  if (linkError) fail(linkError.message);
+
+  const { data: pending, error: pendingError } = await requireSupabase()
+    .from("wms_packing_sessions")
+    .select("id")
+    .eq("mass_batch_id", session.mass_batch_id)
+    .neq("stato", "completata")
+    .limit(1);
+  if (pendingError) fail(pendingError.message);
+
+  const allPacked = !(pending || []).length;
+  const { error: batchError } = await requireSupabase()
+    .from("wms_mass_pick_batches")
+    .update({ stato: allPacked ? "completata_packing" : "in_packing", updated_at: completedAt })
+    .eq("id", session.mass_batch_id);
+  if (batchError) fail(batchError.message);
+  if (allPacked) await releaseWmsBag(session.bag_id);
+}
+
+async function scanWmsPackingStation(payload = {}) {
+  await assertWmsStaff();
+  const code = String(payload.codice || payload.code || "").trim().toUpperCase();
+  const activeBagCode = String(payload.bag_code || "").trim().toUpperCase();
+  if (!code) fail("Scansiona una bag o un'etichetta");
+
+  if (!activeBagCode) {
+    if (!/^B-[0-9]{5}$/.test(code)) fail("Scansiona prima il barcode della bag");
+    const snapshot = await packingStationSnapshot(code);
+    if (snapshot.data.phase === "completed") fail("Questa bag e gia stata completata");
+    const eligible = snapshot.data.sessions.filter((session) => ["in_attesa_packing", "da_imballare", "in_verifica_bag"].includes(session.stato));
+    if (!eligible.length) fail("Questa bag e gia in attesa delle etichette");
+    const scannedAt = nowIso();
+    const { error } = await requireSupabase().from("wms_packing_sessions").update({
+      stato: "in_verifica_bag",
+      bag_first_scanned_at: scannedAt,
+      updated_at: scannedAt,
+    }).in("id", eligible.map((session) => session.id));
+    if (error) fail(error.message);
+    return packingStationSnapshot(code);
+  }
+
+  const snapshot = await packingStationSnapshot(activeBagCode);
+  if (code === activeBagCode) {
+    const awaitingDoubleCheck = snapshot.data.sessions.filter((session) => session.stato === "in_verifica_bag");
+    if (!awaitingDoubleCheck.length) fail("Questa bag non richiede una seconda scansione");
+    const scannedAt = nowIso();
+    const updates = awaitingDoubleCheck.map((session) => requireSupabase().from("wms_packing_sessions").update({
+      stato: "in_attesa_etichetta",
+      bag_double_checked_at: scannedAt,
+      carrier_label_code: session.carrier_label_code || packingLabelCode(session.id),
+      carrier_label_printed_at: scannedAt,
+      updated_at: scannedAt,
+    }).eq("id", session.id));
+    const results = await Promise.all(updates);
+    const updateError = results.find((result) => result.error)?.error;
+    if (updateError) fail(updateError.message);
+    return packingStationSnapshot(activeBagCode);
+  }
+
+  const matchingSession = snapshot.data.sessions.find((session) => (
+    session.stato === "in_attesa_etichetta"
+    && normalizedText(session.carrier_label_code) === normalizedText(code)
+  ));
+  if (!matchingSession) fail("Etichetta non prevista per questa bag oppure gia acquisita");
+  await completePackingLabel(matchingSession);
+  const sessions = snapshot.data.sessions.map((session) => session.id === matchingSession.id
+    ? { ...session, stato: "completata", carrier_label_scanned_at: nowIso() }
+    : session);
+  if (sessions.every((session) => session.stato === "completata")) {
+    return ok({
+      ...snapshot.data,
+      sessions,
+      labels: snapshot.data.labels.map((label) => label.session_id === matchingSession.id ? { ...label, scanned: true } : label),
+      summary: { ...snapshot.data.summary, completed: sessions.length },
+      phase: "completed",
+    });
+  }
+  return packingStationSnapshot(activeBagCode);
+}
+
+async function wmsPackingCarrierLabelsPdf(bagCode) {
+  const snapshot = await packingStationSnapshot(bagCode);
+  const items = snapshot.data.sessions
+    .filter((session) => session.carrier_label_code)
+    .map((session) => ({
+      fnsku: session.carrier_label_code,
+      titolo: `Etichetta corriere ${session.order?.order_name || "ordine"}`,
+      copie: 1,
+    }));
+  if (!items.length) fail("Riscansiona prima la bag per generare le etichette");
+  return ok(generateLabelsPdfBlob({ formato: "100x50", mostra_titolo: true, items }));
 }
 
 async function wmsPackingSnapshot(orderId) {
@@ -3939,10 +4090,24 @@ async function completeWmsPacking(sessionId) {
 
 async function wmsBagPackingSnapshot(bagCode) {
   await assertWmsStaff();
-  const { data: batch, error: batchError } = await requireSupabase().from("wms_mass_pick_batches").select("*").eq("bag_code", bagCode).maybeSingle();
+  const { data: batches, error: batchError } = await requireSupabase()
+    .from("wms_mass_pick_batches")
+    .select("*")
+    .eq("bag_code", bagCode)
+    .in("stato", ["completata", "in_packing"])
+    .order("completed_at", { ascending: false })
+    .limit(1);
+  const batch = batches?.[0] || null;
   if (batchError) fail(batchError.message);
   if (!batch) {
-    const { data: normalSession, error: normalError } = await requireSupabase().from("wms_packing_sessions").select("*").eq("bag_code", bagCode).maybeSingle();
+    const { data: normalSessions, error: normalError } = await requireSupabase()
+      .from("wms_packing_sessions")
+      .select("*")
+      .eq("bag_code", bagCode)
+      .neq("stato", "completata")
+      .order("created_at", { ascending: false })
+      .limit(1);
+    const normalSession = normalSessions?.[0] || null;
     if (normalError || !normalSession) fail(normalError?.message || "Bag non trovata", 404);
     const normalSnapshot = await wmsPackingSnapshot(normalSession.order_id);
     return ok({ batch: null, sessions: [{ ...normalSession, order: normalSnapshot.data.order, lines: normalSnapshot.data.lines }], summary: { orders: 1, completed: normalSession.stato === "completata" ? 1 : 0 } });
@@ -4893,6 +5058,7 @@ export const api = {
     if (path === "/wms/bags") return listWmsBags();
     if (path === "/wms/bags/storico") return listWmsBagHistory();
     if (path === "/wms/bags/pdf" && config.responseType === "blob") return wmsBagsPdf();
+    if (path.match(/^\/wms\/packing\/bag\/B-[0-9]{5}\/etichette$/) && config.responseType === "blob") return wmsPackingCarrierLabelsPdf(path.split("/")[4]);
     if (path.match(/^\/wms\/packing\/bag\/B-[0-9]{5}$/)) return wmsBagPackingSnapshot(path.split("/")[4]);
     if (path.match(/^\/wms\/picking\/[^/]+$/)) return wmsPickSnapshot(path.split("/")[3]);
     if (path.match(/^\/wms\/packing\/[^/]+$/)) return wmsPackingSnapshot(path.split("/")[3]);
@@ -4922,6 +5088,7 @@ export const api = {
     if (path === "/wms/rifornimenti") return replenishWmsSlot(payload);
     if (path === "/wms/picking-massivo/avvia") return startWmsMassPicking(payload);
     if (path.match(/^\/wms\/picking-massivo\/[^/]+\/scan$/)) return scanWmsMassPicking(path.split("/")[3], payload);
+    if (path === "/wms/packing/station/scan") return scanWmsPackingStation(payload);
     if (path === "/shopify/oauth/start") return startShopifyOAuth(payload);
     if (path === "/shippypro/label") return createShippyProLabel(payload);
     if (path === "/shippypro/carriers") return listShippyProCarriers(payload);
