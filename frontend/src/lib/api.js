@@ -3820,6 +3820,27 @@ async function wmsGalluseSnapshot(batchId) {
   });
 }
 
+async function wmsGalluseFixedCart(numberOfBags) {
+  const { data: positions, error: positionsError } = await requireSupabase()
+    .from("wms_galluse_cart_positions")
+    .select("*")
+    .order("posizione");
+  if (positionsError) fail(positionsError.message);
+  const cart = (positions || []).slice(0, numberOfBags);
+  if (cart.length < numberOfBags) fail("Configura prima tutte le bag fisse del carrello Galluse.", 409);
+  const { data: bags, error: bagsError } = await requireSupabase()
+    .from("wms_bags")
+    .select("id,codice,stato")
+    .in("id", cart.map((position) => position.bag_id));
+  if (bagsError) fail(bagsError.message);
+  const bagMap = Object.fromEntries((bags || []).map((bag) => [bag.id, bag]));
+  const missing = cart.filter((position) => !bagMap[position.bag_id]);
+  if (missing.length) fail("Una bag fissa del carrello non esiste piu.", 409);
+  const busy = cart.filter((position) => bagMap[position.bag_id].stato !== "disponibile");
+  if (busy.length) fail(`Le bag ${busy.map((position) => position.bag_code).join(", ")} sono ancora occupate al packing.`, 409);
+  return cart.map((position) => ({ ...position, bag: bagMap[position.bag_id] }));
+}
+
 async function startWmsGallusePicking(payload = {}) {
   const profile = await assertWmsStaff();
   const requestedClientId = optionalText(payload.cliente_id);
@@ -3836,14 +3857,32 @@ async function startWmsGallusePicking(payload = {}) {
   const uniqueLocations = [...new Set(plan.allocations.map((allocation) => allocation.location_id))].map((id) => plan.locationMap[id]).filter(Boolean);
   const route = calculateWarehouseRoute(uniqueLocations, plan.mapSettings);
   if (route.unreachable?.length) fail(`Mappa bloccata: ${route.unreachable.map((location) => location.codice).join(", ")} non e raggiungibile.`);
+  const cart = await wmsGalluseFixedCart(orders.length);
   const { data: batch, error: batchError } = await requireSupabase().from("wms_galluse_batches").insert({
     cliente_id: clientId,
-    stato: "da_associare_bag",
+    stato: "in_corso",
     numero_bag: orders.length,
     operatore_id: profile.id,
+    started_at: nowIso(),
   }).select().single();
   if (batchError || !batch) fail(batchError?.message || "Missione Metodo Galluse non creata");
-  const { data: links, error: linksError } = await requireSupabase().from("wms_galluse_orders").insert(orders.map((order, index) => ({ batch_id: batch.id, order_id: order.id, posizione_bag: index + 1 }))).select();
+  const { data: reservedBags, error: reserveError } = await requireSupabase()
+    .from("wms_bags")
+    .update({ stato: "in_packing", updated_at: nowIso() })
+    .in("id", cart.map((position) => position.bag_id))
+    .eq("stato", "disponibile")
+    .select("id");
+  if (reserveError || (reservedBags || []).length !== cart.length) {
+    await requireSupabase().from("wms_galluse_batches").delete().eq("id", batch.id);
+    fail(reserveError?.message || "Una bag del carrello e stata occupata da un altro flusso. Riprova.", 409);
+  }
+  const { data: links, error: linksError } = await requireSupabase().from("wms_galluse_orders").insert(orders.map((order, index) => ({
+    batch_id: batch.id,
+    order_id: order.id,
+    posizione_bag: index + 1,
+    bag_id: cart[index].bag_id,
+    bag_code: cart[index].bag_code,
+  }))).select();
   if (linksError) fail(linksError.message);
   const linkByOrderId = Object.fromEntries((links || []).map((link) => [link.order_id, link]));
   const sequenceMap = Object.fromEntries(route.locations.map((location, index) => [location.id, index + 1]));
