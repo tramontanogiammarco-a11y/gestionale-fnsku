@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { ArrowLeft, Barcode, CheckCircle2, ChevronRight, Layers3, Loader2, MapPin, PackageCheck, Play, ScanLine, ShoppingBag } from "lucide-react";
 import { toast } from "sonner";
@@ -26,26 +26,18 @@ function GalluseQueue() {
       setData((await api.get(`/wms/picking-galluse${query}`)).data);
     } catch (error) {
       toast.error(error.response?.data?.detail || "Metodo Galluse non disponibile");
-      setData({ candidates: [], batches: [] });
+      setData({ candidates: [], rounds: [], batches: [] });
     }
   }, [clientId]);
   useEffect(() => { load(); }, [load]);
 
-  const availableByClient = useMemo(() => {
-    const groups = new Map();
-    for (const order of data?.candidates || []) {
-      const current = groups.get(order.cliente_id) || { cliente_id: order.cliente_id, cliente: order.cliente_ragione_sociale || "Cliente", orders: [] };
-      current.orders.push(order);
-      groups.set(order.cliente_id, current);
-    }
-    return [...groups.values()].sort((left, right) => right.orders.length - left.orders.length);
-  }, [data?.candidates]);
   const active = (data?.batches || []).filter((batch) => ["da_associare_bag", "in_corso"].includes(batch.stato));
-  const start = async (group) => {
+  const rounds = data?.rounds || [];
+  const start = async (round) => {
     setWorking(true);
     try {
-      const response = await api.post("/wms/picking-galluse/avvia", { cliente_id: group.cliente_id });
-      toast.success(`${response.data.summary.orders} ordini caricati sul carrello`);
+      const response = await api.post("/wms/picking-galluse/avvia", { cliente_id: round.cliente_id, offset: round.offset });
+      toast.success(`Compito ${round.numero}: ${response.data.summary.orders} ordini caricati sul carrello`);
       navigate(`/wms-app/picking-galluse/${response.data.batch.id}`);
     } catch (error) { toast.error(error.response?.data?.detail || "Missione Galluse non avviata"); }
     finally { setWorking(false); }
@@ -54,9 +46,9 @@ function GalluseQueue() {
   if (!data) return <Loading />;
   return <div className="space-y-5 pb-24" data-testid="wms-galluse-queue">
     <header><button type="button" onClick={() => navigate("/wms-app/ordini")} className="mb-4 flex h-10 w-10 items-center justify-center rounded-md border border-slate-200 bg-white" aria-label="Torna agli ordini"><ArrowLeft className="h-5 w-5" /></button><p className="text-xs font-black uppercase text-teal-700">Prepara ordini</p><h1 className="mt-1 text-3xl font-black">Metodo Galluse</h1><p className="mt-2 text-sm text-slate-500">Un carrello, fino a 10 bag e un solo giro per ogni slot.</p></header>
-    <section className="grid grid-cols-3 gap-2"><Metric label="Ordini pronti" value={(data.candidates || []).length} /><Metric label="Carrelli aperti" value={active.length} /><Metric label="Max per giro" value="10" /></section>
+    <section className="grid grid-cols-3 gap-2"><Metric label="Ordini pronti" value={(data.candidates || []).length} /><Metric label="Compiti" value={rounds.length} /><Metric label="Max per carrello" value="10" /></section>
     {active.length > 0 && <section><h2 className="mb-3 text-xl font-black">Carrelli aperti</h2><div className="space-y-3">{active.map((batch) => <button type="button" key={batch.id} onClick={() => navigate(`/wms-app/picking-galluse/${batch.id}`)} className="flex w-full items-center gap-3 rounded-md border border-teal-200 bg-teal-50 p-4 text-left"><span className="flex h-12 w-12 items-center justify-center rounded-md bg-white text-teal-700"><ShoppingBag className="h-6 w-6" /></span><span className="min-w-0 flex-1"><strong className="block">Carrello da {batch.orders?.length || batch.numero_bag} ordini</strong><span className="mt-1 block text-xs text-teal-800">{batch.stato === "da_associare_bag" ? "Associa le bag al carrello" : "Picking in corso"}</span></span><ChevronRight className="h-5 w-5" /></button>)}</div></section>}
-    <section><h2 className="mb-3 text-xl font-black">Giri disponibili</h2>{availableByClient.length ? <div className="space-y-3">{availableByClient.map((group) => { const orders = Math.min(10, group.orders.length); const pieces = group.orders.slice(0, 10).reduce((sum, order) => sum + (order.items || []).reduce((inner, item) => inner + Number(item.quantita || 0), 0), 0); return <article key={group.cliente_id} className="rounded-md border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-start gap-3"><span className="flex h-12 w-12 items-center justify-center rounded-md bg-teal-50 text-teal-700"><Layers3 className="h-6 w-6" /></span><div className="min-w-0 flex-1"><h3 className="text-lg font-black">{orders} ordini sul carrello</h3><p className="mt-1 text-xs text-slate-500">{group.cliente} · {pieces} pezzi nel prossimo giro</p></div></div><p className="mt-4 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">Il sistema aggrega le referenze per slot e indica la bag di destinazione per ogni pezzo.</p><Button className="mt-4 h-14 w-full text-base font-black" onClick={() => start(group)} disabled={working}><Play className="mr-2 h-5 w-5" /> Prepara {orders} ordini</Button></article>; })}</div> : <Empty />}</section>
+    <section><h2 className="mb-3 text-xl font-black">Compiti disponibili</h2>{rounds.length ? <div className="space-y-3">{rounds.map((round) => <article key={round.id} className="rounded-md border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-start gap-3"><span className="flex h-12 w-12 items-center justify-center rounded-md bg-teal-50 text-teal-700"><Layers3 className="h-6 w-6" /></span><div className="min-w-0 flex-1"><h3 className="text-lg font-black">Compito {round.numero} · {round.numero_ordini} ordini</h3><p className="mt-1 text-xs text-slate-500">{round.cliente} · {round.referenze} referenze · {round.pezzi} pezzi</p></div></div><p className="mt-4 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">Carrello da {round.numero_ordini} bag: a ogni slot il sistema indica quanti pezzi prendere e in quali posizioni del carrello distribuirli.</p><Button className="mt-4 h-14 w-full text-base font-black" onClick={() => start(round)} disabled={working || active.length > 0}><Play className="mr-2 h-5 w-5" /> {active.length ? "Completa prima il carrello aperto" : `Avvia compito ${round.numero}`}</Button></article>)}</div> : <Empty />}</section>
   </div>;
 }
 

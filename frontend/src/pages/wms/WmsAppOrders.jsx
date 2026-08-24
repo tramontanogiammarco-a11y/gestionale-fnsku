@@ -22,6 +22,7 @@ export default function WmsAppOrders() {
   const [tab, setTab] = useState("oggi");
   const [selected, setSelected] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [startingGalluse, setStartingGalluse] = useState(false);
 
   const load = useCallback(async () => {
     setRefreshing(true);
@@ -52,6 +53,7 @@ export default function WmsAppOrders() {
       ...(massData?.groups || []).flatMap((group) => group.orders.map((order) => order.id)),
       ...(massData?.batches || []).flatMap((batch) => batch.orders.map((item) => item.order_id)),
       ...(galluseData?.batches || []).flatMap((batch) => batch.orders.map((item) => item.order_id)),
+      ...(galluseData?.candidates || []).map((order) => order.id),
     ]);
     const individual = orders.filter((order) => !massOrderIds.has(order.id) && ["da_preparare", "in_preparazione"].includes(order.wms_status));
     return tab === "oggi" ? individual.filter((order) => order.wave !== "prossima") : individual.filter((order) => order.wave === "prossima");
@@ -65,6 +67,30 @@ export default function WmsAppOrders() {
     .filter((batch) => ["in_corso", "da_confermare_bag"].includes(batch.stato))
     .reduce((sum, batch) => sum + (batch.orders?.length || 0), 0);
   const availableMassOrders = (massData?.groups || []).reduce((sum, group) => sum + group.numero_ordini, 0);
+  const activeGalluse = (galluseData?.batches || []).find((batch) => ["da_associare_bag", "in_corso"].includes(batch.stato));
+  const nextGalluseRound = (galluseData?.rounds || [])[0];
+  const startGalluse = async () => {
+    if (activeGalluse) {
+      navigate(`/wms-app/picking-galluse/${activeGalluse.id}`);
+      return;
+    }
+    if (!nextGalluseRound) {
+      toast.error("Non ci sono ordini 1x1 disponibili per il Metodo Galluse.");
+      return;
+    }
+    setStartingGalluse(true);
+    try {
+      const response = await api.post("/wms/picking-galluse/avvia", {
+        cliente_id: nextGalluseRound.cliente_id,
+        offset: nextGalluseRound.offset,
+      });
+      navigate(`/wms-app/picking-galluse/${response.data.batch.id}`);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Carrello Galluse non avviato");
+    } finally {
+      setStartingGalluse(false);
+    }
+  };
   return (
     <div className="space-y-5" data-testid="wms-orders">
       <header className="flex items-start justify-between gap-3">
@@ -82,7 +108,7 @@ export default function WmsAppOrders() {
         <div className="mb-3"><p className="text-xs font-black uppercase text-slate-500">Modalità di preparazione</p><h2 className="mt-1 text-xl font-black">Prepara ordini</h2></div>
         <div className="grid grid-cols-2 gap-3">
           <button type="button" onClick={() => navigate("/wms-app/picking-massivo")} className="min-h-40 rounded-md border border-teal-200 bg-teal-50 p-4 text-left text-teal-950"><Layers3 className="h-7 w-7" /><h3 className="mt-5 text-xl font-black">Massivo</h3><p className="mt-1 text-xs text-teal-800">{activeMassOrders || availableMassOrders} ordini in un solo compito</p></button>
-          <button type="button" onClick={() => navigate("/wms-app/picking-galluse")} className="min-h-40 rounded-md border border-slate-200 bg-white p-4 text-left"><ShoppingCart className="h-7 w-7 text-slate-700" /><h3 className="mt-5 text-xl font-black">Metodo Galluse</h3><p className="mt-1 text-xs text-slate-500">{massData?.separate_orders ?? visible.length} ordini 1x1 in un giro</p></button>
+          <button type="button" onClick={startGalluse} disabled={startingGalluse} className="min-h-40 rounded-md border border-slate-200 bg-white p-4 text-left disabled:opacity-60"><ShoppingCart className="h-7 w-7 text-slate-700" /><h3 className="mt-5 text-xl font-black">Metodo Galluse</h3><p className="mt-1 text-xs text-slate-500">{activeGalluse ? `Riprendi carrello: ${activeGalluse.numero_bag} ordini` : `${(galluseData?.rounds || []).length} compiti da massimo 10 ordini`}</p></button>
         </div>
       </section>
 
