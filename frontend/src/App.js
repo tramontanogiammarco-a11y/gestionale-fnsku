@@ -48,6 +48,7 @@ import WmsAppLocations from "@/pages/wms/WmsAppLocations";
 import WmsAppOrders from "@/pages/wms/WmsAppOrders";
 import WmsAppPicking from "@/pages/wms/WmsAppPicking";
 import WmsAppMassPicking from "@/pages/wms/WmsAppMassPicking";
+import WmsAppGalluse from "@/pages/wms/WmsAppGalluse";
 import WmsAppBagHistory from "@/pages/wms/WmsAppBagHistory";
 import WmsAppProductSearch from "@/pages/wms/WmsAppProductSearch";
 import WmsAppTools from "@/pages/wms/WmsAppTools";
@@ -128,6 +129,8 @@ function App() {
               <Route path="picking/:orderId" element={<WmsAppPicking />} />
               <Route path="picking-massivo" element={<WmsAppMassPicking />} />
               <Route path="picking-massivo/:batchId" element={<WmsAppMassPicking />} />
+              <Route path="picking-galluse" element={<WmsAppGalluse />} />
+              <Route path="picking-galluse/:batchId" element={<WmsAppGalluse />} />
               <Route path="packing" element={<Navigate to="/packing-station" replace />} />
               <Route path="packing/bag/:bagCode" element={<Navigate to="/packing-station" replace />} />
               <Route path="packing/:orderId" element={<Navigate to="/packing-station" replace />} />

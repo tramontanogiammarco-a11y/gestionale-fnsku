@@ -3230,12 +3230,28 @@ async function wmsPickingPlan(order, items) {
     : { data: [], error: null };
   if (reservedMassError) fail(reservedMassError.message);
 
+  const { data: activeGalluseBatches, error: galluseBatchesError } = await requireSupabase()
+    .from("wms_galluse_batches")
+    .select("id")
+    .eq("cliente_id", order.cliente_id)
+    .in("stato", ["da_associare_bag", "in_corso"]);
+  if (galluseBatchesError) fail(galluseBatchesError.message);
+  const activeGalluseIds = (activeGalluseBatches || []).map((batch) => batch.id);
+  const { data: reservedGalluseLines, error: reservedGalluseError } = activeGalluseIds.length
+    ? await requireSupabase().from("wms_galluse_lines").select("location_id,product_key,quantita_attesa,quantita_prelevata").in("batch_id", activeGalluseIds)
+    : { data: [], error: null };
+  if (reservedGalluseError) fail(reservedGalluseError.message);
+
   const reserved = new Map();
   for (const line of reservedLines || []) {
     const key = `${line.location_id}:${line.product_key}`;
     reserved.set(key, Number(reserved.get(key) || 0) + Math.max(0, Number(line.quantita_attesa || 0) - Number(line.quantita_prelevata || 0)));
   }
   for (const line of reservedMassLines || []) {
+    const key = `${line.location_id}:${line.product_key}`;
+    reserved.set(key, Number(reserved.get(key) || 0) + Math.max(0, Number(line.quantita_attesa || 0) - Number(line.quantita_prelevata || 0)));
+  }
+  for (const line of reservedGalluseLines || []) {
     const key = `${line.location_id}:${line.product_key}`;
     reserved.set(key, Number(reserved.get(key) || 0) + Math.max(0, Number(line.quantita_attesa || 0) - Number(line.quantita_prelevata || 0)));
   }
@@ -3709,8 +3725,238 @@ async function scanWmsMassPicking(batchId, payload = {}) {
   return updated;
 }
 
+function galluseCandidateOrders(orders = []) {
+  const massOrderIds = new Set(massGroupsFromOrders(orders).flatMap((group) => group.orders.map((order) => order.id)));
+  return (orders || []).filter((order) => (
+    order.wms_status === "da_preparare"
+    && !massOrderIds.has(order.id)
+    && (order.items || []).length > 0
+    && !(order.items || []).some((item) => !item.referenza_id || Number(item.quantita || 0) <= 0)
+  ));
+}
+
+async function listWmsGallusePicking(params = new URLSearchParams()) {
+  await assertWmsStaff();
+  const operational = await wmsOperationalOrdersData(params);
+  const candidates = galluseCandidateOrders(operational.orders);
+  const selectedClientId = optionalText(params.get("cliente_id"));
+  let batchesQuery = requireSupabase()
+    .from("wms_galluse_batches")
+    .select("*")
+    .neq("stato", "annullata");
+  if (selectedClientId) batchesQuery = batchesQuery.eq("cliente_id", selectedClientId);
+  const { data: batches, error: batchesError } = await batchesQuery.order("created_at", { ascending: false });
+  if (batchesError) fail(batchesError.message);
+  const batchIds = (batches || []).map((batch) => batch.id);
+  const { data: links, error: linksError } = batchIds.length
+    ? await requireSupabase().from("wms_galluse_orders").select("*").in("batch_id", batchIds)
+    : { data: [], error: null };
+  if (linksError) fail(linksError.message);
+  const orderIds = (links || []).map((link) => link.order_id);
+  const { data: linkedOrders, error: linkedOrdersError } = orderIds.length
+    ? await requireSupabase().from("shopify_orders").select("id,order_name,cliente_id").in("id", orderIds)
+    : { data: [], error: null };
+  if (linkedOrdersError) fail(linkedOrdersError.message);
+  const orderMap = Object.fromEntries((linkedOrders || []).map((order) => [order.id, order]));
+  return ok({
+    candidates,
+    batches: (batches || []).map((batch) => ({
+      ...batch,
+      orders: (links || []).filter((link) => link.batch_id === batch.id).sort((left, right) => left.posizione_bag - right.posizione_bag).map((link) => ({ ...link, order: orderMap[link.order_id] || null })),
+    })),
+  });
+}
+
+async function wmsGalluseSnapshot(batchId) {
+  await assertWmsStaff();
+  const { data: batch, error: batchError } = await requireSupabase().from("wms_galluse_batches").select("*").eq("id", batchId).single();
+  if (batchError || !batch) fail(batchError?.message || "Missione Metodo Galluse non trovata", 404);
+  const [{ data: links, error: linksError }, { data: lines, error: linesError }] = await Promise.all([
+    requireSupabase().from("wms_galluse_orders").select("*").eq("batch_id", batchId).order("posizione_bag"),
+    requireSupabase().from("wms_galluse_lines").select("*").eq("batch_id", batchId).order("sequenza"),
+  ]);
+  if (linksError || linesError) fail((linksError || linesError).message);
+  const orderIds = (links || []).map((link) => link.order_id);
+  const { data: orders, error: ordersError } = orderIds.length
+    ? await requireSupabase().from("shopify_orders").select("*").in("id", orderIds)
+    : { data: [], error: null };
+  if (ordersError) fail(ordersError.message);
+  const enriched = await enrichShopifyOrders(orders || []);
+  const orderMap = Object.fromEntries(enriched.map((order) => [order.id, order]));
+  const linkMap = Object.fromEntries((links || []).map((link) => [link.id, link]));
+  const locationIds = [...new Set((lines || []).map((line) => line.location_id))];
+  const lineIds = (lines || []).map((line) => line.id);
+  const [{ data: locations, error: locationsError }, { data: allocations, error: allocationsError }] = await Promise.all([
+    locationIds.length ? requireSupabase().from("wms_locations").select("*").in("id", locationIds) : Promise.resolve({ data: [], error: null }),
+    lineIds.length ? requireSupabase().from("wms_galluse_allocations").select("*").in("galluse_line_id", lineIds) : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (locationsError || allocationsError) fail((locationsError || allocationsError).message);
+  const locationMap = Object.fromEntries((locations || []).map((location) => [location.id, location]));
+  const linkedOrders = (links || []).map((link) => ({ ...link, order: orderMap[link.order_id] || null }));
+  const allocationsByLine = groupBy(allocations || [], "galluse_line_id");
+  const rows = (lines || []).map((line) => ({
+    ...line,
+    location: locationMap[line.location_id] || null,
+    allocations: (allocationsByLine[line.id] || []).map((allocation) => {
+      const link = linkMap[allocation.galluse_order_id];
+      return { ...allocation, posizione_bag: link?.posizione_bag, bag_code: link?.bag_code, order: orderMap[link?.order_id] || null };
+    }).sort((left, right) => left.posizione_bag - right.posizione_bag),
+  }));
+  const expected = rows.reduce((sum, line) => sum + Number(line.quantita_attesa || 0), 0);
+  const picked = rows.reduce((sum, line) => sum + Number(line.quantita_prelevata || 0), 0);
+  return ok({
+    batch,
+    orders: linkedOrders,
+    lines: rows,
+    current_line: rows.find((line) => Number(line.quantita_prelevata || 0) < Number(line.quantita_attesa || 0)) || null,
+    summary: {
+      orders: linkedOrders.length,
+      bags_ready: linkedOrders.filter((link) => link.bag_code).length,
+      expected,
+      picked,
+      progress: expected ? Math.round((picked / expected) * 100) : 0,
+      stops: new Set(rows.map((line) => line.location_id)).size,
+    },
+  });
+}
+
+async function startWmsGallusePicking(payload = {}) {
+  const profile = await assertWmsStaff();
+  const requestedClientId = optionalText(payload.cliente_id);
+  const operational = await wmsOperationalOrdersData(new URLSearchParams(requestedClientId ? { cliente_id: requestedClientId } : {}));
+  const candidates = galluseCandidateOrders(operational.orders);
+  const clientId = requestedClientId || candidates[0]?.cliente_id;
+  const orders = candidates.filter((order) => order.cliente_id === clientId).slice(0, 10);
+  if (!clientId || orders.length < 1) fail("Non ci sono ordini 1x1 disponibili per il Metodo Galluse.", 409);
+  const combinedItems = orders.flatMap((order) => (order.items || []).map((item) => ({ ...item, galluse_order_id: order.id })));
+  const itemOrderMap = Object.fromEntries(combinedItems.map((item) => [item.id, item.galluse_order_id]));
+  const plan = await wmsPickingPlan({ cliente_id: clientId }, combinedItems);
+  if (plan.errors.length) fail(plan.errors.join(" "));
+  if (plan.replenishment.length) fail(`Rifornisci prima gli slot per ${plan.replenishment.length} ${plan.replenishment.length === 1 ? "prodotto" : "prodotti"}.`);
+  const uniqueLocations = [...new Set(plan.allocations.map((allocation) => allocation.location_id))].map((id) => plan.locationMap[id]).filter(Boolean);
+  const route = calculateWarehouseRoute(uniqueLocations, plan.mapSettings);
+  if (route.unreachable?.length) fail(`Mappa bloccata: ${route.unreachable.map((location) => location.codice).join(", ")} non e raggiungibile.`);
+  const { data: batch, error: batchError } = await requireSupabase().from("wms_galluse_batches").insert({
+    cliente_id: clientId,
+    stato: "da_associare_bag",
+    numero_bag: orders.length,
+    operatore_id: profile.id,
+  }).select().single();
+  if (batchError || !batch) fail(batchError?.message || "Missione Metodo Galluse non creata");
+  const { data: links, error: linksError } = await requireSupabase().from("wms_galluse_orders").insert(orders.map((order, index) => ({ batch_id: batch.id, order_id: order.id, posizione_bag: index + 1 }))).select();
+  if (linksError) fail(linksError.message);
+  const linkByOrderId = Object.fromEntries((links || []).map((link) => [link.order_id, link]));
+  const sequenceMap = Object.fromEntries(route.locations.map((location, index) => [location.id, index + 1]));
+  const groupedLines = new Map();
+  for (const allocation of plan.allocations) {
+    const key = `${allocation.location_id}:${allocation.product_key}`;
+    const current = groupedLines.get(key) || { ...allocation, quantita_attesa: 0, sequenza: sequenceMap[allocation.location_id] || 9999 };
+    current.quantita_attesa += Number(allocation.quantita_attesa || 0);
+    groupedLines.set(key, current);
+  }
+  const { data: lines, error: linesError } = await requireSupabase().from("wms_galluse_lines").insert([...groupedLines.values()]
+    .sort((left, right) => left.sequenza - right.sequenza)
+    .map((line, index) => ({
+      batch_id: batch.id,
+      location_id: line.location_id,
+      product_key: line.product_key,
+      titolo: line.titolo,
+      ean: line.ean,
+      fnsku: line.fnsku,
+      sku: line.sku,
+      quantita_attesa: line.quantita_attesa,
+      sequenza: index + 1,
+    }))).select();
+  if (linesError) fail(linesError.message);
+  const lineByKey = Object.fromEntries((lines || []).map((line) => [`${line.location_id}:${line.product_key}`, line]));
+  const { error: allocationsError } = await requireSupabase().from("wms_galluse_allocations").insert(plan.allocations.map((allocation) => ({
+    galluse_line_id: lineByKey[`${allocation.location_id}:${allocation.product_key}`].id,
+    galluse_order_id: linkByOrderId[itemOrderMap[allocation.order_item_id]].id,
+    order_item_id: allocation.order_item_id,
+    quantita: allocation.quantita_attesa,
+  })));
+  if (allocationsError) fail(allocationsError.message);
+  const { error: statusError } = await requireSupabase().from("shopify_orders").update({ wms_status: "in_preparazione", updated_at: nowIso() }).in("id", orders.map((order) => order.id));
+  if (statusError) fail(statusError.message);
+  return wmsGalluseSnapshot(batch.id);
+}
+
+async function assignWmsGalluseBag(batchId, payload = {}) {
+  await assertWmsStaff();
+  const position = Math.floor(Number(payload.posizione_bag || 0));
+  const code = String(payload.codice || payload.code || "").trim().toUpperCase();
+  if (position < 1 || !/^B-[0-9]{5}$/.test(code)) fail("Scansiona una bag valida per la posizione indicata.");
+  const snapshot = await wmsGalluseSnapshot(batchId);
+  if (snapshot.data.batch.stato !== "da_associare_bag") fail("Le bag di questo carrello sono gia state associate.", 409);
+  const target = snapshot.data.orders.find((link) => link.posizione_bag === position);
+  if (!target) fail("Posizione carrello non valida.", 404);
+  if (target.bag_code) fail(`La posizione ${position} ha gia la bag ${target.bag_code}.`, 409);
+  const bag = await claimWmsBag(code);
+  const { error } = await requireSupabase().from("wms_galluse_orders").update({ bag_id: bag.id, bag_code: bag.codice }).eq("id", target.id);
+  if (error) fail(error.message);
+  const next = await wmsGalluseSnapshot(batchId);
+  if (next.data.summary.bags_ready === next.data.summary.orders) {
+    const startedAt = nowIso();
+    const { error: batchError } = await requireSupabase().from("wms_galluse_batches").update({ stato: "in_corso", started_at: startedAt, updated_at: startedAt }).eq("id", batchId);
+    if (batchError) fail(batchError.message);
+    return wmsGalluseSnapshot(batchId);
+  }
+  return next;
+}
+
+async function scanWmsGallusePicking(batchId, payload = {}) {
+  const profile = await assertWmsStaff();
+  const snapshot = await wmsGalluseSnapshot(batchId);
+  if (snapshot.data.batch.stato !== "in_corso") fail("Associa prima tutte le bag al carrello.", 409);
+  const current = snapshot.data.current_line;
+  if (!current) return snapshot;
+  const code = normalizedText(payload.codice || payload.code);
+  if (!current.location_confirmed_at) {
+    if (!code) fail("Scansiona lo slot");
+    if (current.location?.tipo !== "slot") fail("Il Metodo Galluse preleva solo dagli slot.", 409);
+    if (normalizedText(current.location?.codice) !== code) fail(`Vai in ${current.location?.codice} e scansiona lo slot corretto.`);
+    const { error } = await requireSupabase().from("wms_galluse_lines").update({ location_confirmed_at: nowIso() }).eq("id", current.id);
+    if (error) fail(error.message);
+    return wmsGalluseSnapshot(batchId);
+  }
+  const remaining = Number(current.quantita_attesa || 0) - Number(current.quantita_prelevata || 0);
+  const quantity = Math.floor(Number(payload.quantita || 0));
+  if (!Number.isFinite(quantity) || quantity <= 0 || quantity > remaining) fail(`Puoi prelevare da 1 a ${remaining} pezzi.`);
+  const nextPicked = Number(current.quantita_prelevata || 0) + quantity;
+  const { error: lineError } = await requireSupabase().from("wms_galluse_lines").update({ quantita_prelevata: nextPicked, picked_at: nextPicked === Number(current.quantita_attesa) ? nowIso() : null }).eq("id", current.id);
+  if (lineError) fail(lineError.message);
+  const { error: movementError } = await requireSupabase().from("wms_outbound_movements").upsert({
+    galluse_line_id: current.id,
+    galluse_batch_id: batchId,
+    cliente_id: snapshot.data.batch.cliente_id,
+    location_id: current.location_id,
+    product_key: current.product_key,
+    quantita: nextPicked,
+    operatore_id: profile.id,
+    updated_at: nowIso(),
+  }, { onConflict: "galluse_line_id" });
+  if (movementError) fail(movementError.message);
+  const updated = await wmsGalluseSnapshot(batchId);
+  if (updated.data.current_line) return updated;
+  const completedAt = nowIso();
+  const [{ error: batchError }, { error: ordersError }] = await Promise.all([
+    requireSupabase().from("wms_galluse_batches").update({ stato: "completata", completed_at: completedAt, updated_at: completedAt }).eq("id", batchId),
+    requireSupabase().from("shopify_orders").update({ wms_status: "in_attesa_packing", updated_at: completedAt }).in("id", updated.data.orders.map((link) => link.order_id)),
+  ]);
+  if (batchError || ordersError) fail((batchError || ordersError).message);
+  await Promise.all(updated.data.orders.map((link) => ensurePackingSession(link.order_id, null, { bagId: link.bag_id, bagCode: link.bag_code, packingSequence: link.posizione_bag })));
+  return wmsGalluseSnapshot(batchId);
+}
+
 async function startWmsPicking(orderId) {
   const profile = await assertWmsStaff();
+  const { data: galluseLink, error: galluseLinkError } = await requireSupabase()
+    .from("wms_galluse_orders")
+    .select("batch_id")
+    .eq("order_id", orderId)
+    .maybeSingle();
+  if (galluseLinkError) fail(galluseLinkError.message);
+  if (galluseLink) fail("Questo ordine e gia assegnato a un carrello Metodo Galluse.", 409);
   const existing = await requireSupabase().from("wms_pick_tasks").select("id").eq("order_id", orderId).maybeSingle();
   if (existing.error) fail(existing.error.message);
   if (existing.data) return wmsPickSnapshot(orderId);
@@ -5054,6 +5300,8 @@ export const api = {
     if (path === "/wms/ordini") return listWmsOperationalOrders(params);
     if (path === "/wms/picking-massivo") return listWmsMassPicking(params);
     if (path.match(/^\/wms\/picking-massivo\/[^/]+$/)) return wmsMassPickSnapshot(path.split("/")[3]);
+    if (path === "/wms/picking-galluse") return listWmsGallusePicking(params);
+    if (path.match(/^\/wms\/picking-galluse\/[^/]+$/)) return wmsGalluseSnapshot(path.split("/")[3]);
     if (path === "/wms/packing") return listWmsPacking();
     if (path === "/wms/bags") return listWmsBags();
     if (path === "/wms/bags/storico") return listWmsBagHistory();
@@ -5088,6 +5336,9 @@ export const api = {
     if (path === "/wms/rifornimenti") return replenishWmsSlot(payload);
     if (path === "/wms/picking-massivo/avvia") return startWmsMassPicking(payload);
     if (path.match(/^\/wms\/picking-massivo\/[^/]+\/scan$/)) return scanWmsMassPicking(path.split("/")[3], payload);
+    if (path === "/wms/picking-galluse/avvia") return startWmsGallusePicking(payload);
+    if (path.match(/^\/wms\/picking-galluse\/[^/]+\/bag$/)) return assignWmsGalluseBag(path.split("/")[3], payload);
+    if (path.match(/^\/wms\/picking-galluse\/[^/]+\/scan$/)) return scanWmsGallusePicking(path.split("/")[3], payload);
     if (path === "/wms/packing/station/scan") return scanWmsPackingStation(payload);
     if (path === "/shopify/oauth/start") return startShopifyOAuth(payload);
     if (path === "/shippypro/label") return createShippyProLabel(payload);

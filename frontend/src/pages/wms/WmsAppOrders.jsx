@@ -18,6 +18,7 @@ export default function WmsAppOrders() {
   const { clientId } = useOutletContext();
   const [data, setData] = useState(null);
   const [massData, setMassData] = useState(null);
+  const [galluseData, setGalluseData] = useState(null);
   const [tab, setTab] = useState("oggi");
   const [selected, setSelected] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -28,12 +29,14 @@ export default function WmsAppOrders() {
       const query = new URLSearchParams();
       if (clientId && clientId !== "all") query.set("cliente_id", clientId);
       const suffix = query.toString() ? `?${query.toString()}` : "";
-      const [response, massResponse] = await Promise.all([
+      const [response, massResponse, galluseResponse] = await Promise.all([
         api.get(`/wms/ordini${suffix}`),
         api.get(`/wms/picking-massivo${suffix}`),
+        api.get(`/wms/picking-galluse${suffix}`),
       ]);
       setData(response.data);
       setMassData(massResponse.data);
+      setGalluseData(galluseResponse.data);
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Ordini non disponibili");
     } finally {
@@ -48,10 +51,11 @@ export default function WmsAppOrders() {
     const massOrderIds = new Set([
       ...(massData?.groups || []).flatMap((group) => group.orders.map((order) => order.id)),
       ...(massData?.batches || []).flatMap((batch) => batch.orders.map((item) => item.order_id)),
+      ...(galluseData?.batches || []).flatMap((batch) => batch.orders.map((item) => item.order_id)),
     ]);
     const individual = orders.filter((order) => !massOrderIds.has(order.id) && ["da_preparare", "in_preparazione"].includes(order.wms_status));
     return tab === "oggi" ? individual.filter((order) => order.wave !== "prossima") : individual.filter((order) => order.wave === "prossima");
-  }, [data, massData, tab]);
+  }, [data, massData, galluseData, tab]);
 
   if (!data) return <div className="flex min-h-[65dvh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-teal-700" /></div>;
 
@@ -78,7 +82,7 @@ export default function WmsAppOrders() {
         <div className="mb-3"><p className="text-xs font-black uppercase text-slate-500">Modalità di preparazione</p><h2 className="mt-1 text-xl font-black">Prepara ordini</h2></div>
         <div className="grid grid-cols-2 gap-3">
           <button type="button" onClick={() => navigate("/wms-app/picking-massivo")} className="min-h-40 rounded-md border border-teal-200 bg-teal-50 p-4 text-left text-teal-950"><Layers3 className="h-7 w-7" /><h3 className="mt-5 text-xl font-black">Massivo</h3><p className="mt-1 text-xs text-teal-800">{activeMassOrders || availableMassOrders} ordini in un solo compito</p></button>
-          <div className="min-h-40 rounded-md border border-slate-200 bg-white p-4"><ShoppingCart className="h-7 w-7 text-slate-500" /><h3 className="mt-5 text-xl font-black">1x1</h3><p className="mt-1 text-xs text-slate-500">{massData?.separate_orders ?? visible.length} ordini singoli</p></div>
+          <button type="button" onClick={() => navigate("/wms-app/picking-galluse")} className="min-h-40 rounded-md border border-slate-200 bg-white p-4 text-left"><ShoppingCart className="h-7 w-7 text-slate-700" /><h3 className="mt-5 text-xl font-black">Metodo Galluse</h3><p className="mt-1 text-xs text-slate-500">{massData?.separate_orders ?? visible.length} ordini 1x1 in un giro</p></button>
         </div>
       </section>
 
@@ -104,7 +108,7 @@ export default function WmsAppOrders() {
         onOpenChange={(open) => { if (!open) setSelected(null); }}
         onOperate={(order) => {
           setSelected(null);
-          navigate(`/wms-app/picking/${order.id}`);
+          navigate(order.wms_status === "da_preparare" ? "/wms-app/picking-galluse" : `/wms-app/picking/${order.id}`);
         }}
       />
     </div>
@@ -129,7 +133,7 @@ function OrderRow({ order, onClick }) {
 
 function OrderSheet({ order, open, onOpenChange, onOperate }) {
   const missing = (order?.items || []).filter((item) => !item.referenza_id).length;
-  const actionLabel = order?.wms_status === "in_preparazione" ? "Continua picking" : "Avvia picking";
+  const actionLabel = order?.wms_status === "in_preparazione" ? "Continua picking" : "Apri Metodo Galluse";
   return <Sheet open={open} onOpenChange={onOpenChange}><SheetContent side="bottom" className="mx-auto max-h-[88dvh] w-full max-w-3xl overflow-y-auto rounded-t-lg border-0 bg-white p-0"><SheetHeader className="border-b border-slate-100 px-5 pb-4 pt-6 text-left"><SheetTitle className="flex items-center gap-2 text-xl font-black">Ordine {order?.order_name}{order && <SourceBadge order={order} />}</SheetTitle><SheetDescription>{order?.cliente_ragione_sociale} · {order ? formatDateTime(order.processed_at) : ""}</SheetDescription></SheetHeader>{order && <div className="pb-[max(24px,env(safe-area-inset-bottom))]"><div className="grid grid-cols-3 gap-2 p-5"><Metric label="Righe" value={order.items?.length || 0} tone="slate" /><Metric label="Pezzi" value={(order.items || []).reduce((sum, item) => sum + Number(item.quantita || 0), 0)} tone="teal" /><Metric label="Giornata" value={formatDay(order.operational_date)} tone="blue" small /></div><div className="divide-y divide-slate-100 border-y border-slate-100">{(order.items || []).map((item) => <div key={item.id} className="flex items-start gap-3 p-4"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-100"><Boxes className="h-4 w-4" /></span><div className="min-w-0 flex-1"><strong className="block">{item.titolo}</strong><span className="mt-1 block break-all font-mono text-xs text-slate-500">SKU {item.sku || "assente"} · EAN {item.ean || "assente"}</span></div><strong className="shrink-0">×{item.quantita}</strong></div>)}</div><div className="p-5"><Button className="h-14 w-full text-base font-black" disabled={missing > 0} onClick={() => onOperate(order)}><ShoppingCart className="mr-2 h-5 w-5" />{actionLabel}</Button>{missing > 0 && <p className="mt-3 text-center text-xs font-bold text-amber-700">Collega prima tutte le righe alle referenze.</p>}</div></div>}</SheetContent></Sheet>;
 }
 
