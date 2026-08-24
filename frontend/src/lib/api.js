@@ -3,6 +3,9 @@ import { requireSupabase, supabase, supabaseAnonKey, supabaseUrl } from "@/lib/s
 import { calculateWarehouseRoute, normalizeAisles } from "@/lib/wmsRouting";
 
 const BUCKET = "gestionale-files";
+const PROFILE_CACHE_MS = 30_000;
+let cachedProfile = null;
+let cachedProfileAt = 0;
 
 function ok(data) {
   return Promise.resolve({ data });
@@ -44,6 +47,7 @@ function nowIso() {
 }
 
 async function currentProfile() {
+  if (cachedProfile && Date.now() - cachedProfileAt < PROFILE_CACHE_MS) return cachedProfile;
   const sb = requireSupabase();
   const { data: sessionData } = await sb.auth.getSession();
   const user = sessionData.session?.user;
@@ -55,6 +59,8 @@ async function currentProfile() {
     .eq("id", user.id)
     .single();
   if (error || !data) fail("Profilo utente non trovato", 401);
+  cachedProfile = data;
+  cachedProfileAt = Date.now();
   return data;
 }
 
@@ -3357,23 +3363,20 @@ async function replenishWmsSlot(payload = {}) {
 
 async function wmsPickSnapshot(orderId) {
   await assertWmsStaff();
-  const { data: order, error: orderError } = await requireSupabase()
-    .from("shopify_orders")
-    .select("*")
-    .eq("id", orderId)
-    .single();
+  const [{ data: order, error: orderError }, { data: task, error: taskError }] = await Promise.all([
+    requireSupabase().from("shopify_orders").select("*").eq("id", orderId).single(),
+    requireSupabase().from("wms_pick_tasks").select("*").eq("order_id", orderId).maybeSingle(),
+  ]);
   if (orderError || !order) fail(orderError?.message || "Ordine non trovato", 404);
-  const [enrichedOrder] = await enrichShopifyOrders([order]);
-  const { data: task, error: taskError } = await requireSupabase()
-    .from("wms_pick_tasks")
-    .select("*")
-    .eq("order_id", orderId)
-    .maybeSingle();
   if (taskError) fail(taskError.message);
   if (!task) {
+    const [enrichedOrder] = await enrichShopifyOrders([order]);
     const plan = await wmsPickingPlan(order, enrichedOrder.items || []);
     return ok({ order: enrichedOrder, task: null, lines: [], current_line: null, replenishment: plan.replenishment, errors: plan.errors, can_start: plan.ready, summary: { expected: 0, picked: 0, progress: 0 } });
   }
+
+  const clientMap = await clientiMap([order.cliente_id]);
+  const activeOrder = { ...order, items: [], cliente_ragione_sociale: clientMap[order.cliente_id]?.ragione_sociale || null };
 
   const { data: lines, error: linesError } = await requireSupabase()
     .from("wms_pick_lines")
@@ -3391,7 +3394,7 @@ async function wmsPickSnapshot(orderId) {
   const expected = rows.reduce((sum, line) => sum + Number(line.quantita_attesa || 0), 0);
   const picked = rows.reduce((sum, line) => sum + Number(line.quantita_prelevata || 0), 0);
   return ok({
-    order: enrichedOrder,
+    order: activeOrder,
     task,
     lines: rows,
     current_line: rows.find((line) => Number(line.quantita_prelevata || 0) < Number(line.quantita_attesa || 0)) || null,
@@ -3450,11 +3453,10 @@ async function listWmsMassPicking(params = new URLSearchParams()) {
   if (ordersError || linesError) fail((ordersError || linesError).message);
   const orderIds = (batchOrders || []).map((item) => item.order_id);
   const { data: orders, error: linkedOrdersError } = orderIds.length
-    ? await requireSupabase().from("shopify_orders").select("*").in("id", orderIds)
+    ? await requireSupabase().from("shopify_orders").select("id,order_name,cliente_id").in("id", orderIds)
     : { data: [], error: null };
   if (linkedOrdersError) fail(linkedOrdersError.message);
-  const enriched = await enrichShopifyOrders(orders || []);
-  const orderMap = Object.fromEntries(enriched.map((order) => [order.id, order]));
+  const orderMap = Object.fromEntries((orders || []).map((order) => [order.id, order]));
   return ok({
     groups,
     batches: (batches || []).map((batch) => ({
@@ -3582,7 +3584,7 @@ async function wmsMassPickSnapshot(batchId) {
   const picked = rows.reduce((sum, line) => sum + Number(line.quantita_prelevata || 0), 0);
   return ok({
     batch,
-    orders: (links || []).map((link) => ({ ...link, order: orderMap[link.order_id] })).sort((a, b) => a.packing_sequence - b.packing_sequence),
+    orders: (links || []).map((link) => ({ ...link, order: orderMap[link.order_id] || null })).sort((a, b) => a.packing_sequence - b.packing_sequence),
     lines: rows,
     current_line: rows.find((line) => Number(line.quantita_prelevata || 0) < Number(line.quantita_attesa || 0)) || null,
     summary: { orders: links?.length || 0, expected, picked, progress: expected ? Math.round((picked / expected) * 100) : 0, stops: new Set(rows.map((line) => line.location_id)).size },
@@ -3655,9 +3657,9 @@ async function scanWmsMassPicking(batchId, payload = {}) {
       requireSupabase().from("shopify_orders").update({ wms_status: "pronto", updated_at: completedAt }).in("id", orderIds),
     ]);
     if (batchUpdateError || orderUpdateError) fail((batchUpdateError || orderUpdateError).message);
-    for (const item of snapshot.data.orders) {
-      await ensurePackingSession(item.order_id, null, { massBatchId: batchId, bagId: bag.id, bagCode: bag.codice, packingSequence: item.packing_sequence });
-    }
+    await Promise.all(snapshot.data.orders.map((item) => (
+      ensurePackingSession(item.order_id, null, { massBatchId: batchId, bagId: bag.id, bagCode: bag.codice, packingSequence: item.packing_sequence })
+    )));
     return wmsMassPickSnapshot(batchId);
   }
   if (batch.stato !== "in_corso") fail("Questa missione Massivo non e in corso", 409);

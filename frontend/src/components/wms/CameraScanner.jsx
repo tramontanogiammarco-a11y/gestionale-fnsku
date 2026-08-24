@@ -21,8 +21,8 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
     let cancelled = false;
     let handled = false;
     const reader = new BrowserMultiFormatReader(undefined, {
-      delayBetweenScanAttempts: 150,
-      delayBetweenScanSuccess: 1000,
+      delayBetweenScanAttempts: 100,
+      delayBetweenScanSuccess: 500,
     });
     setStarting(true);
     setPreviewReady(false);
@@ -31,8 +31,8 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
       audio: false,
       video: {
         facingMode: { ideal: "environment" },
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
+        width: { ideal: 960 },
+        height: { ideal: 540 },
       },
     }, videoElement, (result, _, controls) => {
       if (controls) controlsRef.current = controls;
@@ -57,11 +57,13 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
     };
   }, [open, videoElement]);
 
-  const title = purpose === "location" ? "Scansiona posizione" : purpose === "product" ? "Scansiona prodotto" : "Scanner universale";
+  const title = purpose === "location" ? "Scansiona posizione" : purpose === "product" ? "Scansiona prodotto" : purpose === "bag" ? "Scansiona bag" : "Scanner universale";
   const description = purpose === "location"
     ? "Inquadra il barcode applicato alla posizione pallet o slot."
     : purpose === "product"
       ? "Inquadra l'EAN o il barcode del prodotto."
+      : purpose === "bag"
+        ? "Inquadra il barcode della bag libera."
       : "Inquadra una posizione, un EAN o un FNSKU.";
 
   return (
