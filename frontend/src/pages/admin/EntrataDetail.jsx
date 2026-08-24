@@ -182,7 +182,7 @@ export default function AdminEntrataDetail() {
           {["in_attesa", "in_lavorazione"].includes(entrata.stato) ? (
             <Button
               data-testid="ricevi-btn"
-              onClick={() => navigate(`/admin/wms/inbound/${id}`)}
+              onClick={() => navigate(`/wms/inbound/${id}`)}
             >
               <ScanBarcode className="mr-2 h-4 w-4" />
               {entrata.stato === "in_lavorazione" ? "Continua ricezione" : "Ricevi con scanner"}

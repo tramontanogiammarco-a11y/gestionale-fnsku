@@ -2,7 +2,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import {
   Barcode, ChevronRight, ClipboardList, LayoutDashboard, LogOut, PackageOpen,
-  MapPinned, PackagePlus, PanelsTopLeft, PlugZap, Receipt, ShoppingCart, Tags, Users, Warehouse,
+  PackagePlus, PlugZap, Receipt, Tags, Users, Warehouse,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import GlobalSearch from "@/components/GlobalSearch";
@@ -18,13 +18,10 @@ const NAV_SECTIONS = [
   {
     label: "Operazioni",
     items: [
-      { to: "/admin/wms", label: "Centro WMS", icon: PanelsTopLeft, id: "wms" },
-      { to: "/admin/wms/mappa", label: "Mappa magazzino", icon: MapPinned, id: "wms-map" },
       { to: "/admin/entrate", label: "Ricezione merce", icon: PackageOpen, id: "entrate" },
       { to: "/admin/magazzino", label: "Magazzino", icon: Warehouse, id: "magazzino" },
       { to: "/admin/preparazioni", label: "Preparazioni", icon: ClipboardList, id: "preparazioni" },
       { to: "/admin/composizione-box", label: "Composizione box", icon: PackagePlus, id: "composizione-box" },
-      { to: "/admin/ordini-wms", label: "Ordini WMS", icon: ShoppingCart, id: "ordini-wms" },
     ],
   },
   {

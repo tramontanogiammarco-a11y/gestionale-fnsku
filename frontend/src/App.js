@@ -1,6 +1,6 @@
 import "@/App.css";
 import { lazy, Suspense } from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
@@ -26,6 +26,8 @@ import AdminIntegrazioni from "@/pages/admin/Integrazioni";
 import AdminOrdiniWms from "@/pages/admin/OrdiniWms";
 import AdminWmsControl from "@/pages/admin/WmsControl";
 import AdminWmsInbound from "@/pages/admin/WmsInbound";
+import WmsDesktopLayout from "@/layouts/WmsDesktopLayout";
+import WmsPackingStationLayout from "@/layouts/WmsPackingStationLayout";
 
 import ClientDashboard from "@/pages/client/Dashboard";
 import ClientReferenze from "@/pages/client/Referenze";
@@ -46,7 +48,6 @@ import WmsAppLocations from "@/pages/wms/WmsAppLocations";
 import WmsAppOrders from "@/pages/wms/WmsAppOrders";
 import WmsAppPicking from "@/pages/wms/WmsAppPicking";
 import WmsAppMassPicking from "@/pages/wms/WmsAppMassPicking";
-import WmsAppPacking from "@/pages/wms/WmsAppPacking";
 import WmsAppBagHistory from "@/pages/wms/WmsAppBagHistory";
 import WmsAppProductSearch from "@/pages/wms/WmsAppProductSearch";
 import WmsAppTools from "@/pages/wms/WmsAppTools";
@@ -70,6 +71,11 @@ function RootRedirect() {
   return <Navigate to={user.role === "cliente" ? "/app" : "/admin"} replace />;
 }
 
+function LegacyWmsInboundRedirect() {
+  const { id } = useParams();
+  return <Navigate to={`/wms/inbound/${id}`} replace />;
+}
+
 function App() {
   return (
     <div className="App">
@@ -78,6 +84,30 @@ function App() {
           <Routes>
             <Route path="/" element={<RootRedirect />} />
             <Route path="/login" element={<Login />} />
+
+            {/* Area WMS indipendente dal gestionale FNSKU. */}
+            <Route
+              path="/wms"
+              element={
+                <ProtectedRoute roles={["admin", "staff"]}>
+                  <WmsDesktopLayout />
+                </ProtectedRoute>
+              }
+            >
+              <Route index element={<AdminWmsControl />} />
+              <Route path="mappa" element={<Suspense fallback={<div className="flex min-h-[70vh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>}><AdminWmsWarehouseMap /></Suspense>} />
+              <Route path="inbound/:id" element={<AdminWmsInbound />} />
+              <Route path="ordini" element={<AdminOrdiniWms />} />
+            </Route>
+
+            <Route
+              path="/packing-station"
+              element={
+                <ProtectedRoute roles={["admin", "staff"]}>
+                  <WmsPackingStationLayout />
+                </ProtectedRoute>
+              }
+            />
 
             {/* App mobile dedicata agli operatori di magazzino */}
             <Route
@@ -98,9 +128,9 @@ function App() {
               <Route path="picking/:orderId" element={<WmsAppPicking />} />
               <Route path="picking-massivo" element={<WmsAppMassPicking />} />
               <Route path="picking-massivo/:batchId" element={<WmsAppMassPicking />} />
-              <Route path="packing" element={<WmsAppPacking />} />
-              <Route path="packing/bag/:bagCode" element={<WmsAppPacking />} />
-              <Route path="packing/:orderId" element={<WmsAppPacking />} />
+              <Route path="packing" element={<Navigate to="/packing-station" replace />} />
+              <Route path="packing/bag/:bagCode" element={<Navigate to="/packing-station" replace />} />
+              <Route path="packing/:orderId" element={<Navigate to="/packing-station" replace />} />
               <Route path="bag-storico" element={<WmsAppBagHistory />} />
               <Route path="cerca-prodotto" element={<WmsAppProductSearch />} />
               <Route path="strumenti" element={<WmsAppTools />} />
@@ -130,10 +160,10 @@ function App() {
               <Route path="clienti/:id" element={<AdminClienteDetail />} />
               <Route path="fatturazione" element={<AdminFatturazione />} />
               <Route path="integrazioni" element={<AdminIntegrazioni />} />
-              <Route path="wms" element={<AdminWmsControl />} />
-              <Route path="wms/mappa" element={<Suspense fallback={<div className="flex min-h-[70vh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>}><AdminWmsWarehouseMap /></Suspense>} />
-              <Route path="wms/inbound/:id" element={<AdminWmsInbound />} />
-              <Route path="ordini-wms" element={<AdminOrdiniWms />} />
+              <Route path="wms" element={<Navigate to="/wms" replace />} />
+              <Route path="wms/mappa" element={<Navigate to="/wms/mappa" replace />} />
+              <Route path="wms/inbound/:id" element={<LegacyWmsInboundRedirect />} />
+              <Route path="ordini-wms" element={<Navigate to="/wms/ordini" replace />} />
             </Route>
 
             {/* Area cliente */}

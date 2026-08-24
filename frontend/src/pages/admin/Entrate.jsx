@@ -30,7 +30,7 @@ export default function AdminEntrate() {
   const visibleEntrate = view === "archivio" ? entrateArchiviate : entrateAperte;
   const percorsoEntrata = (entrata) => (
     STATI_RICEZIONE_APERTA.has(entrata.stato)
-      ? `/admin/wms/inbound/${entrata.id}`
+      ? `/wms/inbound/${entrata.id}`
       : `/admin/entrate/${entrata.id}`
   );
 

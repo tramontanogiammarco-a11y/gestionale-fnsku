@@ -171,14 +171,14 @@ export default function WmsInbound() {
   };
 
   if (loading) return <div className="flex justify-center py-24"><Loader2 className="h-7 w-7 animate-spin text-teal-700" /></div>;
-  if (!data) return <EmptyInbound onBack={() => navigate("/admin/wms?view=inbound")} />;
+  if (!data) return <EmptyInbound onBack={() => navigate("/wms")} />;
 
   const entry = data.entrata;
   return (
     <div className="space-y-5 pb-24" data-testid="admin-wms-inbound">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-start gap-3">
-          <Button variant="outline" size="icon" onClick={() => navigate("/admin/wms?view=inbound")} aria-label="Torna agli inbound">
+          <Button variant="outline" size="icon" onClick={() => navigate("/wms")} aria-label="Torna agli inbound">
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
@@ -334,7 +334,7 @@ export default function WmsInbound() {
         <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 p-3 shadow-[0_-8px_30px_rgba(15,23,42,0.08)] backdrop-blur sm:left-[var(--admin-sidebar-width,0px)]">
           <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-3">
             <div className="hidden sm:block"><div className="text-sm font-black">Sessione in corso</div><div className="text-xs text-muted-foreground">{summary.missing ? `${summary.missing} pezzi ancora da verificare` : "Tutto contabilizzato"}</div></div>
-            <Button variant="outline" onClick={() => navigate("/admin/wms?view=inbound")}><CirclePause className="mr-2 h-4 w-4" /> Sospendi</Button>
+            <Button variant="outline" onClick={() => navigate("/wms")}><CirclePause className="mr-2 h-4 w-4" /> Sospendi</Button>
             <Button onClick={() => summary.missing > 0 ? setDifferenceDialog(true) : complete(false)} disabled={working}>
               {working ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PackageCheck className="mr-2 h-4 w-4" />} Chiudi inbound
             </Button>
