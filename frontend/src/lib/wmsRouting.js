@@ -103,6 +103,63 @@ export function locationAccessPoint(location = {}) {
   };
 }
 
+// A nearest-neighbour route is fast, but it can zig-zag through the warehouse
+// (for example A30 -> A60 -> A34). Keep that as the starting point, then use
+// a small 2-opt pass to remove those unnecessary returns on the real walkable map.
+function optimizedVisitOrder(locations = [], distanceFor) {
+  const byId = new Map(locations.map((location) => [String(location.id), location]));
+  const cache = new Map();
+  const distanceBetween = (fromId, toId) => {
+    const key = `${fromId}:${toId}`;
+    if (!cache.has(key)) cache.set(key, Number(distanceFor(fromId, toId)) || Infinity);
+    return cache.get(key);
+  };
+  const compareLocation = (leftId, rightId) => String(byId.get(leftId)?.codice || leftId)
+    .localeCompare(String(byId.get(rightId)?.codice || rightId), "it", { numeric: true });
+  const remaining = locations.map((location) => String(location.id));
+  const order = [];
+  let previousId = "__entrance__";
+
+  while (remaining.length) {
+    let bestIndex = 0;
+    let bestDistance = Infinity;
+    remaining.forEach((candidateId, index) => {
+      const candidateDistance = distanceBetween(previousId, candidateId);
+      if (candidateDistance < bestDistance - EPSILON || (Math.abs(candidateDistance - bestDistance) < EPSILON && compareLocation(candidateId, remaining[bestIndex]) < 0)) {
+        bestIndex = index;
+        bestDistance = candidateDistance;
+      }
+    });
+    previousId = remaining.splice(bestIndex, 1)[0];
+    order.push(previousId);
+  }
+
+  // Warehouse paths are bidirectional. Reversing a slice is therefore a safe
+  // way to remove backtracking without ignoring configured corridors/blocks.
+  if (order.length <= 32) {
+    let improved = true;
+    while (improved) {
+      improved = false;
+      for (let start = 0; start < order.length - 1 && !improved; start += 1) {
+        for (let end = start + 1; end < order.length; end += 1) {
+          const beforeId = start === 0 ? "__entrance__" : order[start - 1];
+          const firstId = order[start];
+          const lastId = order[end];
+          const afterId = end === order.length - 1 ? null : order[end + 1];
+          const currentDistance = distanceBetween(beforeId, firstId) + (afterId ? distanceBetween(lastId, afterId) : 0);
+          const swappedDistance = distanceBetween(beforeId, lastId) + (afterId ? distanceBetween(firstId, afterId) : 0);
+          if (swappedDistance + EPSILON >= currentDistance) continue;
+          order.splice(start, end - start + 1, ...order.slice(start, end + 1).reverse());
+          improved = true;
+          break;
+        }
+      }
+    }
+  }
+
+  return order.map((id) => byId.get(id)).filter(Boolean);
+}
+
 function gridRoute(locations, map) {
   const cellSize = Number(map.grid_size || 0.5);
   const width = Number(map.width || 34);
@@ -202,28 +259,33 @@ function gridRoute(locations, map) {
     return null;
   };
 
-  let current = nearestFree({ x: Number(map.entrance_x || 0), z: Number(map.entrance_z || 0) });
-  const pending = locations.map((location) => ({ location, access: nearestFree(locationAccessPoint(location)) }));
+  const entrance = nearestFree({ x: Number(map.entrance_x || 0), z: Number(map.entrance_z || 0) });
+  const endpoints = new Map([["__entrance__", entrance]]);
+  locations.forEach((location) => endpoints.set(String(location.id), nearestFree(locationAccessPoint(location))));
+  const paths = new Map();
+  const routeBetween = (fromId, toId) => {
+    const key = `${fromId}:${toId}`;
+    if (!paths.has(key)) paths.set(key, findPath(endpoints.get(fromId), endpoints.get(toId)));
+    return paths.get(key);
+  };
+  const reachable = locations.filter((location) => routeBetween("__entrance__", String(location.id)));
+  const unreachable = locations.filter((location) => !routeBetween("__entrance__", String(location.id)));
+  const planned = optimizedVisitOrder(reachable, (fromId, toId) => routeBetween(fromId, toId)?.distance);
   const ordered = [];
-  const pathPoints = current ? [cellPoint(current.col, current.row)] : [];
+  const pathPoints = entrance ? [cellPoint(entrance.col, entrance.row)] : [];
   let total = 0;
-  while (pending.length && current) {
-    let bestIndex = -1;
-    let bestPath = null;
-    pending.forEach((candidate, index) => {
-      const result = findPath(current, candidate.access);
-      if (result && (!bestPath || result.distance < bestPath.distance)) { bestIndex = index; bestPath = result; }
-    });
-    if (bestIndex < 0) return { locations: ordered, distance: total, pathPoints, mode: "grid", unreachable: pending.map((item) => item.location) };
-    const [next] = pending.splice(bestIndex, 1);
+  let currentId = "__entrance__";
+  for (const next of planned) {
+    const bestPath = routeBetween(currentId, String(next.id));
+    if (!bestPath) return { locations: ordered, distance: total, pathPoints, mode: "grid", unreachable: [...unreachable, next] };
     const points = [...bestPath.path];
     if (pathPoints.length) points.shift();
     pathPoints.push(...points);
-    ordered.push({ ...next.location, route_distance: bestPath.distance });
+    ordered.push({ ...next, route_distance: bestPath.distance });
     total += bestPath.distance;
-    current = next.access;
+    currentId = String(next.id);
   }
-  return { locations: ordered, distance: total, pathPoints, mode: "grid", unreachable: [] };
+  return { locations: ordered, distance: total, pathPoints, mode: "grid", unreachable };
 }
 
 function buildGraph(aisles, attachments) {
@@ -280,25 +342,22 @@ export function calculateWarehouseRoute(locations = [], map = {}) {
   const pending = [...allLocations];
   const entrance = { x: Number(map.entrance_x || 0), z: Number(map.entrance_z || 0) };
   const fallback = () => {
-    const fallbackPending = [...allLocations];
+    const planned = optimizedVisitOrder(allLocations, (fromId, toId) => {
+      const from = fromId === "__entrance__" ? entrance : locationAccessPoint(allLocations.find((location) => String(location.id) === fromId));
+      const to = locationAccessPoint(allLocations.find((location) => String(location.id) === toId));
+      return distance(from, to);
+    });
     const ordered = [];
     const pathPoints = [entrance];
     let current = entrance;
     let total = 0;
-    while (fallbackPending.length) {
-      let bestIndex = 0;
-      let bestDistance = Infinity;
-      fallbackPending.forEach((location, index) => {
-        const access = locationAccessPoint(location);
-        const nextDistance = distance(current, access);
-        if (nextDistance < bestDistance) { bestIndex = index; bestDistance = nextDistance; }
-      });
-      const [next] = fallbackPending.splice(bestIndex, 1);
+    planned.forEach((next) => {
       current = locationAccessPoint(next);
-      ordered.push({ ...next, route_distance: bestDistance });
+      const nextDistance = distance(pathPoints[pathPoints.length - 1], current);
+      ordered.push({ ...next, route_distance: nextDistance });
       pathPoints.push(current);
-      total += bestDistance;
-    }
+      total += nextDistance;
+    });
     return { locations: ordered, distance: total, pathPoints, mode: "direct" };
   };
 
@@ -308,22 +367,23 @@ export function calculateWarehouseRoute(locations = [], map = {}) {
   const network = buildGraph(aisles, attachments);
   if (!network) return fallback();
 
+  const routeCache = new Map();
+  const routeBetween = (fromId, toId) => {
+    const key = `${fromId}:${toId}`;
+    if (!routeCache.has(key)) routeCache.set(key, dijkstra(network.graph, fromId, toId));
+    return routeCache.get(key);
+  };
+  const planned = optimizedVisitOrder(pending, (fromId, toId) => routeBetween(
+    fromId === "__entrance__" ? "attach:entrance" : `attach:${fromId}`,
+    `attach:${toId}`,
+  )?.distance);
   const ordered = [];
   const pathPoints = [];
   let currentId = "attach:entrance";
   let total = 0;
-  while (pending.length) {
-    let bestIndex = -1;
-    let bestPath = null;
-    pending.forEach((location, index) => {
-      const candidate = dijkstra(network.graph, currentId, `attach:${location.id}`);
-      if (candidate && (!bestPath || candidate.distance < bestPath.distance)) {
-        bestIndex = index;
-        bestPath = candidate;
-      }
-    });
-    if (bestIndex < 0) return fallback();
-    const [next] = pending.splice(bestIndex, 1);
+  for (const next of planned) {
+    const bestPath = routeBetween(currentId, `attach:${next.id}`);
+    if (!bestPath) return fallback();
     const routePoints = bestPath.ids.map((id) => network.points.get(id)).filter(Boolean);
     if (pathPoints.length && routePoints.length) routePoints.shift();
     pathPoints.push(...routePoints);
