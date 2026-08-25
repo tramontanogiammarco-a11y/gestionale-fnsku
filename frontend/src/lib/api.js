@@ -4105,6 +4105,12 @@ async function resetGalluseAiDemo() {
     const { error } = await requireSupabase().from("shopify_orders").delete().in("id", demoOrderIds);
     if (error) fail(error.message);
   }
+  const { error: oldDemoEntriesError } = await requireSupabase()
+    .from("entrate")
+    .delete()
+    .eq("cliente_id", demoClient.id)
+    .like("tracking", "WMS-GALLUSE-AI-%");
+  if (oldDemoEntriesError) fail(oldDemoEntriesError.message);
 
   let { data: references, error: referencesError } = await requireSupabase()
     .from("referenze")
@@ -4132,63 +4138,6 @@ async function resetGalluseAiDemo() {
       })))
       .select("id,titolo,ean,fnsku,sku");
     if (createReferencesError) fail(createReferencesError.message);
-
-    const { data: demoSlot, error: demoSlotError } = await requireSupabase()
-      .from("wms_locations")
-      .upsert({
-        codice: "S1+AI-DEMO",
-        zona: "Demo Galluse",
-        tipo: "slot",
-        note: "Slot riservato alla prova Galluse A-I",
-      }, { onConflict: "codice" })
-      .select("id,codice")
-      .single();
-    if (demoSlotError || !demoSlot) fail(demoSlotError?.message || "Slot demo Galluse non creato");
-
-    const { data: entry, error: entryError } = await requireSupabase()
-      .from("entrate")
-      .insert({
-        cliente_id: demoClient.id,
-        tipo: "pallet",
-        colli: 1,
-        ddt: `WMS-GALLUSE-AI-${Date.now()}`,
-        corriere: "Demo",
-        tracking: `WMS-GALLUSE-AI-${Date.now()}`,
-        stato: "ricevuto",
-        data_annuncio: nowIso(),
-        data_ricezione: nowIso(),
-        note: "Stock aggiuntivo per la prova Galluse A-I",
-      })
-      .select("id")
-      .single();
-    if (entryError || !entry) fail(entryError?.message || "Entrata demo Galluse non creata");
-    const { data: session, error: sessionError } = await requireSupabase()
-      .from("wms_inbound_sessions")
-      .insert({ entrata_id: entry.id, stato: "completata", started_at: nowIso(), completed_at: nowIso(), note: "Stock prova Galluse A-I" })
-      .select("id")
-      .single();
-    if (sessionError || !session) fail(sessionError?.message || "Sessione demo Galluse non creata");
-    const { data: entryRows, error: entryRowsError } = await requireSupabase()
-      .from("entrate_righe")
-      .insert((createdReferences || []).map((reference) => ({
-        entrata_id: entry.id,
-        ean: reference.ean,
-        fnsku: reference.fnsku,
-        quantita: 100,
-        quantita_ricevuta: 100,
-      })))
-      .select("id,ean,fnsku");
-    if (entryRowsError) fail(entryRowsError.message);
-    const rowByFnsku = new Map((entryRows || []).map((row) => [row.fnsku, row]));
-    const { error: movementsError } = await requireSupabase().from("wms_inbound_movements").insert((createdReferences || []).map((reference) => ({
-      session_id: session.id,
-      entrata_riga_id: rowByFnsku.get(reference.fnsku)?.id,
-      location_id: demoSlot.id,
-      disposizione: "disponibile",
-      quantita: 100,
-      codice_scansionato: demoSlot.codice,
-    })));
-    if (movementsError) fail(movementsError.message);
     references = [...(references || []), ...(createdReferences || [])].sort((left, right) => String(left.fnsku).localeCompare(String(right.fnsku)));
   }
   const allReferencesByFnsku = new Map((references || []).map((reference) => [reference.fnsku, reference]));
@@ -4196,6 +4145,65 @@ async function resetGalluseAiDemo() {
     letter,
     allReferencesByFnsku.get(`GALLUSE-CART-${String(index + 1).padStart(3, "0")}`),
   ]));
+  if (Object.values(referenceByLetter).some((reference) => !reference)) fail("Referenze demo A-I non disponibili", 409);
+
+  const { data: demoSlots, error: demoSlotsError } = await requireSupabase()
+    .from("wms_locations")
+    .upsert(letters.map((letter, index) => ({
+      codice: `S1+AI-${String(index + 1).padStart(3, "0")}`,
+      zona: "Demo Galluse",
+      tipo: "slot",
+      note: `Slot riservato alla referenza ${letter} della prova Galluse`,
+    })), { onConflict: "codice" })
+    .select("id,codice");
+  if (demoSlotsError || (demoSlots || []).length !== letters.length) fail(demoSlotsError?.message || "Slot demo Galluse non creati");
+  const slotByCode = new Map((demoSlots || []).map((slot) => [slot.codice, slot]));
+  const aiDemoTracking = `WMS-GALLUSE-AI-${Date.now()}`;
+  const { data: entry, error: entryError } = await requireSupabase()
+    .from("entrate")
+    .insert({
+      cliente_id: demoClient.id,
+      tipo: "pallet",
+      colli: letters.length,
+      ddt: aiDemoTracking,
+      corriere: "Demo",
+      tracking: aiDemoTracking,
+      stato: "ricevuto",
+      data_annuncio: nowIso(),
+      data_ricezione: nowIso(),
+      note: "Stock per la prova Galluse A-I",
+    })
+    .select("id")
+    .single();
+  if (entryError || !entry) fail(entryError?.message || "Entrata demo Galluse non creata");
+  const { data: session, error: sessionError } = await requireSupabase()
+    .from("wms_inbound_sessions")
+    .insert({ entrata_id: entry.id, stato: "completata", started_at: nowIso(), completed_at: nowIso(), note: "Stock prova Galluse A-I" })
+    .select("id")
+    .single();
+  if (sessionError || !session) fail(sessionError?.message || "Sessione demo Galluse non creata");
+  const { data: entryRows, error: entryRowsError } = await requireSupabase()
+    .from("entrate_righe")
+    .insert(letters.map((letter) => {
+      const reference = referenceByLetter[letter];
+      return { entrata_id: entry.id, ean: reference.ean, fnsku: reference.fnsku, quantita: 100, quantita_ricevuta: 100 };
+    }))
+    .select("id,fnsku");
+  if (entryRowsError) fail(entryRowsError.message);
+  const rowByFnsku = new Map((entryRows || []).map((row) => [row.fnsku, row]));
+  const { error: movementsError } = await requireSupabase().from("wms_inbound_movements").insert(letters.map((letter, index) => {
+    const reference = referenceByLetter[letter];
+    const slot = slotByCode.get(`S1+AI-${String(index + 1).padStart(3, "0")}`);
+    return {
+      session_id: session.id,
+      entrata_riga_id: rowByFnsku.get(reference.fnsku)?.id,
+      location_id: slot?.id,
+      disposizione: "disponibile",
+      quantita: 100,
+      codice_scansionato: slot?.codice,
+    };
+  }));
+  if (movementsError) fail(movementsError.message);
 
   const compositions = [
     ["A", "F", "I"],
