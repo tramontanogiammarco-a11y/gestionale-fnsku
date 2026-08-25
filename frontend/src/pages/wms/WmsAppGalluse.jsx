@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useOutletContext, useParams } from "react-router-dom";
-import { ArrowLeft, Barcode, CheckCircle2, ChevronRight, Layers3, Loader2, MapPin, PackageCheck, Play, ScanLine, ShoppingBag } from "lucide-react";
+import { ArrowLeft, Barcode, CheckCircle2, ChevronRight, Layers3, Loader2, MapPin, PackageCheck, Play, ScanLine, ShoppingBag, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,20 @@ function GalluseQueue() {
       setWorking(false);
     }
   };
+  const cancel = async () => {
+    const batch = active[0];
+    if (!batch || !window.confirm("Annullare questo carrello? Le bag saranno liberate e i suoi ordini torneranno disponibili.")) return;
+    setWorking(true);
+    try {
+      await api.post(`/wms/picking-galluse/${batch.id}/annulla`, {});
+      toast.success("Carrello annullato: bag e ordini sono stati liberati");
+      await load();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Carrello non annullato");
+    } finally {
+      setWorking(false);
+    }
+  };
 
   if (!data) return <Loading />;
   return <div className="space-y-5 pb-24" data-testid="wms-galluse-queue">
@@ -65,6 +79,7 @@ function GalluseQueue() {
       <button type="button" onClick={() => navigate(`/wms-app/picking-galluse/${active[0].id}`)} className="flex w-full items-center gap-3 rounded-md border border-teal-200 bg-teal-50 p-4 text-left">
         <span className="flex h-12 w-12 items-center justify-center rounded-md bg-white text-teal-700"><ShoppingBag className="h-6 w-6" /></span>
         <span className="min-w-0 flex-1"><strong className="block">Carrello fisso da {active[0].orders?.length || active[0].numero_bag} ordini</strong><span className="mt-1 block text-xs text-teal-800">{active[0].stato === "da_associare_bag" ? `Scansiona il master ${CART_MASTER_CODE}` : "Picking in corso"}</span></span>
+        <Button type="button" variant="outline" size="icon" className="shrink-0 border-red-200 text-red-600" onClick={(event) => { event.stopPropagation(); cancel(); }} disabled={working} aria-label="Annulla carrello"><Trash2 className="h-4 w-4" /></Button>
         <ChevronRight className="h-5 w-5" />
       </button>
     </section>}

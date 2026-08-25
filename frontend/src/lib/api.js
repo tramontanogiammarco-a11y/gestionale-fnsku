@@ -4030,6 +4030,37 @@ async function scanWmsGallusePicking(batchId, payload = {}) {
   return wmsGalluseSnapshot(batchId);
 }
 
+async function cancelWmsGallusePicking(batchId) {
+  await assertWmsStaff();
+  const snapshot = await wmsGalluseSnapshot(batchId);
+  if (!["da_associare_bag", "in_corso"].includes(snapshot.data.batch.stato)) {
+    fail("Puoi annullare solo un carrello Galluse ancora in corso.", 409);
+  }
+
+  const lineIds = (snapshot.data.lines || []).map((line) => line.id);
+  if (lineIds.length) {
+    const { error: movementsError } = await requireSupabase()
+      .from("wms_outbound_movements")
+      .delete()
+      .in("galluse_line_id", lineIds);
+    if (movementsError) fail(movementsError.message);
+  }
+
+  const bagIds = [...new Set((snapshot.data.orders || []).map((link) => link.bag_id).filter(Boolean))];
+  const orderIds = (snapshot.data.orders || []).map((link) => link.order_id);
+  const [{ error: bagsError }, { error: ordersError }, { error: batchError }] = await Promise.all([
+    bagIds.length
+      ? requireSupabase().from("wms_bags").update({ stato: "disponibile", updated_at: nowIso() }).in("id", bagIds)
+      : Promise.resolve({ error: null }),
+    orderIds.length
+      ? requireSupabase().from("shopify_orders").update({ wms_status: "da_preparare", updated_at: nowIso() }).in("id", orderIds)
+      : Promise.resolve({ error: null }),
+    requireSupabase().from("wms_galluse_batches").delete().eq("id", batchId),
+  ]);
+  if (bagsError || ordersError || batchError) fail((bagsError || ordersError || batchError).message);
+  return ok({ cancelled: true, orders: orderIds.length });
+}
+
 async function startWmsPicking(orderId) {
   const profile = await assertWmsStaff();
   const { data: galluseLink, error: galluseLinkError } = await requireSupabase()
@@ -5421,6 +5452,7 @@ export const api = {
     if (path === "/wms/picking-galluse/avvia") return startWmsGallusePicking(payload);
     if (path.match(/^\/wms\/picking-galluse\/[^/]+\/bag$/)) return assignWmsGalluseBag(path.split("/")[3], payload);
     if (path.match(/^\/wms\/picking-galluse\/[^/]+\/scan$/)) return scanWmsGallusePicking(path.split("/")[3], payload);
+    if (path.match(/^\/wms\/picking-galluse\/[^/]+\/annulla$/)) return cancelWmsGallusePicking(path.split("/")[3]);
     if (path === "/wms/packing/station/scan") return scanWmsPackingStation(payload);
     if (path === "/shopify/oauth/start") return startShopifyOAuth(payload);
     if (path === "/shippypro/label") return createShippyProLabel(payload);
