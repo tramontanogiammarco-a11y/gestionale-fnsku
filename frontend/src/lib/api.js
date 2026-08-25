@@ -4084,7 +4084,8 @@ async function resetGalluseAiDemo() {
   const { data: demoOrders, error: ordersError } = await requireSupabase()
     .from("shopify_orders")
     .select("id")
-    .eq("shop_domain", "wms-galluse-demo.aimago.local");
+    .eq("cliente_id", demoClient.id)
+    .contains("raw", { source: "wms_galluse_demo" });
   if (ordersError) fail(ordersError.message);
   const demoOrderIds = (demoOrders || []).map((order) => order.id);
   const bagIds = [...new Set((links || []).map((link) => link.bag_id).filter(Boolean))];
