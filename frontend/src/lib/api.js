@@ -4182,62 +4182,40 @@ async function resetGalluseAiDemo() {
   });
 
   if (referencesNeedingStock.length) {
-    const availableSlots = (stockResponse.data.locations || [])
-      .filter((location) => location.tipo === "slot"
-        && location.stato === "attiva"
-        && !location.occupata
-        && /^S1\+A\d+$/i.test(String(location.codice || "")))
-      .sort(naturalLocationSort);
-    if (availableSlots.length < referencesNeedingStock.length) {
-      fail(`Servono ${referencesNeedingStock.length} slot reali liberi per la prova A-I.`, 409);
-    }
-
-    const aiDemoTracking = `WMS-GALLUSE-AI-${Date.now()}`;
-    const { data: entry, error: entryError } = await requireSupabase()
-      .from("entrate")
-      .insert({
-        cliente_id: demoClient.id,
-        tipo: "pallet",
-        colli: referencesNeedingStock.length,
-        ddt: aiDemoTracking,
-        corriere: "Demo",
-        tracking: aiDemoTracking,
-        stato: "ricevuto",
-        data_annuncio: nowIso(),
-        data_ricezione: nowIso(),
-        note: "Stock integrativo per la prova Galluse A-I",
-      })
-      .select("id")
-      .single();
-    if (entryError || !entry) fail(entryError?.message || "Entrata demo Galluse non creata");
-    const { data: session, error: sessionError } = await requireSupabase()
-      .from("wms_inbound_sessions")
-      .insert({ entrata_id: entry.id, stato: "completata", started_at: nowIso(), completed_at: nowIso(), note: "Stock prova Galluse A-I" })
-      .select("id")
-      .single();
-    if (sessionError || !session) fail(sessionError?.message || "Sessione demo Galluse non creata");
-    const { data: entryRows, error: entryRowsError } = await requireSupabase()
-      .from("entrate_righe")
-      .insert(referencesNeedingStock.map((letter) => {
-        const reference = referenceByLetter[letter];
-        return { entrata_id: entry.id, ean: reference.ean, fnsku: reference.fnsku, quantita: 100, quantita_ricevuta: 100 };
-      }))
-      .select("id,fnsku");
-    if (entryRowsError) fail(entryRowsError.message);
-    const rowByFnsku = new Map((entryRows || []).map((row) => [row.fnsku, row]));
-    const { error: movementsError } = await requireSupabase().from("wms_inbound_movements").insert(referencesNeedingStock.map((letter, index) => {
-      const reference = referenceByLetter[letter];
-      const slot = availableSlots[index];
+    const { data: stockReferences, error: stockReferencesError } = await requireSupabase()
+      .from("referenze")
+      .select("id,titolo,ean,fnsku,sku")
+      .eq("cliente_id", demoClient.id);
+    if (stockReferencesError) fail(stockReferencesError.message);
+    const usedReferenceIds = new Set(letters
+      .filter((letter) => !referencesNeedingStock.includes(letter))
+      .map((letter) => referenceByLetter[letter]?.id)
+      .filter(Boolean));
+    const stockCandidates = (stockReferences || []).map((reference) => {
+      const product = stockProducts.find((candidate) => (
+        (reference.fnsku && normalizedText(candidate.fnsku) === normalizedText(reference.fnsku))
+        || (reference.ean && normalizedText(candidate.ean) === normalizedText(reference.ean))
+      ));
+      const slotLocations = (product?.ubicazioni || [])
+        .filter((location) => location.tipo === "slot" && /^S1\+A\d+$/i.test(String(location.codice || "")))
+        .sort(naturalLocationSort);
       return {
-        session_id: session.id,
-        entrata_riga_id: rowByFnsku.get(reference.fnsku)?.id,
-        location_id: slot.id,
-        disposizione: "disponibile",
-        quantita: 100,
-        codice_scansionato: slot.codice,
+        reference,
+        slotQuantity: slotLocations.reduce((sum, location) => sum + Number(location.quantita || 0), 0),
+        firstSlot: slotLocations[0]?.codice || "",
       };
-    }));
-    if (movementsError) fail(movementsError.message);
+    }).filter((candidate) => candidate.slotQuantity > 0)
+      .sort((left, right) => String(left.firstSlot).localeCompare(String(right.firstSlot), "it", { numeric: true }));
+
+    for (const letter of referencesNeedingStock) {
+      const candidate = stockCandidates.find((item) => (
+        !usedReferenceIds.has(item.reference.id)
+        && item.slotQuantity >= Number(requiredByLetter[letter] || 0)
+      ));
+      if (!candidate) fail(`Nessuna referenza con stock sufficiente negli slot reali per ${letter}.`, 409);
+      referenceByLetter[letter] = candidate.reference;
+      usedReferenceIds.add(candidate.reference.id);
+    }
   }
 
   const now = Date.now();
