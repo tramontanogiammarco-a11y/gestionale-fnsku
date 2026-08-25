@@ -108,7 +108,7 @@ export default function WmsAppOrders() {
         <div className="mb-3"><p className="text-xs font-black uppercase text-slate-500">Modalità di preparazione</p><h2 className="mt-1 text-xl font-black">Prepara ordini</h2></div>
         <div className="grid grid-cols-2 gap-3">
           <button type="button" onClick={() => navigate("/wms-app/picking-massivo")} className="min-h-40 rounded-md border border-teal-200 bg-teal-50 p-4 text-left text-teal-950"><Layers3 className="h-7 w-7" /><h3 className="mt-5 text-xl font-black">Massivo</h3><p className="mt-1 text-xs text-teal-800">{activeMassOrders || availableMassOrders} ordini in un solo compito</p></button>
-          <button type="button" onClick={startGalluse} disabled={startingGalluse} className="min-h-40 rounded-md border border-slate-200 bg-white p-4 text-left disabled:opacity-60"><ShoppingCart className="h-7 w-7 text-slate-700" /><h3 className="mt-5 text-xl font-black">Metodo Galluse</h3><p className="mt-1 text-xs text-slate-500">{activeGalluse ? `Riprendi carrello fisso: ${activeGalluse.numero_bag} ordini` : "1 carrello fisso · massimo 10 ordini"}</p></button>
+          <button type="button" onClick={startGalluse} disabled={startingGalluse} className="min-h-40 rounded-md border border-slate-200 bg-white p-4 text-left disabled:opacity-60"><ShoppingCart className="h-7 w-7 text-slate-700" /><h3 className="mt-5 text-xl font-black">Metodo Galluse</h3><p className="mt-1 text-xs text-slate-500">{activeGalluse ? `Riprendi carrello fisso: ${activeGalluse.numero_bag} ordini` : nextGalluseRound ? `${nextGalluseRound.totale_ordini} ordini · ${nextGalluseRound.numero_compiti} compiti` : "Servono almeno 10 ordini"}</p></button>
         </div>
       </section>
 

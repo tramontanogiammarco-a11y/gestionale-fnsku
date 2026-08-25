@@ -3752,6 +3752,8 @@ function galluseFixedCartRound(candidates = []) {
     cliente_id: firstOrder.cliente_id,
     cliente: firstOrder.cliente_ragione_sociale || "Cliente",
     numero: 1,
+    totale_ordini: clientOrders.length,
+    numero_compiti: Math.ceil(clientOrders.length / 10),
     offset: 0,
     orders,
     numero_ordini: orders.length,
@@ -3892,10 +3894,9 @@ async function startWmsGallusePicking(payload = {}) {
   const cart = await wmsGalluseFixedCart(orders.length);
   const { data: batch, error: batchError } = await requireSupabase().from("wms_galluse_batches").insert({
     cliente_id: clientId,
-    stato: "in_corso",
+    stato: "da_associare_bag",
     numero_bag: orders.length,
     operatore_id: profile.id,
-    started_at: nowIso(),
   }).select().single();
   if (batchError || !batch) fail(batchError?.message || "Missione Metodo Galluse non creata");
   const { data: reservedBags, error: reserveError } = await requireSupabase()
@@ -3978,10 +3979,20 @@ async function assignWmsGalluseBag(batchId, payload = {}) {
 async function scanWmsGallusePicking(batchId, payload = {}) {
   const profile = await assertWmsStaff();
   const snapshot = await wmsGalluseSnapshot(batchId);
-  if (snapshot.data.batch.stato !== "in_corso") fail("Associa prima tutte le bag al carrello.", 409);
+  const code = normalizedText(payload.codice || payload.code);
+  if (snapshot.data.batch.stato === "da_associare_bag") {
+    const expectedCartCode = normalizedText("CARRELLO-01");
+    if (!code || code !== expectedCartCode) fail("Scansiona il codice master CARRELLO-01.");
+    const startedAt = nowIso();
+    const { error } = await requireSupabase().from("wms_galluse_batches")
+      .update({ stato: "in_corso", started_at: startedAt, updated_at: startedAt })
+      .eq("id", batchId);
+    if (error) fail(error.message);
+    return wmsGalluseSnapshot(batchId);
+  }
+  if (snapshot.data.batch.stato !== "in_corso") fail("Il carrello Galluse non e disponibile per il picking.", 409);
   const current = snapshot.data.current_line;
   if (!current) return snapshot;
-  const code = normalizedText(payload.codice || payload.code);
   if (!current.location_confirmed_at) {
     if (!code) fail("Scansiona lo slot");
     if (current.location?.tipo !== "slot") fail("Il Metodo Galluse preleva solo dagli slot.", 409);

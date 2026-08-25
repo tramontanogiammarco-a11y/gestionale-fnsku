@@ -57,13 +57,15 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
     };
   }, [open, videoElement]);
 
-  const title = purpose === "location" ? "Scansiona posizione" : purpose === "product" ? "Scansiona prodotto" : purpose === "bag" ? "Scansiona bag" : "Scanner universale";
+  const title = purpose === "location" ? "Scansiona posizione" : purpose === "product" ? "Scansiona prodotto" : purpose === "bag" ? "Scansiona bag" : purpose === "cart" ? "Scansiona carrello" : "Scanner universale";
   const description = purpose === "location"
     ? "Inquadra il barcode applicato alla posizione pallet o slot."
     : purpose === "product"
       ? "Inquadra l'EAN o il barcode del prodotto."
       : purpose === "bag"
         ? "Inquadra il barcode della bag libera."
+        : purpose === "cart"
+          ? "Inquadra il barcode master applicato al carrello."
       : "Inquadra una posizione, un EAN o un FNSKU.";
 
   return (
@@ -79,7 +81,7 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
             <div className="p-3"><span className="block text-xs font-bold uppercase text-slate-500">Pezzi</span><strong className="mt-1 block text-2xl font-black">{context.picked}<span className="text-base text-slate-400">/{context.expected}</span></strong></div>
           </div>
           <div className="p-4">
-            <span className="text-xs font-black uppercase text-teal-700">Scansiona lo slot</span>
+            <span className="text-xs font-black uppercase text-teal-700">{purpose === "cart" ? "Scansiona il master" : "Scansiona lo slot"}</span>
             <div className="mt-2 flex items-end justify-between gap-3"><strong className="font-mono text-4xl font-black tracking-wide text-slate-950">{context.location}</strong><span className="rounded-md bg-teal-700 px-2 py-1 text-xs font-black text-white">{context.requested} pz</span></div>
             <p className="mt-2 truncate text-sm font-semibold text-slate-600">{context.title}</p>
           </div>
