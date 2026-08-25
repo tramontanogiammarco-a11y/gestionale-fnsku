@@ -4106,17 +4106,96 @@ async function resetGalluseAiDemo() {
     if (error) fail(error.message);
   }
 
-  const { data: references, error: referencesError } = await requireSupabase()
+  let { data: references, error: referencesError } = await requireSupabase()
     .from("referenze")
     .select("id,titolo,ean,fnsku,sku")
     .eq("cliente_id", demoClient.id)
     .like("fnsku", "GALLUSE-CART-%")
     .order("fnsku");
   if (referencesError) fail(referencesError.message);
-  const referenceByLetter = Object.fromEntries("ABCDEFGHI".split("").map((letter, index) => [letter, references?.[index]]));
-  if (Object.values(referenceByLetter).some((reference) => !reference)) {
-    fail("Servono nove referenze demo negli slot per creare la prova A-I.", 409);
+  const letters = "ABCDEFGHI".split("");
+  const referenceByFnsku = new Map((references || []).map((reference) => [reference.fnsku, reference]));
+  const missingReferenceIndexes = letters
+    .map((_, index) => index)
+    .filter((index) => !referenceByFnsku.has(`GALLUSE-CART-${String(index + 1).padStart(3, "0")}`));
+
+  if (missingReferenceIndexes.length) {
+    const { data: createdReferences, error: createReferencesError } = await requireSupabase()
+      .from("referenze")
+      .insert(missingReferenceIndexes.map((index) => ({
+        cliente_id: demoClient.id,
+        titolo: `Referenza ${letters[index]}`,
+        ean: `GALLUSE-CART-EAN-${String(index + 1).padStart(3, "0")}`,
+        sku: `GALLUSE-CART-SKU-${String(index + 1).padStart(3, "0")}`,
+        fnsku: `GALLUSE-CART-${String(index + 1).padStart(3, "0")}`,
+        origine: "wms-galluse-demo",
+      })))
+      .select("id,titolo,ean,fnsku,sku");
+    if (createReferencesError) fail(createReferencesError.message);
+
+    const { data: demoSlot, error: demoSlotError } = await requireSupabase()
+      .from("wms_locations")
+      .upsert({
+        codice: "S1+AI-DEMO",
+        zona: "Demo Galluse",
+        tipo: "slot",
+        note: "Slot riservato alla prova Galluse A-I",
+      }, { onConflict: "codice" })
+      .select("id,codice")
+      .single();
+    if (demoSlotError || !demoSlot) fail(demoSlotError?.message || "Slot demo Galluse non creato");
+
+    const { data: entry, error: entryError } = await requireSupabase()
+      .from("entrate")
+      .insert({
+        cliente_id: demoClient.id,
+        tipo: "pallet",
+        colli: 1,
+        ddt: `WMS-GALLUSE-AI-${Date.now()}`,
+        corriere: "Demo",
+        tracking: `WMS-GALLUSE-AI-${Date.now()}`,
+        stato: "ricevuto",
+        data_annuncio: nowIso(),
+        data_ricezione: nowIso(),
+        note: "Stock aggiuntivo per la prova Galluse A-I",
+      })
+      .select("id")
+      .single();
+    if (entryError || !entry) fail(entryError?.message || "Entrata demo Galluse non creata");
+    const { data: session, error: sessionError } = await requireSupabase()
+      .from("wms_inbound_sessions")
+      .insert({ entrata_id: entry.id, stato: "completata", started_at: nowIso(), completed_at: nowIso(), note: "Stock prova Galluse A-I" })
+      .select("id")
+      .single();
+    if (sessionError || !session) fail(sessionError?.message || "Sessione demo Galluse non creata");
+    const { data: entryRows, error: entryRowsError } = await requireSupabase()
+      .from("entrate_righe")
+      .insert((createdReferences || []).map((reference) => ({
+        entrata_id: entry.id,
+        ean: reference.ean,
+        fnsku: reference.fnsku,
+        quantita: 100,
+        quantita_ricevuta: 100,
+      })))
+      .select("id,ean,fnsku");
+    if (entryRowsError) fail(entryRowsError.message);
+    const rowByFnsku = new Map((entryRows || []).map((row) => [row.fnsku, row]));
+    const { error: movementsError } = await requireSupabase().from("wms_inbound_movements").insert((createdReferences || []).map((reference) => ({
+      session_id: session.id,
+      entrata_riga_id: rowByFnsku.get(reference.fnsku)?.id,
+      location_id: demoSlot.id,
+      disposizione: "disponibile",
+      quantita: 100,
+      codice_scansionato: demoSlot.codice,
+    })));
+    if (movementsError) fail(movementsError.message);
+    references = [...(references || []), ...(createdReferences || [])].sort((left, right) => String(left.fnsku).localeCompare(String(right.fnsku)));
   }
+  const allReferencesByFnsku = new Map((references || []).map((reference) => [reference.fnsku, reference]));
+  const referenceByLetter = Object.fromEntries(letters.map((letter, index) => [
+    letter,
+    allReferencesByFnsku.get(`GALLUSE-CART-${String(index + 1).padStart(3, "0")}`),
+  ]));
 
   const compositions = [
     ["A", "F", "I"],
