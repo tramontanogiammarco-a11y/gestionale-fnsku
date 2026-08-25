@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate, useOutletContext, useParams } from "react-router-dom";
+import { useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Barcode, CheckCircle2, ChevronRight, Layers3, Loader2, MapPin, PackageCheck, Play, ScanLine, ShoppingBag, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -17,6 +17,7 @@ export default function WmsAppGalluse() {
 
 function GalluseQueue() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { clientId } = useOutletContext();
   const [data, setData] = useState(null);
   const [working, setWorking] = useState(false);
@@ -42,6 +43,19 @@ function GalluseQueue() {
       navigate(`/wms-app/picking-galluse/${response.data.batch.id}`);
     } catch (error) {
       toast.error(error.response?.data?.detail || "Missione Galluse non avviata");
+    } finally {
+      setWorking(false);
+    }
+  };
+  const seedAiDemo = async () => {
+    if (!window.confirm("Sostituire il carrello demo corrente con i 10 ordini A-I?")) return;
+    setWorking(true);
+    try {
+      const response = await api.post("/wms/picking-galluse/demo-a-i", {});
+      toast.success(`${response.data.created} ordini A-I creati`);
+      await load();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Ordini A-I non creati");
     } finally {
       setWorking(false);
     }
@@ -74,6 +88,7 @@ function GalluseQueue() {
       <Metric label="Compiti" value={round?.numero_compiti || 0} />
       <Metric label="Bag fisse" value="10" />
     </section>
+    {searchParams.get("demo") === "ai" && <Button type="button" variant="outline" className="h-12 w-full" onClick={seedAiDemo} disabled={working}>Ripristina prova A-I</Button>}
     {active.length > 0 && <section>
       <h2 className="mb-3 text-xl font-black">Carrello aperto</h2>
       <button type="button" onClick={() => navigate(`/wms-app/picking-galluse/${active[0].id}`)} className="flex w-full items-center gap-3 rounded-md border border-teal-200 bg-teal-50 p-4 text-left">

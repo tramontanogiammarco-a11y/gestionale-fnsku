@@ -4061,6 +4061,113 @@ async function cancelWmsGallusePicking(batchId) {
   return ok({ cancelled: true, orders: orderIds.length });
 }
 
+async function resetGalluseAiDemo() {
+  await assertWmsStaff();
+  const { data: demoClient, error: clientError } = await requireSupabase()
+    .from("clienti")
+    .select("id,ragione_sociale")
+    .eq("ragione_sociale", "WMS Demo Picking")
+    .maybeSingle();
+  if (clientError || !demoClient) fail(clientError?.message || "Cliente demo WMS non trovato", 404);
+
+  const { data: batches, error: batchesError } = await requireSupabase()
+    .from("wms_galluse_batches")
+    .select("id")
+    .eq("cliente_id", demoClient.id);
+  if (batchesError) fail(batchesError.message);
+  const batchIds = (batches || []).map((batch) => batch.id);
+  const { data: links, error: linksError } = batchIds.length
+    ? await requireSupabase().from("wms_galluse_orders").select("bag_id").in("batch_id", batchIds)
+    : { data: [], error: null };
+  if (linksError) fail(linksError.message);
+
+  const { data: demoOrders, error: ordersError } = await requireSupabase()
+    .from("shopify_orders")
+    .select("id")
+    .eq("shop_domain", "wms-galluse-demo.aimago.local");
+  if (ordersError) fail(ordersError.message);
+  const demoOrderIds = (demoOrders || []).map((order) => order.id);
+  const bagIds = [...new Set((links || []).map((link) => link.bag_id).filter(Boolean))];
+
+  if (bagIds.length) {
+    const { error } = await requireSupabase().from("wms_bags").update({ stato: "disponibile", updated_at: nowIso() }).in("id", bagIds);
+    if (error) fail(error.message);
+  }
+  if (demoOrderIds.length) {
+    const { error } = await requireSupabase().from("wms_packing_sessions").delete().in("order_id", demoOrderIds);
+    if (error) fail(error.message);
+  }
+  if (batchIds.length) {
+    const { error } = await requireSupabase().from("wms_galluse_batches").delete().in("id", batchIds);
+    if (error) fail(error.message);
+  }
+  if (demoOrderIds.length) {
+    const { error } = await requireSupabase().from("shopify_orders").delete().in("id", demoOrderIds);
+    if (error) fail(error.message);
+  }
+
+  const { data: references, error: referencesError } = await requireSupabase()
+    .from("referenze")
+    .select("id,titolo,ean,fnsku,sku")
+    .eq("cliente_id", demoClient.id)
+    .like("fnsku", "GALLUSE-CART-%")
+    .order("fnsku");
+  if (referencesError) fail(referencesError.message);
+  const referenceByLetter = Object.fromEntries("ABCDEFGHI".split("").map((letter, index) => [letter, references?.[index]]));
+  if (Object.values(referenceByLetter).some((reference) => !reference)) {
+    fail("Servono nove referenze demo negli slot per creare la prova A-I.", 409);
+  }
+
+  const compositions = [
+    ["A", "F", "I"],
+    ["G", "H", "E"],
+    ["F"],
+    ["A", "A", "B"],
+    ["C", "A", "D"],
+    ["C", "A", "E", "F", "I"],
+    ["A", "A", "B", "B", "C"],
+    ["H", "G", "F", "A"],
+    ["E", "D", "H", "A"],
+    ["F"],
+  ];
+  const now = Date.now();
+  for (const [index, composition] of compositions.entries()) {
+    const orderNumber = index + 1;
+    const { data: order, error: orderInsertError } = await requireSupabase().from("shopify_orders").insert({
+      cliente_id: demoClient.id,
+      shop_domain: "wms-galluse-demo.aimago.local",
+      shopify_order_id: `WMS-GALLUSE-AI-${String(orderNumber).padStart(3, "0")}`,
+      order_name: `#GALLUSE-AI-${String(orderNumber).padStart(2, "0")}`,
+      financial_status: "paid",
+      fulfillment_status: null,
+      wms_status: "da_preparare",
+      processed_at: new Date(now - index * 1000).toISOString(),
+      raw: { source: "wms_galluse_demo", scenario: "A-I", cart_position: orderNumber },
+    }).select().single();
+    if (orderInsertError || !order) fail(orderInsertError?.message || "Ordine demo non creato");
+
+    const quantities = composition.reduce((totals, letter) => ({ ...totals, [letter]: Number(totals[letter] || 0) + 1 }), {});
+    const items = Object.entries(quantities).map(([letter, quantita]) => {
+      const reference = referenceByLetter[letter];
+      return {
+        order_id: order.id,
+        shopify_line_item_id: `WMS-GALLUSE-AI-${String(orderNumber).padStart(3, "0")}-${letter}`,
+        referenza_id: reference.id,
+        sku: reference.sku || `GALLUSE-${letter}`,
+        ean: reference.ean,
+        titolo: `Referenza ${letter} - ${reference.titolo}`,
+        quantita,
+        fulfillable_quantity: quantita,
+        fulfillment_status: null,
+        raw: { source: "wms_galluse_demo", scenario: "A-I", letter },
+      };
+    });
+    const { error: itemsError } = await requireSupabase().from("shopify_order_items").insert(items);
+    if (itemsError) fail(itemsError.message);
+  }
+  return ok({ created: compositions.length, cliente: demoClient.ragione_sociale, scenario: "A-I" });
+}
+
 async function startWmsPicking(orderId) {
   const profile = await assertWmsStaff();
   const { data: galluseLink, error: galluseLinkError } = await requireSupabase()
@@ -5453,6 +5560,7 @@ export const api = {
     if (path.match(/^\/wms\/picking-galluse\/[^/]+\/bag$/)) return assignWmsGalluseBag(path.split("/")[3], payload);
     if (path.match(/^\/wms\/picking-galluse\/[^/]+\/scan$/)) return scanWmsGallusePicking(path.split("/")[3], payload);
     if (path.match(/^\/wms\/picking-galluse\/[^/]+\/annulla$/)) return cancelWmsGallusePicking(path.split("/")[3]);
+    if (path === "/wms/picking-galluse/demo-a-i") return resetGalluseAiDemo();
     if (path === "/wms/packing/station/scan") return scanWmsPackingStation(payload);
     if (path === "/shopify/oauth/start") return startShopifyOAuth(payload);
     if (path === "/shippypro/label") return createShippyProLabel(payload);
