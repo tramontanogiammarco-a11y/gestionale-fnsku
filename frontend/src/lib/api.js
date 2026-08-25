@@ -4112,6 +4112,12 @@ async function resetGalluseAiDemo() {
     .eq("cliente_id", demoClient.id)
     .like("tracking", "WMS-GALLUSE-AI-%");
   if (oldDemoEntriesError) fail(oldDemoEntriesError.message);
+  const { error: oldDemoLocationsError } = await requireSupabase()
+    .from("wms_locations")
+    .delete()
+    .eq("zona", "Demo Galluse")
+    .like("codice", "S1+AI-%");
+  if (oldDemoLocationsError) fail(oldDemoLocationsError.message);
 
   let { data: references, error: referencesError } = await requireSupabase()
     .from("referenze")
@@ -4148,64 +4154,6 @@ async function resetGalluseAiDemo() {
   ]));
   if (Object.values(referenceByLetter).some((reference) => !reference)) fail("Referenze demo A-I non disponibili", 409);
 
-  const { data: demoSlots, error: demoSlotsError } = await requireSupabase()
-    .from("wms_locations")
-    .upsert(letters.map((letter, index) => ({
-      codice: `S1+AI-${String(index + 1).padStart(3, "0")}`,
-      zona: "Demo Galluse",
-      tipo: "slot",
-      note: `Slot riservato alla referenza ${letter} della prova Galluse`,
-    })), { onConflict: "codice" })
-    .select("id,codice");
-  if (demoSlotsError || (demoSlots || []).length !== letters.length) fail(demoSlotsError?.message || "Slot demo Galluse non creati");
-  const slotByCode = new Map((demoSlots || []).map((slot) => [slot.codice, slot]));
-  const aiDemoTracking = `WMS-GALLUSE-AI-${Date.now()}`;
-  const { data: entry, error: entryError } = await requireSupabase()
-    .from("entrate")
-    .insert({
-      cliente_id: demoClient.id,
-      tipo: "pallet",
-      colli: letters.length,
-      ddt: aiDemoTracking,
-      corriere: "Demo",
-      tracking: aiDemoTracking,
-      stato: "ricevuto",
-      data_annuncio: nowIso(),
-      data_ricezione: nowIso(),
-      note: "Stock per la prova Galluse A-I",
-    })
-    .select("id")
-    .single();
-  if (entryError || !entry) fail(entryError?.message || "Entrata demo Galluse non creata");
-  const { data: session, error: sessionError } = await requireSupabase()
-    .from("wms_inbound_sessions")
-    .insert({ entrata_id: entry.id, stato: "completata", started_at: nowIso(), completed_at: nowIso(), note: "Stock prova Galluse A-I" })
-    .select("id")
-    .single();
-  if (sessionError || !session) fail(sessionError?.message || "Sessione demo Galluse non creata");
-  const { data: entryRows, error: entryRowsError } = await requireSupabase()
-    .from("entrate_righe")
-    .insert(letters.map((letter) => {
-      const reference = referenceByLetter[letter];
-      return { entrata_id: entry.id, ean: reference.ean, fnsku: reference.fnsku, quantita: 100, quantita_ricevuta: 100 };
-    }))
-    .select("id,fnsku");
-  if (entryRowsError) fail(entryRowsError.message);
-  const rowByFnsku = new Map((entryRows || []).map((row) => [row.fnsku, row]));
-  const { error: movementsError } = await requireSupabase().from("wms_inbound_movements").insert(letters.map((letter, index) => {
-    const reference = referenceByLetter[letter];
-    const slot = slotByCode.get(`S1+AI-${String(index + 1).padStart(3, "0")}`);
-    return {
-      session_id: session.id,
-      entrata_riga_id: rowByFnsku.get(reference.fnsku)?.id,
-      location_id: slot?.id,
-      disposizione: "disponibile",
-      quantita: 100,
-      codice_scansionato: slot?.codice,
-    };
-  }));
-  if (movementsError) fail(movementsError.message);
-
   const compositions = [
     ["A", "F", "I"],
     ["G", "H", "E"],
@@ -4218,6 +4166,80 @@ async function resetGalluseAiDemo() {
     ["E", "D", "H", "A"],
     ["F"],
   ];
+  const requiredByLetter = compositions.flat().reduce((totals, letter) => ({
+    ...totals,
+    [letter]: Number(totals[letter] || 0) + 1,
+  }), {});
+  const stockResponse = await wmsStock(new URLSearchParams({ cliente_id: demoClient.id }));
+  const stockProducts = stockResponse.data.products || [];
+  const referencesNeedingStock = letters.filter((letter) => {
+    const reference = referenceByLetter[letter];
+    const product = stockProducts.find((candidate) => normalizedText(candidate.fnsku) === normalizedText(reference.fnsku));
+    const slotQuantity = (product?.ubicazioni || [])
+      .filter((location) => location.tipo === "slot")
+      .reduce((sum, location) => sum + Number(location.quantita || 0), 0);
+    return slotQuantity < Number(requiredByLetter[letter] || 0);
+  });
+
+  if (referencesNeedingStock.length) {
+    const availableSlots = (stockResponse.data.locations || [])
+      .filter((location) => location.tipo === "slot"
+        && location.stato === "attiva"
+        && !location.occupata
+        && /^S1\+A\d+$/i.test(String(location.codice || "")))
+      .sort(naturalLocationSort);
+    if (availableSlots.length < referencesNeedingStock.length) {
+      fail(`Servono ${referencesNeedingStock.length} slot reali liberi per la prova A-I.`, 409);
+    }
+
+    const aiDemoTracking = `WMS-GALLUSE-AI-${Date.now()}`;
+    const { data: entry, error: entryError } = await requireSupabase()
+      .from("entrate")
+      .insert({
+        cliente_id: demoClient.id,
+        tipo: "pallet",
+        colli: referencesNeedingStock.length,
+        ddt: aiDemoTracking,
+        corriere: "Demo",
+        tracking: aiDemoTracking,
+        stato: "ricevuto",
+        data_annuncio: nowIso(),
+        data_ricezione: nowIso(),
+        note: "Stock integrativo per la prova Galluse A-I",
+      })
+      .select("id")
+      .single();
+    if (entryError || !entry) fail(entryError?.message || "Entrata demo Galluse non creata");
+    const { data: session, error: sessionError } = await requireSupabase()
+      .from("wms_inbound_sessions")
+      .insert({ entrata_id: entry.id, stato: "completata", started_at: nowIso(), completed_at: nowIso(), note: "Stock prova Galluse A-I" })
+      .select("id")
+      .single();
+    if (sessionError || !session) fail(sessionError?.message || "Sessione demo Galluse non creata");
+    const { data: entryRows, error: entryRowsError } = await requireSupabase()
+      .from("entrate_righe")
+      .insert(referencesNeedingStock.map((letter) => {
+        const reference = referenceByLetter[letter];
+        return { entrata_id: entry.id, ean: reference.ean, fnsku: reference.fnsku, quantita: 100, quantita_ricevuta: 100 };
+      }))
+      .select("id,fnsku");
+    if (entryRowsError) fail(entryRowsError.message);
+    const rowByFnsku = new Map((entryRows || []).map((row) => [row.fnsku, row]));
+    const { error: movementsError } = await requireSupabase().from("wms_inbound_movements").insert(referencesNeedingStock.map((letter, index) => {
+      const reference = referenceByLetter[letter];
+      const slot = availableSlots[index];
+      return {
+        session_id: session.id,
+        entrata_riga_id: rowByFnsku.get(reference.fnsku)?.id,
+        location_id: slot.id,
+        disposizione: "disponibile",
+        quantita: 100,
+        codice_scansionato: slot.codice,
+      };
+    }));
+    if (movementsError) fail(movementsError.message);
+  }
+
   const now = Date.now();
   for (const [index, composition] of compositions.entries()) {
     const orderNumber = index + 1;
