@@ -48,7 +48,6 @@ function GalluseQueue() {
     }
   };
   const seedAiDemo = async () => {
-    if (!window.confirm("Sostituire il carrello demo corrente con i 10 ordini A-I?")) return;
     setWorking(true);
     try {
       const response = await api.post("/wms/picking-galluse/demo-a-i", {});
