@@ -3735,33 +3735,29 @@ function galluseCandidateOrders(orders = []) {
   ));
 }
 
-function galluseRoundsFromCandidates(candidates = []) {
+function galluseFixedCartRound(candidates = []) {
   const byClient = new Map();
   for (const order of candidates || []) {
-    const current = byClient.get(order.cliente_id) || {
-      cliente_id: order.cliente_id,
-      cliente: order.cliente_ragione_sociale || "Cliente",
-      orders: [],
-    };
-    current.orders.push(order);
+    const current = byClient.get(order.cliente_id) || [];
+    current.push(order);
     byClient.set(order.cliente_id, current);
   }
-  return [...byClient.values()]
-    .sort((left, right) => left.cliente.localeCompare(right.cliente))
-    .flatMap((client) => Array.from({ length: Math.ceil(client.orders.length / 10) }, (_, index) => {
-      const orders = client.orders.slice(index * 10, (index + 1) * 10);
-      return {
-        id: `${client.cliente_id}:${index}`,
-        cliente_id: client.cliente_id,
-        cliente: client.cliente,
-        numero: index + 1,
-        offset: index * 10,
-        orders,
-        numero_ordini: orders.length,
-        pezzi: orders.reduce((sum, order) => sum + (order.items || []).reduce((inner, item) => inner + Number(item.quantita || 0), 0), 0),
-        referenze: new Set(orders.flatMap((order) => (order.items || []).map((item) => item.referenza_id))).size,
-      };
-    }));
+  const [clientId, clientOrders] = [...byClient.entries()]
+    .sort((left, right) => right[1].length - left[1].length)[0] || [];
+  const firstOrder = clientOrders?.[0];
+  if (!clientId || !firstOrder || clientOrders.length < 10) return [];
+  const orders = clientOrders.slice(0, 10);
+  return [{
+    id: `fixed-cart:${firstOrder.cliente_id}`,
+    cliente_id: firstOrder.cliente_id,
+    cliente: firstOrder.cliente_ragione_sociale || "Cliente",
+    numero: 1,
+    offset: 0,
+    orders,
+    numero_ordini: orders.length,
+    pezzi: orders.reduce((sum, order) => sum + (order.items || []).reduce((inner, item) => inner + Number(item.quantita || 0), 0), 0),
+    referenze: new Set(orders.flatMap((order) => (order.items || []).map((item) => item.referenza_id))).size,
+  }];
 }
 
 async function listWmsGallusePicking(params = new URLSearchParams()) {
@@ -3787,16 +3783,9 @@ async function listWmsGallusePicking(params = new URLSearchParams()) {
     : { data: [], error: null };
   if (linkedOrdersError) fail(linkedOrdersError.message);
   const orderMap = Object.fromEntries((linkedOrders || []).map((order) => [order.id, order]));
-  const completedByClient = (batches || []).reduce((map, batch) => {
-    if (batch.stato === "completata") map[batch.cliente_id] = (map[batch.cliente_id] || 0) + 1;
-    return map;
-  }, {});
   return ok({
     candidates,
-    rounds: galluseRoundsFromCandidates(candidates).map((round) => ({
-      ...round,
-      numero: round.numero + (completedByClient[round.cliente_id] || 0),
-    })),
+    rounds: galluseFixedCartRound(candidates),
     batches: (batches || []).map((batch) => ({
       ...batch,
       orders: (links || []).filter((link) => link.batch_id === batch.id).sort((left, right) => left.posizione_bag - right.posizione_bag).map((link) => ({ ...link, order: orderMap[link.order_id] || null })),
@@ -3881,19 +3870,17 @@ async function wmsGalluseFixedCart(numberOfBags) {
 async function startWmsGallusePicking(payload = {}) {
   const profile = await assertWmsStaff();
   const requestedClientId = optionalText(payload.cliente_id);
-  const offset = Math.max(0, Math.floor(Number(payload.offset || 0)));
   const operational = await wmsOperationalOrdersData(new URLSearchParams(requestedClientId ? { cliente_id: requestedClientId } : {}));
   const candidates = galluseCandidateOrders(operational.orders);
   const clientId = requestedClientId || candidates[0]?.cliente_id;
   const { data: activeBatches, error: activeBatchesError } = await requireSupabase()
     .from("wms_galluse_batches")
     .select("id")
-    .eq("cliente_id", clientId)
     .in("stato", ["da_associare_bag", "in_corso"]);
   if (activeBatchesError) fail(activeBatchesError.message);
   if ((activeBatches || []).length) fail("Completa prima il carrello Galluse gia in corso.", 409);
-  const orders = candidates.filter((order) => order.cliente_id === clientId).slice(offset, offset + 10);
-  if (!clientId || orders.length < 1) fail("Non ci sono ordini 1x1 disponibili per il Metodo Galluse.", 409);
+  const orders = candidates.filter((order) => order.cliente_id === clientId).slice(0, 10);
+  if (!clientId || orders.length < 10) fail("Il carrello Galluse parte solo con 10 ordini completi.", 409);
   const combinedItems = orders.flatMap((order) => (order.items || []).map((item) => ({ ...item, galluse_order_id: order.id })));
   const itemOrderMap = Object.fromEntries(combinedItems.map((item) => [item.id, item.galluse_order_id]));
   const plan = await wmsPickingPlan({ cliente_id: clientId }, combinedItems);
