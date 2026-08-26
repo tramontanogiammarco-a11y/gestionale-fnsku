@@ -334,7 +334,7 @@ function ImportDialog({ onDone }) {
       const fd = new FormData(); fd.append("file", file);
       const { data } = await api.post("/referenze/import", fd);
       setResult(data);
-      toast.success(`${data.inseriti} referenze importate`);
+      toast.success(`${data.inseriti} nuove, ${data.aggiornati || 0} aggiornate · ${data.fnsku_letti || 0} FNSKU letti`);
       onDone();
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail));
@@ -348,12 +348,14 @@ function ImportDialog({ onDone }) {
         <DialogHeader><DialogTitle>Importa referenze (CSV / Excel)</DialogTitle></DialogHeader>
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Colonne riconosciute automaticamente: <b>EAN</b>, Titolo, FNSKU. Le righe senza EAN vengono scartate.
+            Colonne riconosciute automaticamente: <b>EAN</b>, Titolo e <b>FNSKU</b>. Se l'EAN esiste già, il FNSKU viene aggiunto alla referenza senza duplicarla.
           </p>
           <Input data-testid="import-file" type="file" accept=".csv,.xlsx,.xls" onChange={(e) => setFile(e.target.files[0])} />
           {result && (
             <div className="text-sm space-y-2" data-testid="import-result">
-              <div className="text-emerald-600 font-medium">{result.inseriti} righe importate su {result.totale_righe}.</div>
+              <div className="text-emerald-600 font-medium">
+                {result.inseriti} nuove · {result.aggiornati || 0} aggiornate · {result.fnsku_letti || 0} FNSKU letti su {result.totale_righe} righe.
+              </div>
               {result.errori?.length > 0 && (
                 <div className="rounded border border-amber-200 bg-amber-50 p-3 max-h-40 overflow-auto">
                   <div className="font-medium text-amber-700 mb-1">{result.errori.length} righe scartate:</div>

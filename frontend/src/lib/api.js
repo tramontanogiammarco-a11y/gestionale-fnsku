@@ -900,11 +900,70 @@ async function importReferenze(formData) {
       origine: "import",
     };
   }).filter((r) => r.titolo);
-  if (rows.length) {
-    const { error } = await supabase.from("referenze").insert(rows);
+
+  const { data: existingRows, error: existingError } = await requireSupabase()
+    .from("referenze")
+    .select("id,ean,sku,asin,titolo,fnsku")
+    .eq("cliente_id", cid);
+  if (existingError) fail(existingError.message);
+
+  const byEan = new Map();
+  const byFnsku = new Map();
+  const byTitleWithoutEan = new Map();
+  const indexReference = (reference) => {
+    if (normalizedText(reference.ean)) byEan.set(normalizedText(reference.ean), reference);
+    if (normalizedText(reference.fnsku)) byFnsku.set(normalizedText(reference.fnsku), reference);
+    if (!reference.ean && normalizedText(reference.titolo)) byTitleWithoutEan.set(normalizedText(reference.titolo), reference);
+  };
+  (existingRows || []).forEach(indexReference);
+
+  let inserted = 0;
+  let updated = 0;
+  for (const row of rows) {
+    const existing = (row.ean && byEan.get(normalizedText(row.ean)))
+      || (row.fnsku && byFnsku.get(normalizedText(row.fnsku)))
+      || (!row.ean && byTitleWithoutEan.get(normalizedText(row.titolo)));
+    if (existing) {
+      const patch = {
+        titolo: row.titolo || existing.titolo,
+        ean: existing.ean || row.ean,
+        sku: row.sku || existing.sku,
+        asin: row.asin || existing.asin,
+        fnsku: row.fnsku || existing.fnsku,
+      };
+      const changed = Object.entries(patch).some(([key, value]) => optionalText(value) !== optionalText(existing[key]));
+      if (changed) {
+        const { data: saved, error } = await requireSupabase()
+          .from("referenze")
+          .update(patch)
+          .eq("id", existing.id)
+          .select("id,ean,sku,asin,titolo,fnsku")
+          .single();
+        if (error) fail(error.message);
+        Object.assign(existing, saved);
+        updated += 1;
+        indexReference(existing);
+      }
+      continue;
+    }
+
+    const { data: created, error } = await requireSupabase()
+      .from("referenze")
+      .insert(row)
+      .select("id,ean,sku,asin,titolo,fnsku")
+      .single();
     if (error) fail(error.message);
+    inserted += 1;
+    indexReference(created);
   }
-  return ok({ inseriti: rows.length, errori: [], totale_righe: parsed.data.length });
+  return ok({
+    inseriti: inserted,
+    aggiornati: updated,
+    elaborati: rows.length,
+    fnsku_letti: rows.filter((row) => row.fnsku).length,
+    errori: [],
+    totale_righe: parsed.data.length,
+  });
 }
 
 async function listEntrate(params) {
