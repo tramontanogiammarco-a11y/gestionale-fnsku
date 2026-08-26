@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import Papa from "papaparse";
 import { requireSupabase, supabase, supabaseAnonKey, supabaseUrl } from "@/lib/supabase";
 import { calculateWarehouseRoute, normalizeAisles } from "@/lib/wmsRouting";
 
@@ -858,25 +859,44 @@ async function importReferenze(formData) {
     fail("Import Excel in migrazione: per ora carica un CSV con colonne EAN, SKU, ASIN, Titolo.");
   }
   const text = await file.text();
-  const lines = text.split(/\r?\n/).filter(Boolean);
-  const headers = (lines.shift() || "").split(/[;,]/).map((h) => h.trim().toLowerCase());
-  const eanIdx = headers.findIndex((h) => ["ean", "barcode", "gtin", "upc"].includes(h));
-  const skuIdx = headers.findIndex((h) => h === "sku");
-  const asinIdx = headers.findIndex((h) => h === "asin");
-  const titleIdx = headers.findIndex((h) => ["titolo", "title", "productname"].includes(h));
-  if (eanIdx < 0 && titleIdx < 0) fail("Serve almeno una colonna Titolo o EAN.");
+  const parsed = Papa.parse(text, { header: true, skipEmptyLines: "greedy" });
+  if (parsed.errors?.length && !parsed.data?.length) fail(parsed.errors[0].message || "CSV non leggibile");
+
+  const headerAliases = {
+    ean: ["ean", "barcode", "codiceean", "codiceabarre", "gtin", "upc", "productid"],
+    sku: ["sku", "sellersku", "merchantsku", "codicesku"],
+    asin: ["asin", "amazonasin"],
+    titolo: ["titolo", "title", "nomeprodotto", "productname", "itemname", "descrizione"],
+    fnsku: ["fnsku", "codicefnsku", "fulfillmentnetworksku", "amazonfnsku"],
+  };
+  const headerKey = (value) => String(value || "")
+    .replace(/^\uFEFF/, "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+  const headers = parsed.meta.fields || [];
+  const columnFor = (field) => headers.find((header) => headerAliases[field].includes(headerKey(header)));
+  const columns = {
+    ean: columnFor("ean"),
+    sku: columnFor("sku"),
+    asin: columnFor("asin"),
+    titolo: columnFor("titolo"),
+    fnsku: columnFor("fnsku"),
+  };
+  if (!columns.ean && !columns.titolo) fail("Serve almeno una colonna Titolo o EAN.");
 
   const cid = await resolveClienteId(clienteId || undefined);
-  const rows = lines.map((line) => {
-    const cols = line.split(/[;,]/).map((c) => c.trim());
-    const ean = eanIdx >= 0 ? cols[eanIdx] : "";
-    const titolo = titleIdx >= 0 ? cols[titleIdx] : "";
+  const rows = parsed.data.map((source) => {
+    const value = (field) => columns[field] ? optionalText(source[columns[field]]) : null;
+    const ean = value("ean");
+    const titolo = value("titolo");
     return {
       cliente_id: cid,
-      ean: optionalText(ean),
-      sku: skuIdx >= 0 ? optionalText(cols[skuIdx]) : null,
-      asin: asinIdx >= 0 ? optionalText(cols[asinIdx]) : null,
+      ean,
+      sku: value("sku"),
+      asin: value("asin"),
       titolo: titolo || ean,
+      fnsku: value("fnsku"),
       origine: "import",
     };
   }).filter((r) => r.titolo);
@@ -884,7 +904,7 @@ async function importReferenze(formData) {
     const { error } = await supabase.from("referenze").insert(rows);
     if (error) fail(error.message);
   }
-  return ok({ inseriti: rows.length, errori: [], totale_righe: lines.length });
+  return ok({ inseriti: rows.length, errori: [], totale_righe: parsed.data.length });
 }
 
 async function listEntrate(params) {
