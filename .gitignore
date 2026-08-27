@@ -32,3 +32,4 @@ credentials.json
 *.key
 .credentials
 .vercel
+.env*

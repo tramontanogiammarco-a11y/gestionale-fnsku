@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 export default function WmsAppPacking() {
   const scannerRef = useRef(null);
   const [station, setStation] = useState(null);
+  const [cart, setCart] = useState(null);
   const [code, setCode] = useState("");
   const [working, setWorking] = useState(false);
 
@@ -29,9 +30,17 @@ export default function WmsAppPacking() {
 
   useEffect(() => {
     if (!station || station.phase !== "completed") return undefined;
-    const timeout = window.setTimeout(resetStation, 1400);
+    const timeout = window.setTimeout(() => {
+      if (cart?.cart_code) {
+        setStation({ phase: "cart_ready", cart_code: cart.cart_code, cart_bags: cart.bags, sessions: [], labels: [], summary: { orders: 0 } });
+        setCode("");
+        focusScanner();
+        return;
+      }
+      resetStation();
+    }, 1400);
     return () => window.clearTimeout(timeout);
-  }, [station, resetStation]);
+  }, [cart, focusScanner, resetStation, station]);
 
   const printCarrierLabels = async (bagCode) => {
     try {
@@ -62,11 +71,14 @@ export default function WmsAppPacking() {
       const response = await api.post("/wms/packing/station/scan", {
         codice: value,
         bag_code: station?.bag_code || null,
+        cart_code: cart?.cart_code || station?.cart_code || null,
       });
       const next = response.data;
+      if (next.phase === "cart_ready") setCart({ cart_code: next.cart_code, bags: next.cart_bags || [] });
       setStation(next);
       setCode("");
       if (navigator.vibrate) navigator.vibrate([55, 35, 55]);
+      if (next.phase === "cart_ready") toast.success("Carrello riconosciuto: ora scansiona una bag");
       if (next.phase === "double_check") toast.success("Bag riconosciuta: riscansionala per il doppio controllo");
       if (next.phase === "scan_labels" && station?.phase === "double_check") {
         toast.success(`${next.labels.length} etichette inviate alla stampante`);
@@ -91,7 +103,9 @@ export default function WmsAppPacking() {
       ? `Scansiona ${pendingLabels === 1 ? "l'etichetta corriere" : "tutte le etichette corriere"}`
       : phase === "completed"
         ? "Bag liberata"
-        : "Scansiona una bag pronta";
+        : phase === "cart_ready"
+          ? "Scansiona una bag del carrello"
+          : "Scansiona una bag pronta";
 
   return <div className="mx-auto max-w-5xl space-y-5 pb-24" data-testid="wms-packing-station">
     <header>
@@ -108,6 +122,7 @@ export default function WmsAppPacking() {
         <div className="min-w-0 flex-1">
           <p className="text-xs font-black uppercase text-teal-700">Scanner pronto</p>
           <h2 className="mt-1 text-2xl font-black">{prompt}</h2>
+          {phase === "cart_ready" && <p className="mt-1 font-mono text-sm text-slate-500">Carrello {station.cart_code}</p>}
           {station?.bag_code && <p className="mt-1 font-mono text-sm text-slate-500">Bag {station.bag_code}</p>}
         </div>
         {phase === "scan_labels" && <div className="text-right"><strong className="block text-3xl font-black">{completedLabels}/{station.labels.length}</strong><span className="text-xs font-bold uppercase text-slate-500">etichette</span></div>}
@@ -117,7 +132,7 @@ export default function WmsAppPacking() {
           ref={scannerRef}
           value={code}
           onChange={(event) => setCode(event.target.value.toUpperCase())}
-          placeholder={phase === "scan_labels" ? "Scansiona etichetta corriere" : "Scansiona barcode bag"}
+          placeholder={phase === "scan_labels" ? "Scansiona etichetta corriere" : phase === "cart_ready" ? "B-73846" : "CARRELLO-01 oppure bag"}
           className="h-16 border-slate-950 bg-slate-50 text-center font-mono text-2xl font-black tracking-wider"
           autoComplete="off"
           inputMode="none"
@@ -126,6 +141,23 @@ export default function WmsAppPacking() {
         />
       </form>}
     </section>
+
+    {phase === "cart_ready" && station?.cart_bags?.length > 0 && <section className="rounded-md border border-slate-200 bg-white p-5">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-black">Carrello 01</h2>
+          <p className="mt-1 text-sm text-slate-500">Inserisci una bag fissa per vedere i prodotti prima di chiuderla.</p>
+        </div>
+        <span className="rounded-full bg-teal-50 px-3 py-1 text-sm font-black text-teal-800">{station.cart_bags.filter((bag) => bag.ready).length}/10 pronte</span>
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+        {station.cart_bags.map((bag) => <button key={bag.bag_code} type="button" onClick={() => { setCode(bag.bag_code); focusScanner(); }} className={`rounded-md border p-3 text-left ${bag.ready ? "border-teal-200 bg-teal-50" : bag.completed ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-slate-50"}`}>
+          <span className="block text-xs font-black uppercase text-slate-500">Posizione {bag.posizione}</span>
+          <strong className="mt-1 block font-mono text-lg">{bag.bag_code}</strong>
+          <span className="mt-1 block text-xs font-bold text-slate-500">{bag.ready ? `${bag.orders} ordine pronto` : bag.completed ? "Completata" : "Vuota"}</span>
+        </button>)}
+      </div>
+    </section>}
 
     {station?.sessions?.length > 0 && <section className="rounded-md border border-slate-200 bg-white p-5">
       <div className="flex items-center justify-between gap-4"><div><h2 className="text-xl font-black">Contenuto bag</h2><p className="mt-1 text-sm text-slate-500">{station.summary.orders} {station.summary.orders === 1 ? "ordine" : "ordini"} da chiudere.</p></div><span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-black">{station.batch ? "Massivo" : "1x1"}</span></div>

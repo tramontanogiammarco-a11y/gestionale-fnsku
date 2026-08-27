@@ -51,10 +51,10 @@ function GalluseQueue() {
     setWorking(true);
     try {
       const response = await api.post("/wms/picking-galluse/demo-a-i", {});
-      toast.success(`${response.data.created} ordini A-I creati`);
+      toast.success(`${response.data.created} ordini creati: ${response.data.referenze} referenze, ${response.data.pezzi} pezzi`);
       await load();
     } catch (error) {
-      toast.error(error.response?.data?.detail || "Ordini A-I non creati");
+      toast.error(error.response?.data?.detail || "Prova packing non creata");
     } finally {
       setWorking(false);
     }
@@ -87,7 +87,7 @@ function GalluseQueue() {
       <Metric label="Compiti" value={round?.numero_compiti || 0} />
       <Metric label="Bag fisse" value="10" />
     </section>
-    {searchParams.get("demo") === "ai" && <Button type="button" variant="outline" className="h-12 w-full" onClick={seedAiDemo} disabled={working}>Ripristina prova A-I</Button>}
+    {searchParams.get("demo") === "ai" && <Button type="button" variant="outline" className="h-12 w-full" onClick={seedAiDemo} disabled={working}>Ripristina prova packing 22 pezzi</Button>}
     {active.length > 0 && <section>
       <h2 className="mb-3 text-xl font-black">Carrello aperto</h2>
       <button type="button" onClick={() => navigate(`/wms-app/picking-galluse/${active[0].id}`)} className="flex w-full items-center gap-3 rounded-md border border-teal-200 bg-teal-50 p-4 text-left">
