@@ -21,6 +21,19 @@ export default function WmsAppPacking() {
     focusScanner();
   }, [focusScanner]);
 
+  const refreshCart = useCallback(async () => {
+    const response = await api.post("/wms/packing/station/scan", {
+      codice: "CARRELLO-01",
+      bag_code: null,
+      cart_code: "CARRELLO-01",
+    });
+    const next = response.data;
+    setCart({ cart_code: next.cart_code, bags: next.cart_bags || [] });
+    setStation(next);
+    setCode("");
+    return next;
+  }, []);
+
   useEffect(() => {
     focusScanner();
     const keepFocus = () => focusScanner();
@@ -32,15 +45,16 @@ export default function WmsAppPacking() {
     if (!station || station.phase !== "completed") return undefined;
     const timeout = window.setTimeout(() => {
       if (cart?.cart_code) {
-        setStation({ phase: "cart_ready", cart_code: cart.cart_code, cart_bags: cart.bags, sessions: [], labels: [], summary: { orders: 0 } });
-        setCode("");
-        focusScanner();
+        refreshCart().catch(() => {
+          setStation({ phase: "cart_ready", cart_code: cart.cart_code, cart_bags: cart.bags, sessions: [], labels: [], summary: { orders: 0 } });
+          setCode("");
+        }).finally(focusScanner);
         return;
       }
       resetStation();
     }, 1400);
     return () => window.clearTimeout(timeout);
-  }, [cart, focusScanner, resetStation, station]);
+  }, [cart, focusScanner, refreshCart, resetStation, station]);
 
   const printCarrierLabels = async (bagCode) => {
     try {
@@ -148,7 +162,9 @@ export default function WmsAppPacking() {
           <h2 className="text-xl font-black">Carrello 01</h2>
           <p className="mt-1 text-sm text-slate-500">Inserisci una bag fissa per vedere i prodotti prima di chiuderla.</p>
         </div>
-        <span className="rounded-full bg-teal-50 px-3 py-1 text-sm font-black text-teal-800">{station.cart_bags.filter((bag) => bag.ready).length}/10 pronte</span>
+        <span className="rounded-full bg-teal-50 px-3 py-1 text-sm font-black text-teal-800">
+          {station.cart_bags.filter((bag) => bag.completed).length}/10 completate
+        </span>
       </div>
       <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
         {station.cart_bags.map((bag) => <button key={bag.bag_code} type="button" onClick={() => { setCode(bag.bag_code); focusScanner(); }} className={`rounded-md border p-3 text-left ${bag.ready ? "border-teal-200 bg-teal-50" : bag.completed ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-slate-50"}`}>

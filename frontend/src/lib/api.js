@@ -4921,7 +4921,10 @@ async function scanWmsPackingStation(payload = {}) {
     if (code.startsWith("PK-")) return completePackingStationLabel(await packingStationSnapshotForLabel(code), code);
     if (!/^B-[0-9]{5}$/.test(code)) fail("Scansiona prima il barcode della bag");
     const snapshot = await packingStationSnapshot(code);
-    if (snapshot.data.phase === "completed") fail("Questa bag e gia stata completata");
+    if (snapshot.data.phase === "completed") {
+      if (normalizedText(payload.cart_code) === normalizedText("CARRELLO-01")) return packingCartSnapshot();
+      return snapshot;
+    }
     const eligible = snapshot.data.sessions.filter((session) => ["in_attesa_packing", "da_imballare", "in_verifica_bag"].includes(session.stato));
     if (!eligible.length) fail("Questa bag e gia in attesa delle etichette");
     const scannedAt = nowIso();
