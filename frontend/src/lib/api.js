@@ -4829,16 +4829,19 @@ async function packingStationSnapshot(bagCode) {
 
 async function completePackingLabel(session) {
   const completedAt = nowIso();
-  const [{ error: sessionError }, { error: orderError }] = await Promise.all([
-    requireSupabase().from("wms_packing_sessions").update({
-      stato: "completata",
-      carrier_label_scanned_at: completedAt,
-      completed_at: completedAt,
-      updated_at: completedAt,
-    }).eq("id", session.id),
-    requireSupabase().from("shopify_orders").update({ wms_status: "pronto", updated_at: completedAt }).eq("id", session.order_id),
-  ]);
-  if (sessionError || orderError) fail((sessionError || orderError).message);
+  const { error: orderError } = await requireSupabase()
+    .from("shopify_orders")
+    .update({ wms_status: "pronto", updated_at: completedAt })
+    .eq("id", session.order_id);
+  if (orderError) fail(orderError.message);
+
+  const { error: sessionError } = await requireSupabase().from("wms_packing_sessions").update({
+    stato: "completata",
+    carrier_label_scanned_at: completedAt,
+    completed_at: completedAt,
+    updated_at: completedAt,
+  }).eq("id", session.id);
+  if (sessionError) fail(sessionError.message);
 
   if (!session.mass_batch_id) {
     await releaseWmsBag(session.bag_id);
@@ -4875,7 +4878,7 @@ async function packingStationSnapshotForLabel(labelCode) {
     .from("wms_packing_sessions")
     .select("bag_code")
     .ilike("carrier_label_code", normalizedLabel)
-    .neq("stato", "completata")
+    .neq("stato", "annullata")
     .order("updated_at", { ascending: false })
     .limit(1);
   if (error) fail(error.message);
@@ -4887,7 +4890,7 @@ async function packingStationSnapshotForLabel(labelCode) {
 async function completePackingStationLabel(snapshot, code) {
   const normalizedCode = normalizedScanCode(code);
   const matchingSession = snapshot.data.sessions.find((session) => (
-    session.stato === "in_attesa_etichetta"
+    ["in_attesa_etichetta", "completata"].includes(session.stato)
     && normalizedScanCode(session.carrier_label_code) === normalizedCode
   ));
   if (!matchingSession) fail("Etichetta non prevista per questa bag oppure gia acquisita");
@@ -5074,7 +5077,7 @@ async function wmsBagPackingSnapshot(bagCode) {
       .from("wms_packing_sessions")
       .select("*")
       .eq("bag_code", bagCode)
-      .neq("stato", "completata")
+      .neq("stato", "annullata")
       .order("created_at", { ascending: false })
       .limit(1);
     const normalSession = normalSessions?.[0] || null;
