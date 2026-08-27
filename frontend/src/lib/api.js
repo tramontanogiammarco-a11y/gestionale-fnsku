@@ -4836,7 +4836,7 @@ async function completePackingLabel(session) {
       completed_at: completedAt,
       updated_at: completedAt,
     }).eq("id", session.id),
-    requireSupabase().from("shopify_orders").update({ wms_status: "imballato", updated_at: completedAt }).eq("id", session.order_id),
+    requireSupabase().from("shopify_orders").update({ wms_status: "pronto", updated_at: completedAt }).eq("id", session.order_id),
   ]);
   if (sessionError || orderError) fail((sessionError || orderError).message);
 
