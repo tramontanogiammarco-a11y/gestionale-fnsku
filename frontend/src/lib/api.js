@@ -2906,6 +2906,32 @@ function naturalLocationSort(left, right) {
   return String(left?.codice || "").localeCompare(String(right?.codice || ""), "it", { numeric: true });
 }
 
+function spreadLocations(locations = [], count = 0) {
+  if (locations.length <= count) return [...locations];
+  if (count <= 0) return [];
+  const selected = [];
+  const usedIndexes = new Set();
+  for (let i = 0; i < count; i += 1) {
+    const idealIndex = count === 1 ? 0 : Math.round(i * (locations.length - 1) / (count - 1));
+    let chosenIndex = idealIndex;
+    for (let radius = 0; radius < locations.length && usedIndexes.has(chosenIndex); radius += 1) {
+      const before = idealIndex - radius;
+      const after = idealIndex + radius;
+      if (before >= 0 && !usedIndexes.has(before)) {
+        chosenIndex = before;
+        break;
+      }
+      if (after < locations.length && !usedIndexes.has(after)) {
+        chosenIndex = after;
+        break;
+      }
+    }
+    usedIndexes.add(chosenIndex);
+    selected.push(locations[chosenIndex]);
+  }
+  return selected.sort(naturalLocationSort);
+}
+
 async function wmsStock(params) {
   await assertWmsStaff();
   const requestedClientId = optionalText(params.get("cliente_id"));
@@ -4465,10 +4491,10 @@ async function resetGalluseAiDemo() {
   ]);
   if (locationsError || movementsError) fail((locationsError || movementsError).message);
   const occupiedLocationIds = new Set((movements || []).map((movement) => movement.location_id).filter(Boolean));
-  const targetSlots = (locations || [])
+  const freeSlots = (locations || [])
     .filter((location) => !occupiedLocationIds.has(location.id))
-    .sort(naturalLocationSort)
-    .slice(0, 13);
+    .sort(naturalLocationSort);
+  const targetSlots = spreadLocations(freeSlots, 13);
   if (targetSlots.length < 13) fail("Servono 13 slot liberi per creare la prova packing.", 409);
 
   const { data: entry, error: entryError } = await requireSupabase().from("entrate").insert({
@@ -4481,7 +4507,7 @@ async function resetGalluseAiDemo() {
     stato: "ricevuto",
     data_annuncio: nowIso(),
     data_ricezione: nowIso(),
-    note: "Fixture packing: 10 ordini, 13 referenze, 22 pezzi totali",
+    note: "Fixture packing sparpagliata: 10 ordini, 13 referenze, 22 pezzi totali",
   }).select().single();
   if (entryError || !entry) fail(entryError?.message || "Entrata demo packing non creata");
 
