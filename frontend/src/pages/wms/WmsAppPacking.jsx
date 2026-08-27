@@ -63,8 +63,8 @@ export default function WmsAppPacking() {
     }
   };
 
-  const submitScan = async () => {
-    const value = code.trim().toUpperCase();
+  const submitScan = async (overrideCode = null) => {
+    const value = String(overrideCode ?? code).trim().toUpperCase().replace(/\s+/g, "");
     if (!value || working) return;
     setWorking(true);
     try {
@@ -165,7 +165,9 @@ export default function WmsAppPacking() {
         {station.sessions.map((session, index) => <article key={session.id} className={`rounded-md border p-4 ${session.stato === "completata" ? "border-emerald-200 bg-emerald-50" : "border-slate-200"}`}>
           <div className="flex items-center gap-3"><span className={`flex h-9 w-9 items-center justify-center rounded-full font-black ${session.stato === "completata" ? "bg-emerald-600 text-white" : "bg-slate-950 text-white"}`}>{session.stato === "completata" ? <CheckCircle2 className="h-5 w-5" /> : index + 1}</span><div className="min-w-0 flex-1"><strong className="block truncate">Ordine {session.order?.order_name}</strong><span className="text-xs text-slate-500">{session.lines.length} referenze</span></div></div>
           <div className="mt-3 grid grid-cols-3 gap-2">{session.lines.map((line) => <div key={line.id} className="min-w-0 rounded-md bg-slate-50 p-2 text-center">{line.foto_url ? <img src={fileUrl(line.foto_url)} alt="" className="mx-auto h-12 w-full object-contain" /> : <span className="mx-auto flex h-12 items-center justify-center text-slate-300"><ImageIcon className="h-5 w-5" /></span>}<strong className="mt-1 block truncate text-[10px]">{line.titolo}</strong><span className="block text-xs font-black">x{line.quantita_attesa}</span></div>)}</div>
-          {phase === "scan_labels" && <div className={`mt-3 rounded-md px-3 py-2 font-mono text-xs font-black ${session.carrier_label_scanned_at ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}`}>{session.carrier_label_scanned_at ? "ETICHETTA ACQUISITA" : session.carrier_label_code}</div>}
+          {phase === "scan_labels" && (session.carrier_label_scanned_at
+            ? <div className="mt-3 rounded-md bg-emerald-100 px-3 py-2 font-mono text-xs font-black text-emerald-800">ETICHETTA ACQUISITA</div>
+            : <button type="button" onClick={() => submitScan(session.carrier_label_code)} disabled={working} className="mt-3 w-full rounded-md bg-amber-100 px-3 py-3 text-left font-mono text-xs font-black text-amber-900 hover:bg-amber-200 disabled:opacity-60">{session.carrier_label_code}</button>)}
         </article>)}
       </div>
     </section>}

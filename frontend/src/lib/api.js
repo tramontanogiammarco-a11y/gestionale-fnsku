@@ -95,6 +95,10 @@ function normalizedText(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function normalizedScanCode(value) {
+  return String(value || "").trim().toUpperCase().replace(/\s+/g, "");
+}
+
 function groupBy(rows, key) {
   return (rows || []).reduce((acc, row) => {
     const value = row?.[key];
@@ -4865,14 +4869,53 @@ async function completePackingLabel(session) {
   if (allPacked) await releaseWmsBag(session.bag_id);
 }
 
+async function packingStationSnapshotForLabel(labelCode) {
+  const normalizedLabel = normalizedScanCode(labelCode);
+  const { data: sessions, error } = await requireSupabase()
+    .from("wms_packing_sessions")
+    .select("bag_code")
+    .ilike("carrier_label_code", normalizedLabel)
+    .neq("stato", "completata")
+    .order("updated_at", { ascending: false })
+    .limit(1);
+  if (error) fail(error.message);
+  const bagCode = sessions?.[0]?.bag_code;
+  if (!bagCode) fail("Etichetta corriere non trovata o gia acquisita", 404);
+  return packingStationSnapshot(bagCode);
+}
+
+async function completePackingStationLabel(snapshot, code) {
+  const normalizedCode = normalizedScanCode(code);
+  const matchingSession = snapshot.data.sessions.find((session) => (
+    session.stato === "in_attesa_etichetta"
+    && normalizedScanCode(session.carrier_label_code) === normalizedCode
+  ));
+  if (!matchingSession) fail("Etichetta non prevista per questa bag oppure gia acquisita");
+  await completePackingLabel(matchingSession);
+  const sessions = snapshot.data.sessions.map((session) => session.id === matchingSession.id
+    ? { ...session, stato: "completata", carrier_label_scanned_at: nowIso() }
+    : session);
+  if (sessions.every((session) => session.stato === "completata")) {
+    return ok({
+      ...snapshot.data,
+      sessions,
+      labels: snapshot.data.labels.map((label) => label.session_id === matchingSession.id ? { ...label, scanned: true } : label),
+      summary: { ...snapshot.data.summary, completed: sessions.length },
+      phase: "completed",
+    });
+  }
+  return packingStationSnapshot(snapshot.data.bag_code);
+}
+
 async function scanWmsPackingStation(payload = {}) {
   await assertWmsStaff();
-  const code = String(payload.codice || payload.code || "").trim().toUpperCase();
-  const activeBagCode = String(payload.bag_code || "").trim().toUpperCase();
+  const code = normalizedScanCode(payload.codice || payload.code);
+  const activeBagCode = normalizedScanCode(payload.bag_code);
   if (!code) fail("Scansiona una bag o un'etichetta");
 
   if (!activeBagCode) {
     if (normalizedText(code) === normalizedText("CARRELLO-01")) return packingCartSnapshot();
+    if (code.startsWith("PK-")) return completePackingStationLabel(await packingStationSnapshotForLabel(code), code);
     if (!/^B-[0-9]{5}$/.test(code)) fail("Scansiona prima il barcode della bag");
     const snapshot = await packingStationSnapshot(code);
     if (snapshot.data.phase === "completed") fail("Questa bag e gia stata completata");
@@ -4888,7 +4931,13 @@ async function scanWmsPackingStation(payload = {}) {
     return packingStationSnapshot(code);
   }
 
-  const snapshot = await packingStationSnapshot(activeBagCode);
+  let snapshot;
+  try {
+    snapshot = await packingStationSnapshot(activeBagCode);
+  } catch (error) {
+    if (!code.startsWith("PK-")) throw error;
+    snapshot = await packingStationSnapshotForLabel(code);
+  }
   if (code === activeBagCode) {
     const awaitingDoubleCheck = snapshot.data.sessions.filter((session) => session.stato === "in_verifica_bag");
     if (!awaitingDoubleCheck.length) fail("Questa bag non richiede una seconda scansione");
@@ -4906,25 +4955,7 @@ async function scanWmsPackingStation(payload = {}) {
     return packingStationSnapshot(activeBagCode);
   }
 
-  const matchingSession = snapshot.data.sessions.find((session) => (
-    session.stato === "in_attesa_etichetta"
-    && normalizedText(session.carrier_label_code) === normalizedText(code)
-  ));
-  if (!matchingSession) fail("Etichetta non prevista per questa bag oppure gia acquisita");
-  await completePackingLabel(matchingSession);
-  const sessions = snapshot.data.sessions.map((session) => session.id === matchingSession.id
-    ? { ...session, stato: "completata", carrier_label_scanned_at: nowIso() }
-    : session);
-  if (sessions.every((session) => session.stato === "completata")) {
-    return ok({
-      ...snapshot.data,
-      sessions,
-      labels: snapshot.data.labels.map((label) => label.session_id === matchingSession.id ? { ...label, scanned: true } : label),
-      summary: { ...snapshot.data.summary, completed: sessions.length },
-      phase: "completed",
-    });
-  }
-  return packingStationSnapshot(activeBagCode);
+  return completePackingStationLabel(snapshot, code);
 }
 
 async function wmsPackingCarrierLabelsPdf(bagCode) {
