@@ -4397,31 +4397,62 @@ async function resetGalluseAiDemo() {
     })), { onConflict: "posizione" });
   if (cartError) fail(cartError.message);
 
-  const referenceCodes = Array.from({ length: 13 }, (_, index) => `GALLUSE-PACK-${String(index + 1).padStart(3, "0")}`);
+  const referenceCatalog = [
+    "Piatti piani bianchi",
+    "Piatti fondi cucina",
+    "Bicchieri acqua trasparenti",
+    "Bicchieri vino calice",
+    "Tazze caffe ceramica",
+    "Set posate acciaio",
+    "Tovaglioli cotone",
+    "Padella antiaderente",
+    "Pentola acciaio",
+    "Scolapasta cucina",
+    "Tagliere legno",
+    "Barattoli vetro",
+    "Strofinacci cucina",
+  ].map((titolo, index) => ({
+    cliente_id: demoClient.id,
+    titolo,
+    ean: `CASA-EAN-${String(index + 1).padStart(3, "0")}`,
+    sku: `CASA-SKU-${String(index + 1).padStart(3, "0")}`,
+    fnsku: `CASA-FNSKU-${String(index + 1).padStart(3, "0")}`,
+    origine: "wms-galluse-casa",
+  }));
+  const referenceCodes = referenceCatalog.map((reference) => reference.fnsku);
   let { data: references, error: referencesError } = await requireSupabase()
     .from("referenze")
     .select("id,titolo,ean,fnsku,sku")
     .eq("cliente_id", demoClient.id)
     .in("fnsku", referenceCodes);
   if (referencesError) fail(referencesError.message);
-  const missingReferenceIndexes = referenceCodes
-    .map((code, index) => ({ code, index }))
-    .filter((item) => !(references || []).some((reference) => reference.fnsku === item.code));
-  if (missingReferenceIndexes.length) {
-    const { data: createdReferences, error: createReferencesError } = await requireSupabase()
+  const existingByFnsku = new Map((references || []).map((reference) => [reference.fnsku, reference]));
+  const referenceUpdates = referenceCatalog
+    .filter((reference) => existingByFnsku.has(reference.fnsku))
+    .map((reference) => requireSupabase()
       .from("referenze")
-      .insert(missingReferenceIndexes.map(({ index }) => ({
-        cliente_id: demoClient.id,
-        titolo: `Packing test prodotto ${String(index + 1).padStart(2, "0")}`,
-        ean: `GALLUSE-PACK-EAN-${String(index + 1).padStart(3, "0")}`,
-        sku: `GALLUSE-PACK-SKU-${String(index + 1).padStart(3, "0")}`,
-        fnsku: `GALLUSE-PACK-${String(index + 1).padStart(3, "0")}`,
-        origine: "wms-galluse-demo",
-      })))
-      .select("id,titolo,ean,fnsku,sku");
-    if (createReferencesError) fail(createReferencesError.message);
-    references = [...(references || []), ...(createdReferences || [])];
-  }
+      .update({
+        titolo: reference.titolo,
+        ean: reference.ean,
+        sku: reference.sku,
+        origine: reference.origine,
+      })
+      .eq("id", existingByFnsku.get(reference.fnsku).id));
+  const referenceInserts = referenceCatalog.filter((reference) => !existingByFnsku.has(reference.fnsku));
+  const referenceResults = await Promise.all([
+    ...referenceUpdates,
+    referenceInserts.length
+      ? requireSupabase().from("referenze").insert(referenceInserts)
+      : Promise.resolve({ error: null }),
+  ]);
+  const referenceError = referenceResults.find((result) => result.error)?.error;
+  if (referenceError) fail(referenceError.message);
+  ({ data: references, error: referencesError } = await requireSupabase()
+    .from("referenze")
+    .select("id,titolo,ean,fnsku,sku")
+    .eq("cliente_id", demoClient.id)
+    .in("fnsku", referenceCodes));
+  if (referencesError) fail(referencesError.message);
   const referencesByNumber = Object.fromEntries((references || []).map((reference) => [
     Number(String(reference.fnsku || "").match(/(\d+)$/)?.[1] || 0),
     reference,
