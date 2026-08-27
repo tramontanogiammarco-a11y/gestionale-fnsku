@@ -4324,6 +4324,7 @@ async function resetGalluseAiDemo() {
     demoClient = createdClient;
   }
 
+  const cartBagCodes = Array.from({ length: 10 }, (_, index) => `B-${String(73846 + index).padStart(5, "0")}`);
   const { data: demoOrders, error: demoOrdersError } = await requireSupabase()
     .from("shopify_orders")
     .select("id")
@@ -4331,11 +4332,19 @@ async function resetGalluseAiDemo() {
   if (demoOrdersError) fail(demoOrdersError.message);
   const demoOrderIds = (demoOrders || []).map((order) => order.id);
 
-  const [{ data: galluseBatches, error: galluseBatchesError }, { data: massBatches, error: massBatchesError }] = await Promise.all([
+  const [
+    { data: galluseBatches, error: galluseBatchesError },
+    { data: massBatchesByClient, error: massBatchesByClientError },
+    { data: massBatchesByBag, error: massBatchesByBagError },
+  ] = await Promise.all([
     requireSupabase().from("wms_galluse_batches").select("id").eq("cliente_id", demoClient.id),
-    requireSupabase().from("wms_mass_pick_batches").select("bag_id").eq("cliente_id", demoClient.id),
+    requireSupabase().from("wms_mass_pick_batches").select("id,bag_id").eq("cliente_id", demoClient.id),
+    requireSupabase().from("wms_mass_pick_batches").select("id,bag_id").in("bag_code", cartBagCodes),
   ]);
-  if (galluseBatchesError || massBatchesError) fail((galluseBatchesError || massBatchesError).message);
+  if (galluseBatchesError || massBatchesByClientError || massBatchesByBagError) {
+    fail((galluseBatchesError || massBatchesByClientError || massBatchesByBagError).message);
+  }
+  const massBatches = [...new Map([...(massBatchesByClient || []), ...(massBatchesByBag || [])].map((batch) => [batch.id, batch])).values()];
   const galluseBatchIds = (galluseBatches || []).map((batch) => batch.id);
   const { data: galluseLinks, error: galluseLinksError } = galluseBatchIds.length
     ? await requireSupabase().from("wms_galluse_orders").select("bag_id").in("batch_id", galluseBatchIds).not("bag_id", "is", null)
@@ -4348,8 +4357,10 @@ async function resetGalluseAiDemo() {
 
   const cleanupSteps = [];
   if (bagIds.length) cleanupSteps.push(requireSupabase().from("wms_bags").update({ stato: "disponibile", updated_at: nowIso() }).in("id", bagIds));
+  cleanupSteps.push(requireSupabase().from("wms_packing_sessions").delete().in("bag_code", cartBagCodes));
   cleanupSteps.push(requireSupabase().from("wms_outbound_movements").delete().eq("cliente_id", demoClient.id));
   cleanupSteps.push(requireSupabase().from("wms_stock_transfers").delete().eq("cliente_id", demoClient.id));
+  cleanupSteps.push(requireSupabase().from("wms_mass_pick_batches").delete().in("bag_code", cartBagCodes));
   cleanupSteps.push(requireSupabase().from("wms_mass_pick_batches").delete().eq("cliente_id", demoClient.id));
   cleanupSteps.push(requireSupabase().from("wms_galluse_batches").delete().eq("cliente_id", demoClient.id));
   if (demoOrderIds.length) cleanupSteps.push(requireSupabase().from("shopify_orders").delete().in("id", demoOrderIds));
@@ -4359,7 +4370,6 @@ async function resetGalluseAiDemo() {
     if (error) fail(error.message);
   }
 
-  const cartBagCodes = Array.from({ length: 10 }, (_, index) => `B-${String(73846 + index).padStart(5, "0")}`);
   const { data: existingBags, error: existingBagsError } = await requireSupabase()
     .from("wms_bags")
     .select("id,codice")
@@ -4387,7 +4397,7 @@ async function resetGalluseAiDemo() {
     })), { onConflict: "posizione" });
   if (cartError) fail(cartError.message);
 
-  const referenceCodes = Array.from({ length: 14 }, (_, index) => `GALLUSE-PACK-${String(index + 1).padStart(3, "0")}`);
+  const referenceCodes = Array.from({ length: 13 }, (_, index) => `GALLUSE-PACK-${String(index + 1).padStart(3, "0")}`);
   let { data: references, error: referencesError } = await requireSupabase()
     .from("referenze")
     .select("id,titolo,ean,fnsku,sku")
@@ -4416,7 +4426,7 @@ async function resetGalluseAiDemo() {
     Number(String(reference.fnsku || "").match(/(\d+)$/)?.[1] || 0),
     reference,
   ]));
-  if (Object.keys(referencesByNumber).length < 14) fail("Non sono disponibili tutte le 14 referenze demo.", 409);
+  if (Object.keys(referencesByNumber).length < 13) fail("Non sono disponibili tutte le 13 referenze demo.", 409);
 
   const [{ data: locations, error: locationsError }, { data: movements, error: movementsError }] = await Promise.all([
     requireSupabase().from("wms_locations").select("id,codice,tipo,stato").eq("tipo", "slot").eq("stato", "attiva"),
@@ -4427,20 +4437,20 @@ async function resetGalluseAiDemo() {
   const targetSlots = (locations || [])
     .filter((location) => !occupiedLocationIds.has(location.id))
     .sort(naturalLocationSort)
-    .slice(0, 14);
-  if (targetSlots.length < 14) fail("Servono 14 slot liberi per creare la prova packing.", 409);
+    .slice(0, 13);
+  if (targetSlots.length < 13) fail("Servono 13 slot liberi per creare la prova packing.", 409);
 
   const { data: entry, error: entryError } = await requireSupabase().from("entrate").insert({
     cliente_id: demoClient.id,
     tipo: "pallet",
-    colli: 14,
+    colli: 13,
     ddt: "WMS-GALLUSE-PACK-022",
     corriere: "Demo",
     tracking: "WMS-GALLUSE-PACK-022",
     stato: "ricevuto",
     data_annuncio: nowIso(),
     data_ricezione: nowIso(),
-    note: "Fixture packing: 10 ordini, 14 referenze, 22 pezzi totali",
+    note: "Fixture packing: 10 ordini, 13 referenze, 22 pezzi totali",
   }).select().single();
   if (entryError || !entry) fail(entryError?.message || "Entrata demo packing non creata");
 
@@ -4485,9 +4495,9 @@ async function resetGalluseAiDemo() {
     [{ ref: 9, qty: 1 }, { ref: 10, qty: 1 }],
     [{ ref: 11, qty: 2 }, { ref: 12, qty: 1 }],
     [{ ref: 13, qty: 1 }],
-    [{ ref: 14, qty: 2 }],
-    [{ ref: 1, qty: 2 }, { ref: 5, qty: 1 }],
-    [{ ref: 9, qty: 1 }],
+    [{ ref: 1, qty: 1 }, { ref: 5, qty: 1 }],
+    [{ ref: 2, qty: 1 }, { ref: 8, qty: 1 }],
+    [{ ref: 9, qty: 1 }, { ref: 13, qty: 1 }],
   ];
   const createdOrderIds = [];
   const now = Date.now();
@@ -4502,7 +4512,7 @@ async function resetGalluseAiDemo() {
       fulfillment_status: null,
       wms_status: "da_preparare",
       processed_at: new Date(now - index * 1000).toISOString(),
-      raw: { source: "wms_galluse_demo", scenario: "packing-22", cart_position: orderNumber, reference_total: 14, units_total: 22 },
+      raw: { source: "wms_galluse_demo", scenario: "packing-22", cart_position: orderNumber, reference_total: 13, units_total: 22 },
     }).select().single();
     if (orderInsertError || !order) fail(orderInsertError?.message || "Ordine demo packing non creato");
     createdOrderIds.push(order.id);
@@ -4530,7 +4540,7 @@ async function resetGalluseAiDemo() {
     cliente: demoClient.ragione_sociale,
     cart: "CARRELLO-01",
     bags: cartBagCodes,
-    referenze: 14,
+    referenze: 13,
     pezzi: orderPlan.flat().reduce((sum, row) => sum + row.qty, 0),
     slots: targetSlots.map((slot) => slot.codice),
     scenario: "packing-22",
