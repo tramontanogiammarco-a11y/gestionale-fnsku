@@ -4324,19 +4324,12 @@ async function resetGalluseAiDemo() {
     demoClient = createdClient;
   }
 
-  const demoDomains = ["wms-galluse-demo.aimago.local", "wms-mass-demo.aimago.local", "wms-route-demo.aimago.local"];
-  const demoSources = ["wms_galluse_demo", "wms_mass_demo", "wms_route_demo"];
-  const orderLookups = await Promise.all([
-    requireSupabase().from("shopify_orders").select("id").eq("cliente_id", demoClient.id).in("shop_domain", demoDomains),
-    ...demoSources.map((source) => requireSupabase()
-      .from("shopify_orders")
-      .select("id")
-      .eq("cliente_id", demoClient.id)
-      .contains("raw", { source })),
-  ]);
-  const lookupError = orderLookups.find((result) => result.error)?.error;
-  if (lookupError) fail(lookupError.message);
-  const demoOrderIds = [...new Set(orderLookups.flatMap((result) => (result.data || []).map((order) => order.id)))];
+  const { data: demoOrders, error: demoOrdersError } = await requireSupabase()
+    .from("shopify_orders")
+    .select("id")
+    .eq("cliente_id", demoClient.id);
+  if (demoOrdersError) fail(demoOrdersError.message);
+  const demoOrderIds = (demoOrders || []).map((order) => order.id);
 
   const [{ data: galluseBatches, error: galluseBatchesError }, { data: massBatches, error: massBatchesError }] = await Promise.all([
     requireSupabase().from("wms_galluse_batches").select("id").eq("cliente_id", demoClient.id),
@@ -4353,18 +4346,18 @@ async function resetGalluseAiDemo() {
     ...(massBatches || []).map((batch) => batch.bag_id),
   ].filter(Boolean))];
 
-  const cleanupSteps = [
-    requireSupabase().from("wms_outbound_movements").delete().eq("cliente_id", demoClient.id),
-    requireSupabase().from("wms_stock_transfers").delete().eq("cliente_id", demoClient.id),
-    requireSupabase().from("wms_mass_pick_batches").delete().eq("cliente_id", demoClient.id),
-    requireSupabase().from("wms_galluse_batches").delete().eq("cliente_id", demoClient.id),
-    requireSupabase().from("entrate").delete().eq("cliente_id", demoClient.id),
-  ];
-  if (demoOrderIds.length) cleanupSteps.push(requireSupabase().from("shopify_orders").delete().in("id", demoOrderIds));
+  const cleanupSteps = [];
   if (bagIds.length) cleanupSteps.push(requireSupabase().from("wms_bags").update({ stato: "disponibile", updated_at: nowIso() }).in("id", bagIds));
-  const cleanupResults = await Promise.all(cleanupSteps);
-  const cleanupError = cleanupResults.find((result) => result.error)?.error;
-  if (cleanupError) fail(cleanupError.message);
+  cleanupSteps.push(requireSupabase().from("wms_outbound_movements").delete().eq("cliente_id", demoClient.id));
+  cleanupSteps.push(requireSupabase().from("wms_stock_transfers").delete().eq("cliente_id", demoClient.id));
+  cleanupSteps.push(requireSupabase().from("wms_mass_pick_batches").delete().eq("cliente_id", demoClient.id));
+  cleanupSteps.push(requireSupabase().from("wms_galluse_batches").delete().eq("cliente_id", demoClient.id));
+  if (demoOrderIds.length) cleanupSteps.push(requireSupabase().from("shopify_orders").delete().in("id", demoOrderIds));
+  cleanupSteps.push(requireSupabase().from("entrate").delete().eq("cliente_id", demoClient.id));
+  for (const step of cleanupSteps) {
+    const { error } = await step;
+    if (error) fail(error.message);
+  }
 
   const cartBagCodes = Array.from({ length: 10 }, (_, index) => `B-${String(73846 + index).padStart(5, "0")}`);
   const { data: existingBags, error: existingBagsError } = await requireSupabase()
