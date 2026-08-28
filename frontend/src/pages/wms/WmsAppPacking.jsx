@@ -4,6 +4,11 @@ import { toast } from "sonner";
 import { api, fileUrl } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 
+function cartIsComplete(snapshot) {
+  const bags = snapshot?.cart_bags || [];
+  return snapshot?.phase === "cart_ready" && bags.length > 0 && bags.every((bag) => bag.completed);
+}
+
 export default function WmsAppPacking() {
   const scannerRef = useRef(null);
   const [station, setStation] = useState(null);
@@ -28,6 +33,12 @@ export default function WmsAppPacking() {
       cart_code: "CARRELLO-01",
     });
     const next = response.data;
+    if (cartIsComplete(next)) {
+      setCart(null);
+      setStation(null);
+      setCode("");
+      return next;
+    }
     setCart({ cart_code: next.cart_code, bags: next.cart_bags || [] });
     setStation(next);
     setCode("");
@@ -88,6 +99,14 @@ export default function WmsAppPacking() {
         cart_code: cart?.cart_code || station?.cart_code || null,
       });
       const next = response.data;
+      if (cartIsComplete(next)) {
+        setCart(null);
+        setStation(null);
+        setCode("");
+        if (navigator.vibrate) navigator.vibrate([55, 35, 55]);
+        toast.success("Carrello completato. Scansiona un nuovo carrello o una bag.");
+        return;
+      }
       if (next.phase === "cart_ready") setCart({ cart_code: next.cart_code, bags: next.cart_bags || [] });
       setStation(next);
       setCode("");
@@ -119,7 +138,7 @@ export default function WmsAppPacking() {
         ? "Bag liberata"
         : phase === "cart_ready"
           ? "Scansiona una bag del carrello"
-          : "Scansiona una bag pronta";
+          : "Scansiona un carrello o una bag";
 
   return <div className="mx-auto max-w-5xl space-y-5 pb-24" data-testid="wms-packing-station">
     <header>
