@@ -22,7 +22,7 @@ export default function WmsAppTools() {
   ];
   const resetHomeStock = async () => {
     if (resettingStock) return;
-    const confirmed = window.confirm("Azzero tutte le scorte WMS di slot e pallet e carico 50 referenze casa?");
+    const confirmed = window.confirm("Azzero tutte le scorte WMS e carico 50 prodotti casa: 30 pezzi nel 50% degli slot S1 e 100 pezzi nei pallet P1 sparsi?");
     if (!confirmed) return;
     try {
       setResettingStock(true);
@@ -46,7 +46,7 @@ export default function WmsAppTools() {
           <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-amber-100 text-amber-900"><DatabaseZap className="h-7 w-7" strokeWidth={1.7} /></span>
           <span className="min-w-0 flex-1">
             <strong className="text-lg text-amber-950">{resettingStock ? "Reset stock in corso" : "Reset stock casa"}</strong>
-            <span className="mt-1 block text-sm text-amber-900">Azzera slot e pallet, poi carica 50 referenze casa: 30 pezzi in slot e 100 in pallet.</span>
+            <span className="mt-1 block text-sm text-amber-900">Azzera tutto, poi carica 50 prodotti: 30 pezzi in 50 slot S1 e lo stesso prodotto con 100 pezzi in 50 pallet P1 sparsi.</span>
           </span>
           <ChevronRight className="h-5 w-5 shrink-0 text-amber-700" />
         </button>

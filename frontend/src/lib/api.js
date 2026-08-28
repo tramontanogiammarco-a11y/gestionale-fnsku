@@ -1211,56 +1211,56 @@ async function riceviEntrata(id, payload = {}) {
 const WMS_INBOUND_DISPOSITIONS = ["disponibile", "danneggiato", "quarantena"];
 const EMPTY_UUID = "00000000-0000-0000-0000-000000000000";
 const HOME_STOCK_REFERENCE_NAMES = [
-  "Piatti piani ceramica bianca",
-  "Piatti fondi porcellana",
-  "Piatti dessert set 6 pezzi",
+  "Cucchiaini acciaio inox",
+  "Cucchiai tavola inox",
+  "Forchette tavola inox",
+  "Coltelli tavola inox",
+  "Bottiglie vetro acqua",
+  "Bottiglia termica inox",
   "Bicchieri acqua vetro",
-  "Calici vino trasparenti",
+  "Calici vino vetro",
+  "Piatti piani ceramica",
+  "Piatti fondi ceramica",
+  "Piattini dessert ceramica",
   "Tazze caffe espresso",
-  "Tazze colazione ceramica",
-  "Set posate acciaio inox",
-  "Coltelli cucina inox",
+  "Tazze colazione",
+  "Ciotole cereali",
+  "Pentola acciaio",
+  "Padella antiaderente",
+  "Coperchio vetro",
   "Tagliere bambu",
-  "Padella antiaderente 28 cm",
-  "Pentola acciaio inox",
-  "Casseruola con coperchio",
-  "Scolapasta inox",
-  "Mestoli cucina silicone",
-  "Frusta cucina acciaio",
-  "Pelapatate inox",
-  "Apriscatole manuale",
-  "Barattoli vetro ermetici",
-  "Contenitori alimentari",
-  "Bottiglia olio vetro",
-  "Organizer spezie cucina",
+  "Mestolo silicone",
+  "Spatola cucina",
+  "Barattoli vetro",
+  "Contenitori ermetici",
   "Portaposate cassetto",
-  "Tovaglioli cotone",
-  "Strofinacci cucina",
-  "Canovacci microfibra",
-  "Spugne piatti antigraffio",
-  "Detersivo piatti concentrato",
-  "Sacchetti freezer richiudibili",
-  "Rotoli alluminio cucina",
-  "Pellicola trasparente cucina",
-  "Carta forno antiaderente",
-  "Cestino bagno",
-  "Portasapone ceramica",
-  "Dispenser sapone liquido",
-  "Asciugamani viso cotone",
-  "Tappeto bagno antiscivolo",
-  "Scopino WC con supporto",
-  "Portarotolo carta igienica",
+  "Strofinacci cotone",
+  "Spugne cucina",
+  "Detersivo piatti",
+  "Carta forno",
+  "Pellicola alimentare",
+  "Sacchetti freezer",
+  "Rotolo alluminio",
+  "Asciugamani viso",
+  "Tappeto bagno",
+  "Dispenser sapone",
+  "Portasapone",
+  "Scopino bagno",
+  "Portarotolo carta",
   "Organizer doccia",
-  "Appendini guardaroba",
-  "Scatole armadio tessuto",
-  "Ceste bucato pieghevoli",
-  "Molle bucato acciaio",
-  "Stendino balcone",
-  "Panni microfibra multiuso",
-  "Secchio mop con strizzatore",
-  "Spruzzino detergente vuoto",
-  "Lampadine LED E27",
-  "Multipresa elettrica sicurezza",
+  "Cesto bucato",
+  "Grucce appendiabiti",
+  "Scatole armadio",
+  "Panni microfibra",
+  "Mop pavimenti",
+  "Secchio pulizia",
+  "Spruzzino vuoto",
+  "Guanti pulizia",
+  "Lampadine LED",
+  "Multipresa elettrica",
+  "Prolunga elettrica",
+  "Batterie AA",
+  "Nastro adesivo imballo",
 ];
 
 async function assertWmsStaff() {
@@ -1285,6 +1285,12 @@ function shuffledLocations(locations = [], seed = "", count = 0) {
       || naturalLocationSort(left, right)
     ))
     .slice(0, count);
+}
+
+function isLocationCodeInAisleRange(location, prefix) {
+  const match = String(location?.codice || "").match(/^([SP]1)\+A(\d+)$/);
+  const number = Number(match?.[2] || 0);
+  return match?.[1] === prefix && Number.isInteger(number) && number >= 1 && number <= 100;
 }
 
 async function deleteAllFromTable(tableName) {
@@ -4638,8 +4644,10 @@ async function resetWmsHomeStockCatalog() {
     requireSupabase().from("wms_locations").select("id,codice,tipo,stato").eq("tipo", "pallet").eq("stato", "attiva"),
   ]);
   if (slotsError || palletsError) fail((slotsError || palletsError).message);
-  if ((slots || []).length < 50) fail("Servono almeno 50 slot attivi per creare il catalogo casa.", 409);
-  if ((pallets || []).length < 50) fail("Servono almeno 50 pallet attivi per creare l'overstock casa.", 409);
+  const eligibleSlots = (slots || []).filter((location) => isLocationCodeInAisleRange(location, "S1"));
+  const eligiblePallets = (pallets || []).filter((location) => isLocationCodeInAisleRange(location, "P1"));
+  if (eligibleSlots.length < 50) fail("Servono almeno 50 slot attivi tra S1+A1 e S1+A100.", 409);
+  if (eligiblePallets.length < 50) fail("Servono almeno 50 pallet attivi tra P1+A1 e P1+A100.", 409);
 
   const stockCleanupTables = [
     "wms_outbound_movements",
@@ -4752,7 +4760,7 @@ async function resetWmsHomeStockCatalog() {
       stato: "ricevuto",
       data_annuncio: receivedAt,
       data_ricezione: receivedAt,
-      note: "Stock iniziale casa: 50 referenze, 30 pezzi in slot e 100 pezzi in overstock pallet",
+      note: "Stock iniziale casa: 50 referenze in S1+A1..100 e overstock in P1+A1..100",
     })
     .select()
     .single();
@@ -4766,7 +4774,7 @@ async function resetWmsHomeStockCatalog() {
       operatore_id: profile.id,
       started_at: receivedAt,
       completed_at: receivedAt,
-      note: "Seed stock casa: slot + overstock pallet",
+      note: "Seed stock casa: 30 pezzi slot + 100 pezzi overstock pallet",
     })
     .select()
     .single();
@@ -4789,8 +4797,8 @@ async function resetWmsHomeStockCatalog() {
   if (entryRowsError) fail(entryRowsError.message);
   const entryRowsByFnsku = new Map((entryRows || []).map((row) => [row.fnsku, row]));
 
-  const targetSlots = shuffledLocations(slots || [], "home-slot-20260828", 50);
-  const targetPallets = shuffledLocations(pallets || [], "home-pallet-20260828", 50);
+  const targetSlots = shuffledLocations(eligibleSlots, "home-slot-20260828", 50);
+  const targetPallets = shuffledLocations(eligiblePallets, "home-pallet-20260828", 50);
   const movements = referenceCatalog.flatMap((catalogItem, index) => {
     const row = entryRowsByFnsku.get(catalogItem.fnsku);
     if (!row) fail(`Riga entrata mancante per ${catalogItem.fnsku}`, 409);
