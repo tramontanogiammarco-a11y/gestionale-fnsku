@@ -4412,7 +4412,7 @@ async function cancelWmsGallusePicking(batchId) {
 }
 
 async function resetGalluseAiDemo() {
-  const profile = await assertWmsStaff();
+  await assertWmsStaff();
   let { data: demoClient, error: clientError } = await requireSupabase()
     .from("clienti")
     .select("id,ragione_sociale")
@@ -4468,12 +4468,10 @@ async function resetGalluseAiDemo() {
   if (bagIds.length) cleanupSteps.push(requireSupabase().from("wms_bags").update({ stato: "disponibile", updated_at: nowIso() }).in("id", bagIds));
   cleanupSteps.push(requireSupabase().from("wms_packing_sessions").delete().in("bag_code", cartBagCodes));
   cleanupSteps.push(requireSupabase().from("wms_outbound_movements").delete().eq("cliente_id", demoClient.id));
-  cleanupSteps.push(requireSupabase().from("wms_stock_transfers").delete().eq("cliente_id", demoClient.id));
   cleanupSteps.push(requireSupabase().from("wms_mass_pick_batches").delete().in("bag_code", cartBagCodes));
   cleanupSteps.push(requireSupabase().from("wms_mass_pick_batches").delete().eq("cliente_id", demoClient.id));
   cleanupSteps.push(requireSupabase().from("wms_galluse_batches").delete().eq("cliente_id", demoClient.id));
   if (demoOrderIds.length) cleanupSteps.push(requireSupabase().from("shopify_orders").delete().in("id", demoOrderIds));
-  cleanupSteps.push(requireSupabase().from("entrate").delete().eq("cliente_id", demoClient.id));
   for (const step of cleanupSteps) {
     const { error } = await step;
     if (error) fail(error.message);
@@ -4506,27 +4504,13 @@ async function resetGalluseAiDemo() {
     })), { onConflict: "posizione" });
   if (cartError) fail(cartError.message);
 
-  const referenceCatalog = [
-    "Piatti piani bianchi",
-    "Piatti fondi cucina",
-    "Bicchieri acqua trasparenti",
-    "Bicchieri vino calice",
-    "Tazze caffe ceramica",
-    "Set posate acciaio",
-    "Tovaglioli cotone",
-    "Padella antiaderente",
-    "Pentola acciaio",
-    "Scolapasta cucina",
-    "Tagliere legno",
-    "Barattoli vetro",
-    "Strofinacci cucina",
-  ].map((titolo, index) => ({
+  const referenceCatalog = HOME_STOCK_REFERENCE_NAMES.slice(0, 7).map((titolo, index) => ({
     cliente_id: demoClient.id,
     titolo,
-    ean: `CASA-EAN-${String(index + 1).padStart(3, "0")}`,
-    sku: `CASA-SKU-${String(index + 1).padStart(3, "0")}`,
-    fnsku: `CASA-FNSKU-${String(index + 1).padStart(3, "0")}`,
-    origine: "wms-galluse-casa",
+    ean: `HOME-EAN-${String(index + 1).padStart(3, "0")}`,
+    sku: `HOME-SKU-${String(index + 1).padStart(3, "0")}`,
+    fnsku: `HOME-FNSKU-${String(index + 1).padStart(3, "0")}`,
+    origine: "wms-home-stock",
   }));
   const referenceCodes = referenceCatalog.map((reference) => reference.fnsku);
   let { data: references, error: referencesError } = await requireSupabase()
@@ -4566,78 +4550,19 @@ async function resetGalluseAiDemo() {
     Number(String(reference.fnsku || "").match(/(\d+)$/)?.[1] || 0),
     reference,
   ]));
-  if (Object.keys(referencesByNumber).length < 13) fail("Non sono disponibili tutte le 13 referenze demo.", 409);
-
-  const [{ data: locations, error: locationsError }, { data: movements, error: movementsError }] = await Promise.all([
-    requireSupabase().from("wms_locations").select("id,codice,tipo,stato").eq("tipo", "slot").eq("stato", "attiva"),
-    requireSupabase().from("wms_inbound_movements").select("location_id").eq("disposizione", "disponibile"),
-  ]);
-  if (locationsError || movementsError) fail((locationsError || movementsError).message);
-  const occupiedLocationIds = new Set((movements || []).map((movement) => movement.location_id).filter(Boolean));
-  const freeSlots = (locations || [])
-    .filter((location) => !occupiedLocationIds.has(location.id))
-    .sort(naturalLocationSort);
-  const targetSlots = spreadLocations(freeSlots, 13);
-  if (targetSlots.length < 13) fail("Servono 13 slot liberi per creare la prova packing.", 409);
-
-  const { data: entry, error: entryError } = await requireSupabase().from("entrate").insert({
-    cliente_id: demoClient.id,
-    tipo: "pallet",
-    colli: 13,
-    ddt: "WMS-GALLUSE-PACK-022",
-    corriere: "Demo",
-    tracking: "WMS-GALLUSE-PACK-022",
-    stato: "ricevuto",
-    data_annuncio: nowIso(),
-    data_ricezione: nowIso(),
-    note: "Fixture packing sparpagliata: 10 ordini, 13 referenze, 22 pezzi totali",
-  }).select().single();
-  if (entryError || !entry) fail(entryError?.message || "Entrata demo packing non creata");
-
-  const { data: session, error: sessionError } = await requireSupabase().from("wms_inbound_sessions").insert({
-    entrata_id: entry.id,
-    stato: "completata",
-    operatore_id: profile.id,
-    started_at: nowIso(),
-    completed_at: nowIso(),
-    note: "Stock fixture packing 22 pezzi",
-  }).select().single();
-  if (sessionError || !session) fail(sessionError?.message || "Sessione stock demo non creata");
-
-  const entryRowsPayload = referenceCodes.map((code) => {
-    const reference = referencesByNumber[Number(code.match(/(\d+)$/)?.[1] || 0)];
-    return {
-      entrata_id: entry.id,
-      ean: reference.ean,
-      fnsku: reference.fnsku,
-      quantita: 30,
-      quantita_ricevuta: 30,
-    };
-  });
-  const { data: entryRows, error: entryRowsError } = await requireSupabase().from("entrate_righe").insert(entryRowsPayload).select("id,fnsku");
-  if (entryRowsError) fail(entryRowsError.message);
-  const { error: movementsInsertError } = await requireSupabase().from("wms_inbound_movements").insert((entryRows || []).map((row, index) => ({
-    session_id: session.id,
-    entrata_riga_id: row.id,
-    location_id: targetSlots[index].id,
-    disposizione: "disponibile",
-    quantita: 30,
-    codice_scansionato: targetSlots[index].codice,
-    created_by: profile.id,
-  })));
-  if (movementsInsertError) fail(movementsInsertError.message);
+  if (Object.keys(referencesByNumber).length < 7) fail("Non sono disponibili tutte le 7 referenze demo.", 409);
 
   const orderPlan = [
     [{ ref: 1, qty: 2 }, { ref: 2, qty: 1 }],
     [{ ref: 3, qty: 1 }, { ref: 4, qty: 1 }],
-    [{ ref: 5, qty: 1 }, { ref: 6, qty: 1 }, { ref: 7, qty: 1 }],
-    [{ ref: 8, qty: 2 }],
-    [{ ref: 9, qty: 1 }, { ref: 10, qty: 1 }],
-    [{ ref: 11, qty: 2 }, { ref: 12, qty: 1 }],
-    [{ ref: 13, qty: 1 }],
-    [{ ref: 1, qty: 1 }, { ref: 5, qty: 1 }],
-    [{ ref: 2, qty: 1 }, { ref: 8, qty: 1 }],
-    [{ ref: 9, qty: 1 }, { ref: 13, qty: 1 }],
+    [{ ref: 5, qty: 1 }, { ref: 6, qty: 1 }],
+    [{ ref: 7, qty: 2 }],
+    [{ ref: 1, qty: 1 }, { ref: 3, qty: 1 }],
+    [{ ref: 2, qty: 2 }],
+    [{ ref: 4, qty: 1 }],
+    [{ ref: 5, qty: 2 }],
+    [{ ref: 6, qty: 1 }, { ref: 7, qty: 1 }],
+    [{ ref: 1, qty: 1 }],
   ];
   const createdOrderIds = [];
   const now = Date.now();
@@ -4646,13 +4571,13 @@ async function resetGalluseAiDemo() {
     const { data: order, error: orderInsertError } = await requireSupabase().from("shopify_orders").insert({
       cliente_id: demoClient.id,
       shop_domain: "wms-galluse-demo.aimago.local",
-      shopify_order_id: `WMS-GALLUSE-PACK-${String(orderNumber).padStart(3, "0")}`,
-      order_name: `#PACK-${String(orderNumber).padStart(3, "0")}`,
+      shopify_order_id: `WMS-GALLUSE-7REF-${String(orderNumber).padStart(3, "0")}`,
+      order_name: `#GALLUSE-7R-${String(orderNumber).padStart(3, "0")}`,
       financial_status: "paid",
       fulfillment_status: null,
       wms_status: "da_preparare",
       processed_at: new Date(now - index * 1000).toISOString(),
-      raw: { source: "wms_galluse_demo", scenario: "packing-22", cart_position: orderNumber, reference_total: 13, units_total: 22 },
+      raw: { source: "wms_galluse_demo", scenario: "galluse-7ref-19", cart_position: orderNumber, reference_total: 7, units_total: 19 },
     }).select().single();
     if (orderInsertError || !order) fail(orderInsertError?.message || "Ordine demo packing non creato");
     createdOrderIds.push(order.id);
@@ -4661,7 +4586,7 @@ async function resetGalluseAiDemo() {
       const reference = referencesByNumber[row.ref];
       return {
         order_id: order.id,
-        shopify_line_item_id: `WMS-GALLUSE-PACK-${String(orderNumber).padStart(3, "0")}-R${String(row.ref).padStart(3, "0")}`,
+        shopify_line_item_id: `WMS-GALLUSE-7REF-${String(orderNumber).padStart(3, "0")}-R${String(row.ref).padStart(3, "0")}`,
         referenza_id: reference.id,
         sku: reference.sku,
         ean: reference.ean,
@@ -4669,7 +4594,7 @@ async function resetGalluseAiDemo() {
         quantita: row.qty,
         fulfillable_quantity: row.qty,
         fulfillment_status: null,
-        raw: { source: "wms_galluse_demo", scenario: "packing-22", reference_number: row.ref },
+        raw: { source: "wms_galluse_demo", scenario: "galluse-7ref-19", reference_number: row.ref },
       };
     }));
     if (itemsError) fail(itemsError.message);
@@ -4680,10 +4605,9 @@ async function resetGalluseAiDemo() {
     cliente: demoClient.ragione_sociale,
     cart: "CARRELLO-01",
     bags: cartBagCodes,
-    referenze: 13,
+    referenze: 7,
     pezzi: orderPlan.flat().reduce((sum, row) => sum + row.qty, 0),
-    slots: targetSlots.map((slot) => slot.codice),
-    scenario: "packing-22",
+    scenario: "galluse-7ref-19",
   });
 }
 
