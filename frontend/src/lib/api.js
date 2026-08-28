@@ -1209,11 +1209,90 @@ async function riceviEntrata(id, payload = {}) {
 }
 
 const WMS_INBOUND_DISPOSITIONS = ["disponibile", "danneggiato", "quarantena"];
+const EMPTY_UUID = "00000000-0000-0000-0000-000000000000";
+const HOME_STOCK_REFERENCE_NAMES = [
+  "Piatti piani ceramica bianca",
+  "Piatti fondi porcellana",
+  "Piatti dessert set 6 pezzi",
+  "Bicchieri acqua vetro",
+  "Calici vino trasparenti",
+  "Tazze caffe espresso",
+  "Tazze colazione ceramica",
+  "Set posate acciaio inox",
+  "Coltelli cucina inox",
+  "Tagliere bambu",
+  "Padella antiaderente 28 cm",
+  "Pentola acciaio inox",
+  "Casseruola con coperchio",
+  "Scolapasta inox",
+  "Mestoli cucina silicone",
+  "Frusta cucina acciaio",
+  "Pelapatate inox",
+  "Apriscatole manuale",
+  "Barattoli vetro ermetici",
+  "Contenitori alimentari",
+  "Bottiglia olio vetro",
+  "Organizer spezie cucina",
+  "Portaposate cassetto",
+  "Tovaglioli cotone",
+  "Strofinacci cucina",
+  "Canovacci microfibra",
+  "Spugne piatti antigraffio",
+  "Detersivo piatti concentrato",
+  "Sacchetti freezer richiudibili",
+  "Rotoli alluminio cucina",
+  "Pellicola trasparente cucina",
+  "Carta forno antiaderente",
+  "Cestino bagno",
+  "Portasapone ceramica",
+  "Dispenser sapone liquido",
+  "Asciugamani viso cotone",
+  "Tappeto bagno antiscivolo",
+  "Scopino WC con supporto",
+  "Portarotolo carta igienica",
+  "Organizer doccia",
+  "Appendini guardaroba",
+  "Scatole armadio tessuto",
+  "Ceste bucato pieghevoli",
+  "Molle bucato acciaio",
+  "Stendino balcone",
+  "Panni microfibra multiuso",
+  "Secchio mop con strizzatore",
+  "Spruzzino detergente vuoto",
+  "Lampadine LED E27",
+  "Multipresa elettrica sicurezza",
+];
 
 async function assertWmsStaff() {
   const profile = await currentProfile();
   if (!isStaff(profile)) fail("Accesso riservato agli operatori di magazzino", 403);
   return profile;
+}
+
+function stableHash(value) {
+  let hash = 0;
+  const text = String(value || "");
+  for (let index = 0; index < text.length; index += 1) {
+    hash = ((hash << 5) - hash + text.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+function shuffledLocations(locations = [], seed = "", count = 0) {
+  return [...locations]
+    .sort((left, right) => (
+      stableHash(`${left?.codice}:${seed}`) - stableHash(`${right?.codice}:${seed}`)
+      || naturalLocationSort(left, right)
+    ))
+    .slice(0, count);
+}
+
+async function deleteAllFromTable(tableName) {
+  const { error } = await requireSupabase()
+    .from(tableName)
+    .delete()
+    .neq("id", EMPTY_UUID);
+  if (error) fail(error.message);
 }
 
 async function wmsInboundRecords(entrataId) {
@@ -4608,6 +4687,229 @@ async function resetGalluseAiDemo() {
   });
 }
 
+async function resetWmsHomeStockCatalog() {
+  const profile = await assertWmsStaff();
+  let { data: demoClient, error: clientError } = await requireSupabase()
+    .from("clienti")
+    .select("id,ragione_sociale")
+    .eq("ragione_sociale", "WMS Demo Picking")
+    .maybeSingle();
+  if (clientError) fail(clientError.message);
+  if (!demoClient) {
+    const { data: createdClient, error: createClientError } = await requireSupabase()
+      .from("clienti")
+      .insert({
+        ragione_sociale: "WMS Demo Picking",
+        email: "wms-demo-picking@aimago.local",
+        note: "Cliente tecnico per test WMS picking, packing e stock",
+      })
+      .select("id,ragione_sociale")
+      .single();
+    if (createClientError || !createdClient) fail(createClientError?.message || "Cliente demo WMS non creato");
+    demoClient = createdClient;
+  }
+
+  const [{ data: slots, error: slotsError }, { data: pallets, error: palletsError }] = await Promise.all([
+    requireSupabase().from("wms_locations").select("id,codice,tipo,stato").eq("tipo", "slot").eq("stato", "attiva"),
+    requireSupabase().from("wms_locations").select("id,codice,tipo,stato").eq("tipo", "pallet").eq("stato", "attiva"),
+  ]);
+  if (slotsError || palletsError) fail((slotsError || palletsError).message);
+  if ((slots || []).length < 50) fail("Servono almeno 50 slot attivi per creare il catalogo casa.", 409);
+  if ((pallets || []).length < 50) fail("Servono almeno 50 pallet attivi per creare l'overstock casa.", 409);
+
+  const stockCleanupTables = [
+    "wms_outbound_movements",
+    "wms_stock_transfers",
+    "wms_inventory_counts",
+    "wms_inventory_sessions",
+    "wms_inbound_movements",
+    "wms_inbound_sessions",
+  ];
+  for (const tableName of stockCleanupTables) {
+    await deleteAllFromTable(tableName);
+  }
+
+  const { error: rowsResetError } = await requireSupabase()
+    .from("entrate_righe")
+    .update({ quantita_ricevuta: 0 })
+    .neq("id", EMPTY_UUID);
+  if (rowsResetError) fail(rowsResetError.message);
+
+  const { error: oldHomeEntriesError } = await requireSupabase()
+    .from("entrate")
+    .delete()
+    .eq("cliente_id", demoClient.id)
+    .eq("ddt", "WMS-HOME-STOCK-6500");
+  if (oldHomeEntriesError) fail(oldHomeEntriesError.message);
+
+  const referenceCatalog = HOME_STOCK_REFERENCE_NAMES.map((titolo, index) => ({
+    cliente_id: demoClient.id,
+    titolo,
+    ean: `HOME-EAN-${String(index + 1).padStart(3, "0")}`,
+    sku: `HOME-SKU-${String(index + 1).padStart(3, "0")}`,
+    fnsku: `HOME-FNSKU-${String(index + 1).padStart(3, "0")}`,
+    origine: "wms-home-stock",
+    is_bundle: false,
+    componenti: [],
+  }));
+  const referenceEans = referenceCatalog.map((reference) => reference.ean);
+  const referenceFnskus = referenceCatalog.map((reference) => reference.fnsku);
+  const [
+    { data: existingByEan, error: existingByEanError },
+    { data: existingByFnsku, error: existingByFnskuError },
+  ] = await Promise.all([
+    requireSupabase()
+      .from("referenze")
+      .select("id,ean,fnsku")
+      .eq("cliente_id", demoClient.id)
+      .in("ean", referenceEans),
+    requireSupabase()
+      .from("referenze")
+      .select("id,ean,fnsku")
+      .eq("cliente_id", demoClient.id)
+      .in("fnsku", referenceFnskus),
+  ]);
+  if (existingByEanError || existingByFnskuError) fail((existingByEanError || existingByFnskuError).message);
+  const existingReferences = [...new Map([...(existingByEan || []), ...(existingByFnsku || [])].map((reference) => [reference.id, reference])).values()];
+  const existingByCode = new Map();
+  existingReferences.forEach((reference) => {
+    if (reference.ean) existingByCode.set(`ean:${reference.ean}`, reference);
+    if (reference.fnsku) existingByCode.set(`fnsku:${reference.fnsku}`, reference);
+  });
+  const referenceUpdates = [];
+  const referenceInserts = [];
+  referenceCatalog.forEach((reference) => {
+    const existing = existingByCode.get(`fnsku:${reference.fnsku}`) || existingByCode.get(`ean:${reference.ean}`);
+    if (existing) {
+      referenceUpdates.push(requireSupabase()
+        .from("referenze")
+        .update({
+          titolo: reference.titolo,
+          ean: reference.ean,
+          sku: reference.sku,
+          fnsku: reference.fnsku,
+          origine: reference.origine,
+          is_bundle: false,
+          componenti: [],
+        })
+        .eq("id", existing.id));
+    } else {
+      referenceInserts.push(reference);
+    }
+  });
+  const referenceResults = await Promise.all([
+    ...referenceUpdates,
+    referenceInserts.length
+      ? requireSupabase().from("referenze").insert(referenceInserts)
+      : Promise.resolve({ error: null }),
+  ]);
+  const referenceError = referenceResults.find((result) => result.error)?.error;
+  if (referenceError) fail(referenceError.message);
+
+  const { data: references, error: referencesError } = await requireSupabase()
+    .from("referenze")
+    .select("id,titolo,ean,fnsku,sku")
+    .eq("cliente_id", demoClient.id)
+    .in("fnsku", referenceFnskus);
+  if (referencesError) fail(referencesError.message);
+  const referencesByFnsku = new Map((references || []).map((reference) => [reference.fnsku, reference]));
+  if ((references || []).length < 50) fail("Non sono disponibili tutte le 50 referenze casa.", 409);
+
+  const receivedAt = nowIso();
+  const { data: entry, error: entryError } = await requireSupabase()
+    .from("entrate")
+    .insert({
+      cliente_id: demoClient.id,
+      tipo: "pallet",
+      colli: 50,
+      ddt: "WMS-HOME-STOCK-6500",
+      corriere: "Seed WMS",
+      tracking: "WMS-HOME-STOCK-6500",
+      stato: "ricevuto",
+      data_annuncio: receivedAt,
+      data_ricezione: receivedAt,
+      note: "Stock iniziale casa: 50 referenze, 30 pezzi in slot e 100 pezzi in overstock pallet",
+    })
+    .select()
+    .single();
+  if (entryError || !entry) fail(entryError?.message || "Entrata stock casa non creata");
+
+  const { data: session, error: sessionError } = await requireSupabase()
+    .from("wms_inbound_sessions")
+    .insert({
+      entrata_id: entry.id,
+      stato: "completata",
+      operatore_id: profile.id,
+      started_at: receivedAt,
+      completed_at: receivedAt,
+      note: "Seed stock casa: slot + overstock pallet",
+    })
+    .select()
+    .single();
+  if (sessionError || !session) fail(sessionError?.message || "Sessione stock casa non creata");
+
+  const entryRowsPayload = referenceCatalog.map((catalogItem) => {
+    const reference = referencesByFnsku.get(catalogItem.fnsku);
+    return {
+      entrata_id: entry.id,
+      ean: reference.ean,
+      fnsku: reference.fnsku,
+      quantita: 130,
+      quantita_ricevuta: 130,
+    };
+  });
+  const { data: entryRows, error: entryRowsError } = await requireSupabase()
+    .from("entrate_righe")
+    .insert(entryRowsPayload)
+    .select("id,fnsku");
+  if (entryRowsError) fail(entryRowsError.message);
+  const entryRowsByFnsku = new Map((entryRows || []).map((row) => [row.fnsku, row]));
+
+  const targetSlots = shuffledLocations(slots || [], "home-slot-20260828", 50);
+  const targetPallets = shuffledLocations(pallets || [], "home-pallet-20260828", 50);
+  const movements = referenceCatalog.flatMap((catalogItem, index) => {
+    const row = entryRowsByFnsku.get(catalogItem.fnsku);
+    if (!row) fail(`Riga entrata mancante per ${catalogItem.fnsku}`, 409);
+    return [
+      {
+        session_id: session.id,
+        entrata_riga_id: row.id,
+        location_id: targetSlots[index].id,
+        disposizione: "disponibile",
+        quantita: 30,
+        codice_scansionato: targetSlots[index].codice,
+        created_by: profile.id,
+      },
+      {
+        session_id: session.id,
+        entrata_riga_id: row.id,
+        location_id: targetPallets[index].id,
+        disposizione: "disponibile",
+        quantita: 100,
+        codice_scansionato: targetPallets[index].codice,
+        created_by: profile.id,
+      },
+    ];
+  });
+  const { error: movementsInsertError } = await requireSupabase()
+    .from("wms_inbound_movements")
+    .insert(movements);
+  if (movementsInsertError) fail(movementsInsertError.message);
+
+  return ok({
+    ok: true,
+    cliente: demoClient.ragione_sociale,
+    referenze: referenceCatalog.length,
+    slot: targetSlots.length,
+    pallet: targetPallets.length,
+    pezzi_slot: targetSlots.length * 30,
+    pezzi_overstock: targetPallets.length * 100,
+    pezzi_totali: targetSlots.length * 30 + targetPallets.length * 100,
+    slot_codici: targetSlots.map((slot) => slot.codice),
+    pallet_codici: targetPallets.map((pallet) => pallet.codice),
+  });
+}
+
 async function startWmsPicking(orderId) {
   const profile = await assertWmsStaff();
   const { data: galluseLink, error: galluseLinkError } = await requireSupabase()
@@ -6068,6 +6370,7 @@ export const api = {
     if (path === "/wms/stock/sposta") return moveWmsStockQuantity(payload);
     if (path === "/wms/stock/pallet-slot") return moveWmsPalletToSlot(payload);
     if (path === "/wms/stock/scambia") return swapWmsLocations(payload);
+    if (path === "/wms/stock/home-catalog-reset") return resetWmsHomeStockCatalog();
     if (path === "/wms/picking-massivo/avvia") return startWmsMassPicking(payload);
     if (path.match(/^\/wms\/picking-massivo\/[^/]+\/scan$/)) return scanWmsMassPicking(path.split("/")[3], payload);
     if (path === "/wms/picking-galluse/avvia") return startWmsGallusePicking(payload);
