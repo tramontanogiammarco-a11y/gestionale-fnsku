@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   Archive, ChevronRight, DatabaseZap, MapPinned, PackageSearch, Printer,
-  QrCode, ScanLine, SlidersHorizontal,
+  QrCode, ScanLine, ShoppingBag, SlidersHorizontal,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -11,7 +11,9 @@ export default function WmsAppTools() {
   const navigate = useNavigate();
   const location = useLocation();
   const [resettingStock, setResettingStock] = useState(false);
+  const [emptyingBags, setEmptyingBags] = useState(false);
   const showStockReset = new URLSearchParams(location.search).get("stock") === "home";
+  const showBagEmpty = new URLSearchParams(location.search).get("bags") === "empty";
   const tools = [
     { icon: Printer, title: "Codici stampabili", subtitle: "Etichette e codici di magazzino", action: () => toast.info("Stampe: prossimo collegamento operativo") },
     { icon: MapPinned, title: "Ubicazioni magazzino", subtitle: "Pallet e slot censiti", action: () => navigate("/wms-app/ubicazioni") },
@@ -35,6 +37,21 @@ export default function WmsAppTools() {
       setResettingStock(false);
     }
   };
+  const emptyBags = async () => {
+    if (emptyingBags) return;
+    const confirmed = window.confirm("Svuoto tutte le bag: elimino il contenuto operativo e le rendo disponibili?");
+    if (!confirmed) return;
+    try {
+      setEmptyingBags(true);
+      const response = await api.post("/wms/bags/svuota", {});
+      toast.success(`Bag svuotate: ${response.data.packing_sessions} sessioni packing rimosse.`);
+      navigate("/packing-station");
+    } catch (error) {
+      toast.error(error.response?.data?.detail || error.message || "Svuotamento bag non riuscito");
+    } finally {
+      setEmptyingBags(false);
+    }
+  };
   return (
     <div className="space-y-5" data-testid="wms-app-tools">
       <header className="flex items-start justify-between gap-4">
@@ -49,6 +66,16 @@ export default function WmsAppTools() {
             <span className="mt-1 block text-sm text-amber-900">Azzera tutto, poi carica 50 prodotti: 30 pezzi in 50 slot S1 e lo stesso prodotto con 100 pezzi in 50 pallet P1 sparsi.</span>
           </span>
           <ChevronRight className="h-5 w-5 shrink-0 text-amber-700" />
+        </button>
+      )}
+      {showBagEmpty && (
+        <button type="button" onClick={emptyBags} disabled={emptyingBags} className="flex min-h-28 w-full items-center gap-4 rounded-md border border-rose-300 bg-rose-50 p-4 text-left shadow-sm transition hover:border-rose-500 disabled:cursor-wait disabled:opacity-70">
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-rose-100 text-rose-900"><ShoppingBag className="h-7 w-7" strokeWidth={1.7} /></span>
+          <span className="min-w-0 flex-1">
+            <strong className="text-lg text-rose-950">{emptyingBags ? "Svuotamento bag in corso" : "Svuota tutte le bag"}</strong>
+            <span className="mt-1 block text-sm text-rose-900">Libera tutte le bag e cancella il lavoro operativo collegato a picking e packing.</span>
+          </span>
+          <ChevronRight className="h-5 w-5 shrink-0 text-rose-700" />
         </button>
       )}
       <div className="space-y-3">

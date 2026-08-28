@@ -3864,6 +3864,88 @@ async function listWmsBags() {
   return ok(data || []);
 }
 
+async function emptyAllWmsBags() {
+  await assertWmsStaff();
+  const sb = requireSupabase();
+  const resetAt = nowIso();
+  const [
+    { data: packingSessions, error: packingError },
+    { data: pickTasks, error: pickError },
+    { data: massBatches, error: massError },
+    { data: galluseOrders, error: galluseError },
+  ] = await Promise.all([
+    sb.from("wms_packing_sessions").select("id,order_id,bag_id,bag_code,pick_task_id,mass_batch_id").or("bag_code.not.is.null,bag_id.not.is.null"),
+    sb.from("wms_pick_tasks").select("id,order_id,bag_id,bag_code").or("bag_code.not.is.null,bag_id.not.is.null"),
+    sb.from("wms_mass_pick_batches").select("id,bag_id,bag_code").or("bag_code.not.is.null,bag_id.not.is.null"),
+    sb.from("wms_galluse_orders").select("id,batch_id,order_id,bag_id,bag_code").or("bag_code.not.is.null,bag_id.not.is.null"),
+  ]);
+  if (packingError || pickError || massError || galluseError) {
+    fail((packingError || pickError || massError || galluseError).message);
+  }
+
+  const packingSessionIds = [...new Set((packingSessions || []).map((session) => session.id).filter(Boolean))];
+  const pickTaskIds = [...new Set([
+    ...(pickTasks || []).map((task) => task.id),
+    ...(packingSessions || []).map((session) => session.pick_task_id),
+  ].filter(Boolean))];
+  const massBatchIds = [...new Set([
+    ...(massBatches || []).map((batch) => batch.id),
+    ...(packingSessions || []).map((session) => session.mass_batch_id),
+  ].filter(Boolean))];
+  const galluseBatchIds = [...new Set((galluseOrders || []).map((link) => link.batch_id).filter(Boolean))];
+
+  const { data: massOrders, error: massOrdersError } = massBatchIds.length
+    ? await sb.from("wms_mass_pick_orders").select("order_id").in("batch_id", massBatchIds)
+    : { data: [], error: null };
+  if (massOrdersError) fail(massOrdersError.message);
+
+  const linkedOrderIds = [...new Set([
+    ...(packingSessions || []).map((session) => session.order_id),
+    ...(pickTasks || []).map((task) => task.order_id),
+    ...(massOrders || []).map((link) => link.order_id),
+    ...(galluseOrders || []).map((link) => link.order_id),
+  ].filter(Boolean))];
+  const { data: linkedOrders, error: linkedOrdersError } = linkedOrderIds.length
+    ? await sb.from("shopify_orders").select("id,wms_status").in("id", linkedOrderIds)
+    : { data: [], error: null };
+  if (linkedOrdersError) fail(linkedOrdersError.message);
+  const resettableOrderIds = (linkedOrders || [])
+    .filter((order) => !["pronto", "spedito", "annullato"].includes(order.wms_status))
+    .map((order) => order.id);
+
+  const steps = [
+    packingSessionIds.length
+      ? sb.from("wms_packing_sessions").delete().in("id", packingSessionIds)
+      : Promise.resolve({ error: null }),
+    massBatchIds.length
+      ? sb.from("wms_mass_pick_batches").delete().in("id", massBatchIds)
+      : Promise.resolve({ error: null }),
+    galluseBatchIds.length
+      ? sb.from("wms_galluse_batches").delete().in("id", galluseBatchIds)
+      : Promise.resolve({ error: null }),
+    pickTaskIds.length
+      ? sb.from("wms_pick_tasks").delete().in("id", pickTaskIds)
+      : Promise.resolve({ error: null }),
+    resettableOrderIds.length
+      ? sb.from("shopify_orders").update({ wms_status: "da_preparare", updated_at: resetAt }).in("id", resettableOrderIds)
+      : Promise.resolve({ error: null }),
+    sb.from("wms_bags").update({ stato: "disponibile", updated_at: resetAt }).neq("id", EMPTY_UUID),
+  ];
+  for (const step of steps) {
+    const { error } = await step;
+    if (error) fail(error.message);
+  }
+
+  return ok({
+    bags_cleared: true,
+    packing_sessions: packingSessionIds.length,
+    picking_tasks: pickTaskIds.length,
+    mass_batches: massBatchIds.length,
+    galluse_batches: galluseBatchIds.length,
+    orders_reset: resettableOrderIds.length,
+  });
+}
+
 async function listWmsBagHistory() {
   const profile = await assertWmsStaff();
   const [{ data: tasks, error: tasksError }, { data: batches, error: batchesError }] = await Promise.all([
@@ -6303,6 +6385,7 @@ export const api = {
     if (path === "/wms/stock/pallet-slot") return moveWmsPalletToSlot(payload);
     if (path === "/wms/stock/scambia") return swapWmsLocations(payload);
     if (path === "/wms/stock/home-catalog-reset") return resetWmsHomeStockCatalog();
+    if (path === "/wms/bags/svuota") return emptyAllWmsBags();
     if (path === "/wms/picking-massivo/avvia") return startWmsMassPicking(payload);
     if (path.match(/^\/wms\/picking-massivo\/[^/]+\/scan$/)) return scanWmsMassPicking(path.split("/")[3], payload);
     if (path === "/wms/picking-galluse/avvia") return startWmsGallusePicking(payload);
