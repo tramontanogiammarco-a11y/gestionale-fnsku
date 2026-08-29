@@ -114,6 +114,7 @@ function buildScannerContext(lines, current, remaining, summary) {
   return {
     location: current.location?.codice,
     title: current.titolo,
+    imageUrl: current.foto_url ? fileUrl(current.foto_url) : null,
     requested: remaining,
     completedLines,
     totalLines: groups.size,

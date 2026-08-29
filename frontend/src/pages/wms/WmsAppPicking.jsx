@@ -151,6 +151,7 @@ export default function WmsAppPicking() {
   const scannerContext = needsLocation && current ? {
     location: current.location?.codice,
     title: current.titolo,
+    imageUrl: current.foto_url ? fileUrl(current.foto_url) : null,
     requested: remaining,
     completedLines: (data.lines || []).filter((line) => Number(line.quantita_prelevata || 0) >= Number(line.quantita_attesa || 0)).length,
     totalLines: (data.lines || []).length,
