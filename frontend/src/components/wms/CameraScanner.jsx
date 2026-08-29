@@ -96,7 +96,14 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
             <img src={context.imageUrl} alt={context.title || "Prodotto da prelevare"} className="h-52 w-full object-contain" />
             <figcaption className="mt-1 truncate text-center text-xs font-bold text-slate-700">{context.title}</figcaption>
           </figure>}
-          <div className="pointer-events-none absolute inset-x-[12%] bottom-[10%] z-10 h-24 rounded-md border-2 border-white shadow-[0_0_0_999px_rgba(0,0,0,0.28)]" />
+          {!context?.locationConfirmed && <div className="pointer-events-none absolute inset-x-[12%] bottom-[10%] z-10 h-24 rounded-md border-2 border-white shadow-[0_0_0_999px_rgba(0,0,0,0.28)]" />}
+          {context?.locationConfirmed && context?.quantityControls && <div className="absolute inset-x-3 bottom-3 z-30 rounded-md border border-slate-200 bg-white p-3 shadow-xl">
+            <div className="grid grid-cols-3 gap-2">
+              {[1, 5, 10].map((amount) => <Button key={amount} type="button" variant="outline" className="h-12 text-lg font-black" onClick={() => context.quantityControls.onAdd(amount)} disabled={context.quantityControls.working || context.quantityControls.value >= context.quantityControls.remaining}>+{amount}</Button>)}
+            </div>
+            <div className="mt-2 flex items-center justify-between text-sm font-black"><span>Pezzi selezionati</span><span>{context.quantityControls.value}/{context.quantityControls.remaining}</span></div>
+            <Button type="button" className="mt-2 h-12 w-full font-black" onClick={context.quantityControls.onConfirm} disabled={context.quantityControls.working || context.quantityControls.value !== context.quantityControls.remaining}>Conferma {context.quantityControls.remaining} pezzi</Button>
+          </div>}
           {starting && <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 text-white"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Avvio fotocamera</div>}
           {!starting && !previewReady && !error && <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 p-6"><Button type="button" variant="secondary" onClick={() => videoElement?.play().catch(() => setError("Il browser ha bloccato l'anteprima. Chiudi e riapri la fotocamera."))}>Avvia anteprima</Button></div>}
         </div>
