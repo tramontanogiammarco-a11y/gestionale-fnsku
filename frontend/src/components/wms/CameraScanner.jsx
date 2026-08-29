@@ -92,8 +92,8 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
         </section>}
         <div className="relative aspect-[4/5] max-h-[62dvh] overflow-hidden rounded-md bg-slate-950">
           <video ref={setVideoElement} className="h-full w-full object-cover" autoPlay muted playsInline onPlaying={() => { setPreviewReady(true); setStarting(false); }} />
-          {context?.imageUrl && <figure className="pointer-events-none absolute left-1/2 top-[9%] z-20 w-[70%] -translate-x-1/2 overflow-hidden rounded-md border-2 border-white bg-white p-2 shadow-lg">
-            <img src={context.imageUrl} alt={context.title || "Prodotto da prelevare"} className="h-36 w-full object-contain" />
+          {context?.imageUrl && <figure className="pointer-events-none absolute left-1/2 top-[4%] z-20 w-[88%] -translate-x-1/2 overflow-hidden rounded-md border-2 border-white bg-white p-2 shadow-lg">
+            <img src={context.imageUrl} alt={context.title || "Prodotto da prelevare"} className="h-52 w-full object-contain" />
             <figcaption className="mt-1 truncate text-center text-xs font-bold text-slate-700">{context.title}</figcaption>
           </figure>}
           <div className="pointer-events-none absolute inset-x-[12%] bottom-[10%] z-10 h-24 rounded-md border-2 border-white shadow-[0_0_0_999px_rgba(0,0,0,0.28)]" />
