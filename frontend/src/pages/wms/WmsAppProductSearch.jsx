@@ -42,11 +42,9 @@ export default function WmsAppProductSearch() {
   if (!stock) return <div className="flex min-h-[65dvh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-teal-700" /></div>;
 
   return (
-    <div className="space-y-5" data-testid="wms-product-search">
-      <header>
-        <p className="text-xs font-extrabold uppercase text-teal-700">Ricerca magazzino</p>
-        <h1 className="mt-1 text-3xl font-black">Cerca prodotto</h1>
-        <p className="mt-2 text-sm text-slate-500">Trova quantità e ubicazioni tramite SKU, EAN, FNSKU o cliente.</p>
+    <div className="wms-page" data-testid="wms-product-search">
+      <header className="wms-page-header">
+        <div><p className="wms-eyebrow">Ricerca magazzino</p><h1 className="wms-title">Cerca prodotto</h1><p className="wms-subtitle">Trova quantità e ubicazioni tramite SKU, EAN o FNSKU.</p></div>
       </header>
 
       <section className="space-y-3 rounded-md border border-slate-200 bg-white p-4 shadow-sm">

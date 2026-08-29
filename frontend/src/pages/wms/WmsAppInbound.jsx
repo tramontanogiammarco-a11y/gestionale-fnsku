@@ -286,7 +286,7 @@ export default function WmsAppInbound() {
 
   const entry = data.entrata;
   return (
-    <div className="space-y-6 pb-24" data-testid="wms-app-inbound">
+    <div className="wms-page pb-24" data-testid="wms-app-inbound">
       <header>
         <button type="button" onClick={() => navigate("/wms-app/arrivi")} className="mb-5 flex h-10 w-10 items-center justify-center rounded-md border border-slate-200" aria-label="Torna agli inbound">
           <ArrowLeft className="h-5 w-5" />

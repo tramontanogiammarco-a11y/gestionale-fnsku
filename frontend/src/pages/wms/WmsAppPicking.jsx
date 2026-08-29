@@ -160,7 +160,7 @@ export default function WmsAppPicking() {
   } : null;
 
   return (
-    <div className="space-y-5 pb-24" data-testid="wms-picking-mission">
+    <div className="wms-page pb-24" data-testid="wms-picking-mission">
       <header>
         <button type="button" onClick={() => navigate("/wms-app/ordini")} className="mb-4 flex h-10 w-10 items-center justify-center rounded-md border border-slate-200 bg-white" aria-label="Torna agli ordini"><ArrowLeft className="h-5 w-5" /></button>
         <div className="flex items-start justify-between gap-3">

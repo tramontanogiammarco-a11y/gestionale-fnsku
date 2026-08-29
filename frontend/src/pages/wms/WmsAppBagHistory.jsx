@@ -29,7 +29,7 @@ export default function WmsAppBagHistory() {
   if (!items) return <div className="flex min-h-[65dvh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-teal-700" /></div>;
 
   return (
-    <div className="space-y-5 pb-24" data-testid="wms-bag-history">
+    <div className="wms-page pb-24" data-testid="wms-bag-history">
       <header>
         <button type="button" onClick={() => navigate("/wms-app/ordini")} className="mb-4 flex h-10 w-10 items-center justify-center rounded-md border border-slate-200 bg-white" aria-label="Torna agli ordini"><ArrowLeft className="h-5 w-5" /></button>
         <div className="flex items-start gap-3"><span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-slate-950 text-white"><History className="h-6 w-6" /></span><div><p className="text-xs font-black uppercase text-teal-700">Picking personale</p><h1 className="mt-1 text-3xl font-black">Storico bag</h1><p className="mt-2 text-sm text-slate-500">Le bag che hai creato durante il picking. Il packing viene gestito dalla sua postazione.</p></div></div>

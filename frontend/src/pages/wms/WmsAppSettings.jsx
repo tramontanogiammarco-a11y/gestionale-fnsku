@@ -78,8 +78,8 @@ export default function WmsAppSettings() {
   const settings = data.settings || {};
   const summary = data.summary || {};
   return (
-    <div className="space-y-7" data-testid="wms-app-settings">
-      <header><p className="text-xs font-extrabold uppercase text-teal-700">Sistema</p><h1 className="mt-1 text-3xl font-black">Configurazione</h1><p className="mt-2 text-sm text-slate-500">Regole operative del magazzino e della stazione.</p></header>
+    <div className="wms-page" data-testid="wms-app-settings">
+      <header className="wms-page-header"><div><p className="wms-eyebrow">Sistema</p><h1 className="wms-title">Configurazione</h1><p className="wms-subtitle">Regole operative del magazzino.</p></div></header>
 
       <section>
         <h2 className="mb-3 text-sm font-bold text-slate-400">Giornata ordini</h2>

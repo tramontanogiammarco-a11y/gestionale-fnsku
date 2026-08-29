@@ -119,7 +119,7 @@ export default function WmsAppInventoryCount() {
   const progress = summary.righe ? Math.round((summary.verificate / summary.righe) * 100) : 100;
 
   return (
-    <div className="space-y-5 pb-8" data-testid="wms-app-inventory-count">
+    <div className="wms-page pb-8" data-testid="wms-app-inventory-count">
       <header>
         <button type="button" onClick={() => navigate("/wms-app/inventario")} className="mb-4 flex h-10 w-10 items-center justify-center rounded-md border border-slate-200 bg-white" aria-label="Torna agli inventari"><ArrowLeft className="h-5 w-5" /></button>
         <div className="flex items-start justify-between gap-3">

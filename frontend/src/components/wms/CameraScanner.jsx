@@ -74,7 +74,7 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[calc(100%-24px)] rounded-md p-4 sm:max-w-md">
+      <DialogContent className="wms-shell max-h-[calc(100dvh-16px)] max-w-[calc(100%-16px)] overflow-y-auto rounded-md border-slate-300 bg-[#f8faf9] p-3 sm:max-w-md sm:p-4">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
@@ -90,7 +90,7 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
             <p className="mt-2 truncate text-sm font-semibold text-slate-600">{context.title}</p>
           </div>
         </section>}
-        <div className="relative aspect-[4/5] max-h-[62dvh] overflow-hidden rounded-md bg-slate-950">
+        <div className="relative aspect-[4/5] max-h-[64dvh] overflow-hidden rounded-md bg-slate-950 shadow-inner">
           <video ref={setVideoElement} className="h-full w-full object-cover" autoPlay muted playsInline onPlaying={() => { setPreviewReady(true); setStarting(false); }} />
           {context?.imageUrl && <figure className="pointer-events-none absolute left-1/2 top-[4%] z-20 w-[88%] -translate-x-1/2 overflow-hidden rounded-md border-2 border-white bg-white p-2 shadow-lg">
             <img src={context.imageUrl} alt={context.title || "Prodotto da prelevare"} className="h-52 w-full object-contain" decoding="async" fetchPriority="high" />
@@ -108,7 +108,7 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
           {!starting && !previewReady && !error && <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 p-6"><Button type="button" variant="secondary" onClick={() => videoElement?.play().catch(() => setError("Il browser ha bloccato l'anteprima. Chiudi e riapri la fotocamera."))}>Avvia anteprima</Button></div>}
         </div>
         {error && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-        <Button type="button" variant="outline" className="h-12 w-full" onClick={() => onOpenChange(false)}>Usa inserimento manuale</Button>
+        <Button type="button" variant="outline" className="h-11 w-full bg-white" onClick={() => onOpenChange(false)}>Inserimento manuale</Button>
       </DialogContent>
     </Dialog>
   );

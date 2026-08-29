@@ -155,14 +155,12 @@ export default function WmsAppPacking() {
           ? "Scansiona una bag del carrello"
           : "Scansiona un carrello o una bag";
 
-  return <div className="mx-auto max-w-5xl space-y-5 pb-24" data-testid="wms-packing-station">
-    <header>
-      <p className="text-xs font-black uppercase text-teal-700">Outbound</p>
-      <h1 className="mt-1 text-3xl font-black">Packing station</h1>
-      <p className="mt-2 text-sm text-slate-500">Flusso scanner: bag, doppio controllo bag, etichette corriere.</p>
+  return <div className="wms-page mx-auto max-w-5xl pb-24" data-testid="wms-packing-station">
+    <header className="wms-page-header">
+      <div><p className="wms-eyebrow">Outbound</p><h1 className="wms-title">Packing station</h1><p className="wms-subtitle">La fotocamera resta attiva e guida ogni passaggio.</p></div>
     </header>
 
-    <section className={`border-2 bg-white p-5 ${phase === "completed" ? "border-emerald-500" : phase === "scan_labels" ? "border-teal-500" : "border-slate-950"}`}>
+    <section className={`rounded-md border-2 bg-white p-5 shadow-sm ${phase === "completed" ? "border-emerald-500" : phase === "scan_labels" ? "border-teal-500" : "border-slate-950"}`}>
       <div className="flex items-center gap-4">
         <span className={`flex h-14 w-14 items-center justify-center rounded-md ${phase === "completed" ? "bg-emerald-600 text-white" : "bg-slate-950 text-white"}`}>
           {phase === "completed" ? <CheckCircle2 className="h-7 w-7" /> : phase === "scan_labels" ? <Barcode className="h-7 w-7" /> : <ShoppingBag className="h-7 w-7" />}

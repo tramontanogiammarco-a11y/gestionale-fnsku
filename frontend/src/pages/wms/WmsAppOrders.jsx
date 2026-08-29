@@ -92,23 +92,23 @@ export default function WmsAppOrders() {
     }
   };
   return (
-    <div className="space-y-5" data-testid="wms-orders">
-      <header className="flex items-start justify-between gap-3">
-        <div><p className="text-xs font-extrabold uppercase text-teal-700">Flusso outbound</p><h1 className="mt-1 text-3xl font-black">Ordini</h1><p className="mt-2 text-sm text-slate-500">Giornata operativa con limite alle {settings.cutoff_time}.</p></div>
+    <div className="wms-page" data-testid="wms-orders">
+      <header className="wms-page-header">
+        <div><p className="wms-eyebrow">Flusso outbound</p><h1 className="wms-title">Ordini</h1><p className="wms-subtitle">Scegli il metodo e avvia il prossimo compito.</p></div>
         <Button type="button" size="icon" variant="outline" onClick={load} disabled={refreshing} aria-label="Aggiorna ordini">{refreshing ? <Loader2 className="h-5 w-5 animate-spin" /> : <RefreshCw className="h-5 w-5" />}</Button>
       </header>
 
-      <button type="button" onClick={() => navigate("/wms-app/configurazione?section=cutoff")} className="flex w-full items-center gap-3 rounded-md border border-teal-200 bg-teal-50 p-4 text-left text-teal-950">
-        <span className="flex h-10 w-10 items-center justify-center rounded-md bg-white"><Clock3 className="h-5 w-5 text-teal-700" /></span>
-        <span className="min-w-0 flex-1"><strong className="block">Orario limite {settings.cutoff_time}</strong><span className="mt-1 block text-xs text-teal-800">{settings.cutoff_passed ? "Limite di oggi superato: i nuovi ordini passano alla prossima giornata." : "I nuovi ordini entrano ancora nella giornata di oggi."}</span></span>
+      <button type="button" onClick={() => navigate("/wms-app/configurazione?section=cutoff")} className="flex w-full items-center gap-3 rounded-md border border-slate-200 bg-white px-4 py-3 text-left">
+        <span className={`flex h-9 w-9 items-center justify-center rounded-md ${settings.cutoff_passed ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"}`}><Clock3 className="h-5 w-5" /></span>
+        <span className="min-w-0 flex-1"><strong className="block text-sm">Limite ordini {settings.cutoff_time}</strong><span className="mt-0.5 block text-xs text-slate-500">{settings.cutoff_passed ? "I nuovi ordini passano a domani" : "Giornata ancora aperta"}</span></span>
         <Settings className="h-5 w-5" />
       </button>
 
       <section>
         <div className="mb-3"><p className="text-xs font-black uppercase text-slate-500">Modalità di preparazione</p><h2 className="mt-1 text-xl font-black">Prepara ordini</h2></div>
-        <div className="grid grid-cols-2 gap-3">
-          <button type="button" onClick={() => navigate("/wms-app/picking-massivo")} className="min-h-40 rounded-md border border-teal-200 bg-teal-50 p-4 text-left text-teal-950"><Layers3 className="h-7 w-7" /><h3 className="mt-5 text-xl font-black">Massivo</h3><p className="mt-1 text-xs text-teal-800">{activeMassOrders || availableMassOrders} ordini in un solo compito</p></button>
-          <button type="button" onClick={startGalluse} disabled={startingGalluse} className="min-h-40 rounded-md border border-slate-200 bg-white p-4 text-left disabled:opacity-60"><ShoppingCart className="h-7 w-7 text-slate-700" /><h3 className="mt-5 text-xl font-black">Metodo Galluse</h3><p className="mt-1 text-xs text-slate-500">{activeGalluse ? `Riprendi carrello fisso: ${activeGalluse.numero_bag} ordini` : nextGalluseRound ? `${nextGalluseRound.totale_ordini} ordini · ${nextGalluseRound.numero_compiti} compiti` : "Servono almeno 10 ordini"}</p></button>
+        <div className="space-y-2">
+          <button type="button" onClick={startGalluse} disabled={startingGalluse} className="wms-action-row disabled:opacity-60"><span className="wms-action-icon"><ShoppingCart className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className="block">Metodo Galluse</strong><span className="mt-1 block text-xs text-slate-500">{activeGalluse ? `Riprendi carrello · ${activeGalluse.numero_bag} ordini` : nextGalluseRound ? `${nextGalluseRound.totale_ordini} ordini · ${nextGalluseRound.numero_compiti} compiti` : "Nessun compito disponibile"}</span></span><ChevronRight className="h-5 w-5 text-slate-400" /></button>
+          <button type="button" onClick={() => navigate("/wms-app/picking-massivo")} className="wms-action-row"><span className="wms-action-icon"><Layers3 className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className="block">Massivo</strong><span className="mt-1 block text-xs text-slate-500">{activeMassOrders || availableMassOrders} ordini disponibili</span></span><ChevronRight className="h-5 w-5 text-slate-400" /></button>
         </div>
       </section>
 

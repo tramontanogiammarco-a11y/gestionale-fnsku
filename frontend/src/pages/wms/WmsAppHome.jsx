@@ -39,13 +39,13 @@ export default function WmsAppHome() {
   const openPieces = [...model.open, ...model.active].reduce((sum, entry) => sum + entryPieces(entry), 0);
 
   return (
-    <div className="space-y-6" data-testid="wms-app-home">
+    <div className="wms-page" data-testid="wms-app-home">
       <section>
-        <div className="flex items-start justify-between gap-4">
+        <div className="wms-page-header">
           <div>
-            <p className="text-sm font-semibold text-teal-700">Aimago Prep Center</p>
-            <h1 className="mt-1 text-3xl font-black">Arrivi</h1>
-            <p className="mt-2 text-sm text-slate-500">Ricezione e controllo della merce.</p>
+            <p className="wms-eyebrow">Flusso inbound</p>
+            <h1 className="wms-title">Arrivi</h1>
+            <p className="wms-subtitle">Ricevi, controlla e ubica la merce.</p>
           </div>
           <Button size="icon" variant="outline" onClick={loadEntries} aria-label="Aggiorna inbound"><RefreshCw className="h-5 w-5" /></Button>
         </div>

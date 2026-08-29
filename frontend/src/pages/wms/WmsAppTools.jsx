@@ -53,9 +53,9 @@ export default function WmsAppTools() {
     }
   };
   return (
-    <div className="space-y-5" data-testid="wms-app-tools">
-      <header className="flex items-start justify-between gap-4">
-        <div><p className="text-xs font-extrabold uppercase text-teal-700">Operativa</p><h1 className="mt-1 text-3xl font-black">Strumenti</h1></div>
+    <div className="wms-page" data-testid="wms-app-tools">
+      <header className="wms-page-header">
+        <div><p className="wms-eyebrow">Operativa</p><h1 className="wms-title">Strumenti</h1><p className="wms-subtitle">Azioni tecniche e manutenzione dati.</p></div>
         <span className="flex h-11 w-11 items-center justify-center rounded-md bg-slate-950 text-white"><SlidersHorizontal className="h-5 w-5" /></span>
       </header>
       {showStockReset && (

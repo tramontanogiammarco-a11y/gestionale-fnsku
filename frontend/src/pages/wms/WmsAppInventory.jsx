@@ -87,12 +87,12 @@ export default function WmsAppInventory() {
 
   const summary = data?.summary || {};
   return (
-    <div className="space-y-5" data-testid="wms-app-inventory">
-      <header className="flex items-start justify-between gap-3">
+    <div className="wms-page" data-testid="wms-app-inventory">
+      <header className="wms-page-header">
         <div>
-          <p className="text-xs font-extrabold uppercase text-teal-700">Controllo fisico</p>
-          <h1 className="mt-1 text-3xl font-black">Inventario</h1>
-          <p className="mt-2 text-sm text-slate-500">Conta una posizione e confrontala con lo stock atteso.</p>
+          <p className="wms-eyebrow">Controllo fisico</p>
+          <h1 className="wms-title">Inventario</h1>
+          <p className="wms-subtitle">Scansiona una posizione e verifica la quantità reale.</p>
         </div>
         <Button type="button" size="icon" variant="outline" onClick={() => load()} disabled={refreshing} aria-label="Aggiorna inventari">
           {refreshing ? <Loader2 className="h-5 w-5 animate-spin" /> : <RefreshCw className="h-5 w-5" />}

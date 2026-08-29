@@ -24,10 +24,9 @@ export default function WmsAppDashboard() {
   const currentInbound = model.active[0];
 
   return (
-    <div className="space-y-6" data-testid="wms-app-dashboard">
-      <header>
-        <p className="text-xs font-extrabold uppercase text-teal-700">Aimago Prep Center</p>
-        <h1 className="mt-1 text-3xl font-black">Cosa devi fare?</h1>
+    <div className="wms-page" data-testid="wms-app-dashboard">
+      <header className="wms-page-header">
+        <div><p className="wms-eyebrow">Turno operativo</p><h1 className="wms-title">Cosa devi fare?</h1><p className="wms-subtitle">Scegli un flusso e continua senza passaggi intermedi.</p></div>
       </header>
 
       {currentInbound && (
@@ -66,8 +65,8 @@ export default function WmsAppDashboard() {
 
 function FlowButton({ icon: Icon, title, detail, onClick }) {
   return (
-    <button type="button" onClick={onClick} className="flex min-h-24 w-full items-center gap-4 rounded-md border border-slate-200 bg-white p-4 text-left shadow-sm active:bg-slate-50">
-      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-slate-950 text-white"><Icon className="h-6 w-6" /></span>
+    <button type="button" onClick={onClick} className="wms-action-row">
+      <span className="wms-action-icon"><Icon className="h-5 w-5" /></span>
       <span className="min-w-0 flex-1"><strong className="block text-lg">{title}</strong><span className="mt-1 block text-sm text-slate-500">{detail}</span></span>
       <ArrowRight className="h-5 w-5 shrink-0 text-slate-400" />
     </button>

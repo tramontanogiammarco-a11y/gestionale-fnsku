@@ -75,7 +75,7 @@ function GalluseQueue() {
   };
 
   if (!data) return <Loading />;
-  return <div className="space-y-5 pb-24" data-testid="wms-galluse-queue">
+  return <div className="wms-page pb-24" data-testid="wms-galluse-queue">
     <header>
       <button type="button" onClick={() => navigate("/wms-app/ordini")} className="mb-4 flex h-10 w-10 items-center justify-center rounded-md border border-slate-200 bg-white" aria-label="Torna agli ordini"><ArrowLeft className="h-5 w-5" /></button>
       <p className="text-xs font-black uppercase text-teal-700">Prepara ordini</p>
@@ -206,7 +206,7 @@ function GalluseMission({ batchId }) {
     : current
       ? { location: current.location?.codice, title: current.titolo, imageUrl: current.foto_url ? fileUrl(current.foto_url) : null, requested: remaining, locationConfirmed: !needsSlot, quantityControls: { value: quantity, remaining, working, onAdd: addQuantity, onConfirm: confirmPick }, completedLines: (data.lines || []).filter((line) => Number(line.quantita_prelevata) >= Number(line.quantita_attesa)).length, totalLines: data.summary.stops, picked: data.summary.picked, expected: data.summary.expected }
       : null;
-  return <div className="space-y-5 pb-24" data-testid="wms-galluse-mission">
+  return <div className="wms-page pb-24" data-testid="wms-galluse-mission">
     <header><button type="button" onClick={() => navigate("/wms-app/picking-galluse")} className="mb-4 flex h-10 w-10 items-center justify-center rounded-md border border-slate-200 bg-white" aria-label="Torna ai carrelli"><ArrowLeft className="h-5 w-5" /></button><div className="flex items-start gap-3"><span className="flex h-12 w-12 items-center justify-center rounded-md bg-slate-950 text-white"><ShoppingBag className="h-6 w-6" /></span><div><p className="text-xs font-black uppercase text-teal-700">Metodo Galluse</p><h1 className="mt-1 text-3xl font-black">Compito Galluse · {data.summary.orders} ordini</h1><p className="mt-1 text-sm text-slate-500">Ogni bag contiene un ordine. Il giro e aggregato per slot.</p></div></div></header>
     <section className="rounded-md border border-slate-200 bg-white p-4"><div className="flex items-end justify-between"><div><span className="text-xs font-black uppercase text-slate-500">Prelevati</span><div className="mt-1 text-3xl font-black">{data.summary.picked}<span className="text-lg text-slate-400">/{data.summary.expected}</span></div></div><strong className="text-teal-700">{data.summary.progress}%</strong></div><Progress value={data.summary.progress} className="mt-3 h-2" /></section>
     {awaitingCartScan && <section className="rounded-md border border-teal-200 bg-teal-50 p-4"><p className="text-xs font-black uppercase text-teal-700">Fase 1 di 2</p><h2 className="mt-1 text-xl font-black text-teal-950">Scansiona il master del carrello</h2><p className="mt-2 text-sm text-teal-900">Il carrello {CART_MASTER_CODE} ha gia le 10 bag fisse nelle posizioni 1-10. La scansione conferma che stai usando il carrello corretto.</p><div className="mt-4 flex items-center justify-between rounded-md bg-white p-3"><span className="font-bold">Bag pronte</span><strong className="font-mono text-xl">{data.summary.orders}/10</strong></div><Button type="button" variant="outline" className="mt-3 h-12 w-full bg-white" onClick={openScanner} disabled={working}><ScanLine className="mr-2 h-5 w-5" /> Scansiona {CART_MASTER_CODE}</Button></section>}

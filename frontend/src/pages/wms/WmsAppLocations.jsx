@@ -97,9 +97,9 @@ export default function WmsAppLocations() {
 
   const summary = stock?.summary || {};
   return (
-    <div className="space-y-5" data-testid="wms-app-stock">
-      <header className="flex items-start justify-between gap-3">
-        <div><p className="text-xs font-extrabold uppercase text-teal-700">Inventario live</p><h1 className="mt-1 text-3xl font-black">Stock</h1><p className="mt-2 text-sm text-slate-500">Giacenze e ubicazioni del magazzino.</p></div>
+    <div className="wms-page" data-testid="wms-app-stock">
+      <header className="wms-page-header">
+        <div><p className="wms-eyebrow">Inventario live</p><h1 className="wms-title">Stock</h1><p className="wms-subtitle">Prodotti, pallet e slot in tempo reale.</p></div>
         <Button type="button" size="icon" variant="outline" onClick={() => load()} disabled={refreshing} aria-label="Aggiorna stock">{refreshing ? <Loader2 className="h-5 w-5 animate-spin" /> : <RefreshCw className="h-5 w-5" />}</Button>
       </header>
 
