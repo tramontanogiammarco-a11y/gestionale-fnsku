@@ -3,9 +3,9 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
 import {
-  Archive, Barcode, Boxes, ChevronRight, CircleHelp, History, PackageCheck,
-  LayoutGrid, LogOut, Menu, PackageOpen, Printer, Search, Settings,
-  ShoppingCart, SlidersHorizontal, UserRound, Warehouse,
+  Archive, Barcode, ChevronRight, CircleHelp, History, Home, PackageCheck,
+  LogOut, Menu, PackageOpen, Search, Settings, ShoppingCart,
+  SlidersHorizontal, UserRound, Warehouse,
 } from "lucide-react";
 import {
   Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle,
@@ -97,7 +97,6 @@ export default function WmsAppLayout() {
               <ChevronRight className="ml-auto h-4 w-4 rotate-90 text-slate-500" />
             </button>
             <IconButton label="Scansiona" onClick={focusScanner}><Barcode className="h-5 w-5" /></IconButton>
-            <IconButton label="Stampe" onClick={() => toast.info("Il modulo stampe sarà il prossimo collegamento operativo.")}><Printer className="h-5 w-5" /></IconButton>
             <IconButton label="Menu" onClick={() => setMenuOpen(true)}><Menu className="h-5 w-5" /></IconButton>
           </div>
         </header>
@@ -140,13 +139,8 @@ export default function WmsAppLayout() {
             </div>
           </SheetHeader>
           <nav className="flex-1 space-y-1 px-4 py-5">
-            <MenuLink icon={LayoutGrid} label="Operazioni" active={location.pathname === "/wms-app"} onClick={() => { setMenuOpen(false); navigate("/wms-app"); }} />
-            <MenuLink icon={PackageOpen} label="Arrivi" active={location.pathname.includes("/arrivi") || location.pathname.includes("/inbound/")} onClick={() => { setMenuOpen(false); navigate("/wms-app/arrivi"); }} />
-            <MenuLink icon={Warehouse} label="Ubicazioni" active={location.pathname.includes("/ubicazioni")} onClick={() => { setMenuOpen(false); navigate("/wms-app/ubicazioni"); }} />
             <MenuLink icon={Archive} label="Inventario" active={location.pathname.includes("/inventario")} onClick={() => { setMenuOpen(false); navigate("/wms-app/inventario"); }} />
-            <MenuLink icon={ShoppingCart} label="Ordini" active={location.pathname.includes("/ordini")} onClick={() => { setMenuOpen(false); navigate("/wms-app/ordini"); }} />
             <MenuLink icon={Search} label="Cerca prodotto" active={location.pathname.includes("/cerca-prodotto")} onClick={() => { setMenuOpen(false); navigate("/wms-app/cerca-prodotto"); }} />
-            <MenuLink icon={Boxes} label="Packing station" active={location.pathname.includes("/packing")} onClick={() => { setMenuOpen(false); navigate("/packing-station"); }} />
             <MenuLink icon={History} label="Storico bag" active={location.pathname.includes("/bag-storico")} onClick={() => { setMenuOpen(false); navigate("/wms-app/bag-storico"); }} />
             <MenuLink icon={SlidersHorizontal} label="Strumenti" active={location.pathname.includes("/strumenti")} onClick={() => { setMenuOpen(false); navigate("/wms-app/strumenti"); }} />
             <MenuLink icon={Settings} label="Configurazione" active={location.pathname.includes("/configurazione")} onClick={() => { setMenuOpen(false); navigate("/wms-app/configurazione"); }} />
@@ -175,10 +169,10 @@ function BottomNavigation() {
   const navigate = useNavigate();
   const location = useLocation();
   const items = [
-    { label: "Operazioni", icon: LayoutGrid, active: location.pathname === "/wms-app", action: () => navigate("/wms-app") },
+    { label: "Home", icon: Home, active: location.pathname === "/wms-app", action: () => navigate("/wms-app") },
     { label: "Arrivi", icon: PackageOpen, active: location.pathname.includes("/arrivi") || location.pathname.includes("/inbound/"), action: () => navigate("/wms-app/arrivi") },
-    { label: "Stock", icon: Warehouse, active: location.pathname.includes("/ubicazioni"), action: () => navigate("/wms-app/ubicazioni") },
-    { label: "Inventario", icon: Archive, active: location.pathname.includes("/inventario"), action: () => navigate("/wms-app/inventario") },
+    { label: "Ordini", icon: ShoppingCart, active: location.pathname.includes("/ordini") || location.pathname.includes("/picking"), action: () => navigate("/wms-app/ordini") },
+    { label: "Stock", icon: Warehouse, active: location.pathname.includes("/ubicazioni") || location.pathname.includes("/cerca-prodotto"), action: () => navigate("/wms-app/ubicazioni") },
     { label: "Packing", icon: PackageCheck, active: location.pathname.includes("/packing"), action: () => navigate("/packing-station") },
   ];
   return (

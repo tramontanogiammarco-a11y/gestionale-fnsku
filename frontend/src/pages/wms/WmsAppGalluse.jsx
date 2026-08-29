@@ -140,7 +140,7 @@ function GalluseMission({ batchId }) {
       if (!hasCurrent || completed) setCameraOpen(false);
       return undefined;
     }
-    const timer = window.setTimeout(openScanner, 100);
+    const timer = window.setTimeout(openScanner, 35);
     return () => window.clearTimeout(timer);
   }, [scannerMode, current?.id, completed, hasCurrent, openScanner]);
   useEffect(() => { setCode(""); setQuantity(0); }, [current?.id, current?.location_confirmed_at]);
@@ -175,7 +175,7 @@ function GalluseMission({ batchId }) {
       if (navigator.vibrate) navigator.vibrate(180);
       if (cameraOpen) {
         setCameraOpen(false);
-        window.setTimeout(openScanner, 120);
+        window.setTimeout(openScanner, 50);
       }
       return false;
     } finally {

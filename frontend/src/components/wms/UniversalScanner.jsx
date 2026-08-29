@@ -39,7 +39,7 @@ export default function UniversalScanner({ open, onOpenChange, clientId, onViewL
     setAction(null);
     setDraft({ quantity: "1", targetCode: "", sourceCode: "" });
     setCode("");
-    window.setTimeout(() => inputRef.current?.focus(), 120);
+    window.setTimeout(() => inputRef.current?.focus(), 35);
   }, [open]);
 
   const scan = async (rawCode) => {
@@ -124,7 +124,7 @@ export default function UniversalScanner({ open, onOpenChange, clientId, onViewL
     };
     toast.info(messages[type]);
     if (type === "swap" || type === "move" || type === "pallet") {
-      window.setTimeout(() => setCameraOpen(true), 180);
+      window.setTimeout(() => setCameraOpen(true), 50);
     }
   };
 

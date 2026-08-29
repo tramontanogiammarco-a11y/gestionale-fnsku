@@ -27,7 +27,7 @@ export default function WmsAppPacking() {
   }, []);
 
   const focusScanner = useCallback(() => {
-    window.setTimeout(() => scannerRef.current?.focus(), 50);
+    window.setTimeout(() => scannerRef.current?.focus(), 20);
   }, []);
 
   const resetStation = useCallback(() => {
@@ -73,7 +73,7 @@ export default function WmsAppPacking() {
         return;
       }
       resetStation();
-    }, 1400);
+    }, 300);
     return () => window.clearTimeout(timeout);
   }, [cart, focusScanner, refreshCart, resetStation, station]);
 
@@ -142,7 +142,7 @@ export default function WmsAppPacking() {
   const pendingLabels = station?.labels?.filter((label) => !label.scanned).length || 0;
   useEffect(() => {
     if (!autoCamera || working || phase === "completed" || cameraOpen) return undefined;
-    const timeout = window.setTimeout(openCamera, 120);
+    const timeout = window.setTimeout(openCamera, 40);
     return () => window.clearTimeout(timeout);
   }, [autoCamera, cameraOpen, openCamera, phase, station?.bag_code, completedLabels, working]);
   const prompt = phase === "double_check"

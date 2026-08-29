@@ -89,8 +89,8 @@ export default function WmsAppInbound() {
 
   useEffect(() => {
     const focus = () => {
-      if (flowStep === "location") window.setTimeout(() => locationScanRef.current?.focus(), 50);
-      else window.setTimeout(() => scanRef.current?.focus(), 50);
+      if (flowStep === "location") window.setTimeout(() => locationScanRef.current?.focus(), 25);
+      else window.setTimeout(() => scanRef.current?.focus(), 25);
     };
     window.addEventListener("wms-focus-scanner", focus);
     return () => window.removeEventListener("wms-focus-scanner", focus);
@@ -105,7 +105,7 @@ export default function WmsAppInbound() {
     setLocationCode("");
     setPendingLocationCode("");
     setFlowStep("product");
-    window.setTimeout(() => scanRef.current?.focus(), 80);
+    window.setTimeout(() => scanRef.current?.focus(), 35);
   };
 
   const start = async () => {
@@ -116,7 +116,7 @@ export default function WmsAppInbound() {
       await loadEntries();
       toast.success("Ricezione avviata");
       setFlowStep("product");
-      window.setTimeout(() => scanRef.current?.focus(), 80);
+      window.setTimeout(() => scanRef.current?.focus(), 35);
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Sessione non avviata");
     } finally {
@@ -143,7 +143,7 @@ export default function WmsAppInbound() {
     if (!row) {
       toast.error(`Codice ${String(value || "").trim() || "non valido"} non presente in questo arrivo`);
       setCode("");
-      window.setTimeout(() => scanRef.current?.focus(), 50);
+      window.setTimeout(() => scanRef.current?.focus(), 25);
       return;
     }
     selectProduct(row, String(value || "").trim());
@@ -164,7 +164,7 @@ export default function WmsAppInbound() {
     setLocationId("");
     setLocationCode("");
     setFlowStep("location");
-    window.setTimeout(() => locationScanRef.current?.focus(), 80);
+    window.setTimeout(() => locationScanRef.current?.focus(), 35);
   };
 
   const registerAtLocation = async (location) => {
@@ -184,7 +184,7 @@ export default function WmsAppInbound() {
       resetFlow();
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Ricezione non registrata");
-      window.setTimeout(() => locationScanRef.current?.select(), 50);
+      window.setTimeout(() => locationScanRef.current?.select(), 25);
     } finally {
       setWorking(false);
     }

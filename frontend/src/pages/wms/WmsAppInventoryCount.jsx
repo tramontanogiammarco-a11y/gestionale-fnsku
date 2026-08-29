@@ -50,7 +50,7 @@ export default function WmsAppInventoryCount() {
       setCode("");
       if (navigator.vibrate) navigator.vibrate(60);
       if (successMessage) toast.success(successMessage);
-      window.setTimeout(() => scanRef.current?.focus(), 80);
+      window.setTimeout(() => scanRef.current?.focus(), 35);
       return true;
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Conteggio non registrato");

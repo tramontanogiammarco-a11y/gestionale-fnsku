@@ -37,7 +37,7 @@ export default function WmsAppPicking() {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    const focus = () => window.setTimeout(() => inputRef.current?.focus(), 60);
+    const focus = () => window.setTimeout(() => inputRef.current?.focus(), 25);
     window.addEventListener("wms-focus-scanner", focus);
     return () => window.removeEventListener("wms-focus-scanner", focus);
   }, []);
@@ -54,7 +54,7 @@ export default function WmsAppPicking() {
   }, []);
   useEffect(() => {
     if (!scannerMode) { setCameraOpen(false); return undefined; }
-    const timer = window.setTimeout(openScanner, 80);
+    const timer = window.setTimeout(openScanner, 35);
     return () => window.clearTimeout(timer);
   }, [scannerMode, current?.id, openScanner]);
 
@@ -121,7 +121,7 @@ export default function WmsAppPicking() {
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Scansione non valida");
       if (navigator.vibrate) navigator.vibrate(180);
-      window.setTimeout(() => inputRef.current?.select(), 60);
+      window.setTimeout(() => inputRef.current?.select(), 25);
     } finally {
       setWorking(false);
     }

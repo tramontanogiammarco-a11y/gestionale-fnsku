@@ -72,7 +72,7 @@ function MassMission({ batchId }) {
   }, []);
   useEffect(() => {
     if (!scannerMode) { setCameraOpen(false); return undefined; }
-    const timer = window.setTimeout(openScanner, 80);
+    const timer = window.setTimeout(openScanner, 35);
     return () => window.clearTimeout(timer);
   }, [scannerMode, current?.id, openScanner]);
   const send = async (payload, success, fallback) => {
