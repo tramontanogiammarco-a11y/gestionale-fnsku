@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Barcode, CheckCircle2, ImageIcon, Loader2, PackageCheck, ShoppingBag } from "lucide-react";
+import { Barcode, Camera, CheckCircle2, ImageIcon, Loader2, PackageCheck, ShoppingBag } from "lucide-react";
 import { toast } from "sonner";
 import { api, fileUrl } from "@/lib/api";
 import { Input } from "@/components/ui/input";
+import CameraScanner from "@/components/wms/CameraScanner";
 
 function cartIsComplete(snapshot) {
   const bags = snapshot?.cart_bags || [];
@@ -15,6 +16,7 @@ export default function WmsAppPacking() {
   const [cart, setCart] = useState(null);
   const [code, setCode] = useState("");
   const [working, setWorking] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
 
   const focusScanner = useCallback(() => {
     window.setTimeout(() => scannerRef.current?.focus(), 50);
@@ -160,18 +162,28 @@ export default function WmsAppPacking() {
         </div>
         {phase === "scan_labels" && <div className="text-right"><strong className="block text-3xl font-black">{completedLabels}/{station.labels.length}</strong><span className="text-xs font-bold uppercase text-slate-500">etichette</span></div>}
       </div>
-      {phase !== "completed" && <form onSubmit={(event) => { event.preventDefault(); submitScan(); }} className="mt-5">
+      {phase !== "completed" && <form onSubmit={(event) => { event.preventDefault(); submitScan(); }} className="mt-5 flex items-stretch gap-3">
         <Input
           ref={scannerRef}
           value={code}
           onChange={(event) => setCode(event.target.value.toUpperCase())}
           placeholder={phase === "scan_labels" ? "Scansiona etichetta corriere" : phase === "cart_ready" ? "B-73846" : "CARRELLO-01 oppure bag"}
-          className="h-16 border-slate-950 bg-slate-50 text-center font-mono text-2xl font-black tracking-wider"
+          className="h-16 min-w-0 flex-1 border-slate-950 bg-slate-50 text-center font-mono text-xl font-black tracking-wider sm:text-2xl"
           autoComplete="off"
           inputMode="none"
           disabled={working}
           aria-label="Scanner packing"
         />
+        <button
+          type="button"
+          onClick={() => setCameraOpen(true)}
+          disabled={working}
+          title="Apri fotocamera"
+          aria-label="Apri fotocamera per scansionare"
+          className="flex h-16 w-16 shrink-0 items-center justify-center rounded-md bg-teal-700 text-white hover:bg-teal-800 disabled:opacity-60"
+        >
+          <Camera className="h-7 w-7" />
+        </button>
       </form>}
     </section>
 
@@ -208,6 +220,15 @@ export default function WmsAppPacking() {
     </section>}
 
     {phase === "completed" && <section className="flex items-center justify-center gap-3 rounded-md border border-emerald-200 bg-emerald-50 p-5 text-emerald-900"><PackageCheck className="h-6 w-6" /><strong>Compito chiuso. Pronto per la prossima bag.</strong></section>}
+    <CameraScanner
+      open={cameraOpen}
+      onOpenChange={setCameraOpen}
+      purpose={phase === "scan_labels" ? "carrier_label" : phase === "cart_ready" || phase === "double_check" ? "bag" : "packing"}
+      onDetected={(value) => {
+        setCameraOpen(false);
+        submitScan(value);
+      }}
+    />
     {working && <div className="fixed inset-x-0 bottom-6 flex justify-center"><span className="flex items-center gap-2 rounded-full bg-slate-950 px-4 py-2 text-sm font-black text-white"><Loader2 className="h-4 w-4 animate-spin" /> Elaborazione scanner</span></div>}
   </div>;
 }

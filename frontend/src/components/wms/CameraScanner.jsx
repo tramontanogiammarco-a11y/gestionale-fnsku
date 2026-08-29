@@ -57,7 +57,7 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
     };
   }, [open, videoElement]);
 
-  const title = purpose === "location" ? "Scansiona posizione" : purpose === "product" ? "Scansiona prodotto" : purpose === "bag" ? "Scansiona bag" : purpose === "cart" ? "Scansiona carrello" : "Scanner universale";
+  const title = purpose === "location" ? "Scansiona posizione" : purpose === "product" ? "Scansiona prodotto" : purpose === "bag" ? "Scansiona bag" : purpose === "cart" ? "Scansiona carrello" : purpose === "carrier_label" ? "Scansiona etichetta corriere" : purpose === "packing" ? "Scansiona carrello o bag" : "Scanner universale";
   const description = purpose === "location"
     ? "Inquadra il barcode applicato alla posizione pallet o slot."
     : purpose === "product"
@@ -66,6 +66,10 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
         ? "Inquadra il barcode della bag libera."
         : purpose === "cart"
           ? "Inquadra il barcode master applicato al carrello."
+        : purpose === "carrier_label"
+          ? "Inquadra il barcode stampato sull'etichetta del corriere."
+        : purpose === "packing"
+          ? "Inquadra il barcode del carrello oppure quello applicato alla bag."
       : "Inquadra una posizione, un EAN o un FNSKU.";
 
   return (
