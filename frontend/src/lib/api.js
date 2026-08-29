@@ -3785,6 +3785,7 @@ function massGroupsFromOrders(orders = []) {
   const groups = new Map();
   for (const order of orders) {
     if (order.wms_status !== "da_preparare" || !(order.items || []).length) continue;
+    if (order.raw?.preparation_method === "galluse") continue;
     if ((order.items || []).some((item) => !item.referenza_id || Number(item.quantita || 0) <= 0)) continue;
     const signature = massOrderSignature(order);
     const key = `${order.cliente_id}:${signature}`;
