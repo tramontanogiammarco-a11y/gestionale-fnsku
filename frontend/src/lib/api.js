@@ -3733,6 +3733,36 @@ async function swapWmsLocations(payload = {}) {
   return ok({ ok: true, source: source.codice, target: target.codice, transfers: transfers.length });
 }
 
+async function withWmsReferencePhotos(lines = [], clienteId = null) {
+  const lookups = ["fnsku", "ean", "sku"].map((field) => ({
+    field,
+    values: [...new Set((lines || []).map((line) => optionalText(line?.[field])).filter(Boolean))],
+  })).filter((lookup) => lookup.values.length);
+  if (!lookups.length) return lines || [];
+  const results = await Promise.all(lookups.map(async ({ field, values }) => {
+    let query = requireSupabase().from("referenze").select("id,fnsku,ean,sku,foto_url").in(field, values);
+    if (clienteId) query = query.eq("cliente_id", clienteId);
+    const { data, error } = await query;
+    if (error) fail(error.message);
+    return data || [];
+  }));
+  const photosByCode = new Map();
+  results.flat().forEach((reference) => {
+    for (const field of ["fnsku", "ean", "sku"]) {
+      const value = optionalText(reference?.[field]);
+      if (value && reference.foto_url) photosByCode.set(`${field}:${value}`, reference.foto_url);
+    }
+  });
+  return (lines || []).map((line) => ({
+    ...line,
+    foto_url: line.foto_url
+      || photosByCode.get(`fnsku:${optionalText(line.fnsku)}`)
+      || photosByCode.get(`ean:${optionalText(line.ean)}`)
+      || photosByCode.get(`sku:${optionalText(line.sku)}`)
+      || null,
+  }));
+}
+
 async function wmsPickSnapshot(orderId) {
   await assertWmsStaff();
   const [{ data: order, error: orderError }, { data: task, error: taskError }] = await Promise.all([
@@ -3762,7 +3792,8 @@ async function wmsPickSnapshot(orderId) {
     : { data: [], error: null };
   if (locationsError) fail(locationsError.message);
   const locationMap = Object.fromEntries((locations || []).map((location) => [location.id, location]));
-  const rows = (lines || []).map((line) => ({ ...line, location: locationMap[line.location_id] || null }));
+  const linesWithPhotos = await withWmsReferencePhotos(lines || [], order.cliente_id);
+  const rows = linesWithPhotos.map((line) => ({ ...line, location: locationMap[line.location_id] || null }));
   const expected = rows.reduce((sum, line) => sum + Number(line.quantita_attesa || 0), 0);
   const picked = rows.reduce((sum, line) => sum + Number(line.quantita_prelevata || 0), 0);
   return ok({
@@ -4034,7 +4065,8 @@ async function wmsMassPickSnapshot(batchId) {
     : { data: [], error: null };
   if (locationsError) fail(locationsError.message);
   const locationMap = Object.fromEntries((locations || []).map((location) => [location.id, location]));
-  const rows = (lines || []).map((line) => ({ ...line, location: locationMap[line.location_id] || null }));
+  const linesWithPhotos = await withWmsReferencePhotos(lines || [], batch.cliente_id);
+  const rows = linesWithPhotos.map((line) => ({ ...line, location: locationMap[line.location_id] || null }));
   const expected = rows.reduce((sum, line) => sum + Number(line.quantita_attesa || 0), 0);
   const picked = rows.reduce((sum, line) => sum + Number(line.quantita_prelevata || 0), 0);
   return ok({
@@ -4261,7 +4293,8 @@ async function wmsGalluseSnapshot(batchId) {
   const locationMap = Object.fromEntries((locations || []).map((location) => [location.id, location]));
   const linkedOrders = (links || []).map((link) => ({ ...link, order: orderMap[link.order_id] || null }));
   const allocationsByLine = groupBy(allocations || [], "galluse_line_id");
-  const rows = (lines || []).map((line) => ({
+  const linesWithPhotos = await withWmsReferencePhotos(lines || [], batch.cliente_id);
+  const rows = linesWithPhotos.map((line) => ({
     ...line,
     location: locationMap[line.location_id] || null,
     allocations: (allocationsByLine[line.id] || []).map((allocation) => {

@@ -5,7 +5,7 @@ import {
   MapPin, Navigation, PackageCheck, Play, Route, ScanLine, Warehouse,
 } from "lucide-react";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
+import { api, fileUrl } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
@@ -226,6 +226,7 @@ export default function WmsAppPicking() {
                 <span className="flex h-12 w-12 items-center justify-center rounded-md bg-teal-50 text-teal-800">{needsLocation ? <MapPin className="h-6 w-6" /> : <Boxes className="h-6 w-6" />}</span>
                 <div className="min-w-0 flex-1"><div className="text-xs font-black uppercase text-teal-700">{needsLocation ? "Prossima posizione" : "Prodotto da prelevare"}</div><h2 className="mt-1 truncate text-xl font-black">{needsLocation ? current.location?.codice : current.titolo}</h2></div>
               </div>
+              {current.foto_url && <div className="mt-4 overflow-hidden rounded-md border border-slate-200 bg-white p-2"><img src={fileUrl(current.foto_url)} alt={current.titolo} className="h-44 w-full object-contain" /></div>}
               {needsLocation ? <><Button className="mt-4 h-16 w-full text-base font-black" onClick={openScanner} disabled={working}><Camera className="mr-2 h-6 w-6" /> Scansiona posizione</Button><form onSubmit={(event) => { event.preventDefault(); scan(); }} className="mt-3 flex gap-2"><Input ref={inputRef} value={code} onChange={(event) => setCode(event.target.value)} placeholder={current.location?.codice} className="h-12 flex-1 font-mono" autoComplete="off" /><Button type="submit" size="icon" variant="outline" className="h-12 w-12" disabled={!code.trim() || working} aria-label="Conferma posizione"><Barcode className="h-5 w-5" /></Button></form></> : <><div className="mt-4 grid grid-cols-[1fr_110px] gap-3"><div className="rounded-md bg-slate-50 p-3"><div className="font-mono text-xs text-slate-500">{current.fnsku || current.ean || current.sku}</div><div className="mt-1 text-sm font-bold">Da prelevare: {remaining}</div></div><label><span className="mb-1 block text-[10px] font-black uppercase text-slate-500">Quantità</span><Input type="number" min="1" max={remaining} value={quantity} onChange={(event) => setQuantity(event.target.value)} className="h-12 text-lg font-black" /></label></div><Button className="mt-4 h-14 w-full text-base font-black" onClick={() => scan("")} disabled={working || Number(quantity) < 1 || Number(quantity) > remaining}><PackageCheck className="mr-2 h-5 w-5" /> Conferma prelievo</Button></>}
             </section>
           )}
