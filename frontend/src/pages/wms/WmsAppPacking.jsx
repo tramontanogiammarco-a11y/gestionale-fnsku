@@ -17,6 +17,14 @@ export default function WmsAppPacking() {
   const [code, setCode] = useState("");
   const [working, setWorking] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraSession, setCameraSession] = useState(0);
+  const [autoCamera, setAutoCamera] = useState(true);
+
+  const openCamera = useCallback(() => {
+    setAutoCamera(true);
+    setCameraSession((value) => value + 1);
+    setCameraOpen(true);
+  }, []);
 
   const focusScanner = useCallback(() => {
     window.setTimeout(() => scannerRef.current?.focus(), 50);
@@ -132,6 +140,11 @@ export default function WmsAppPacking() {
   const phase = station?.phase || "scan_bag";
   const completedLabels = station?.labels?.filter((label) => label.scanned).length || 0;
   const pendingLabels = station?.labels?.filter((label) => !label.scanned).length || 0;
+  useEffect(() => {
+    if (!autoCamera || working || phase === "completed" || cameraOpen) return undefined;
+    const timeout = window.setTimeout(openCamera, 120);
+    return () => window.clearTimeout(timeout);
+  }, [autoCamera, cameraOpen, openCamera, phase, station?.bag_code, completedLabels, working]);
   const prompt = phase === "double_check"
     ? "Riscansiona la stessa bag"
     : phase === "scan_labels"
@@ -176,7 +189,7 @@ export default function WmsAppPacking() {
         />
         <button
           type="button"
-          onClick={() => setCameraOpen(true)}
+          onClick={openCamera}
           disabled={working}
           title="Apri fotocamera"
           aria-label="Apri fotocamera per scansionare"
@@ -221,8 +234,12 @@ export default function WmsAppPacking() {
 
     {phase === "completed" && <section className="flex items-center justify-center gap-3 rounded-md border border-emerald-200 bg-emerald-50 p-5 text-emerald-900"><PackageCheck className="h-6 w-6" /><strong>Compito chiuso. Pronto per la prossima bag.</strong></section>}
     <CameraScanner
+      key={`packing-${cameraSession}`}
       open={cameraOpen}
-      onOpenChange={setCameraOpen}
+      onOpenChange={(nextOpen) => {
+        setCameraOpen(nextOpen);
+        if (!nextOpen) setAutoCamera(false);
+      }}
       purpose={phase === "scan_labels" ? "carrier_label" : phase === "cart_ready" || phase === "double_check" ? "bag" : "packing"}
       onDetected={(value) => {
         setCameraOpen(false);
