@@ -82,14 +82,14 @@ export default function WmsAppLayout() {
 
   return (
     <div className="wms-shell min-h-dvh text-slate-950" data-testid="wms-app-layout">
-      <div className="mx-auto min-h-dvh w-full max-w-3xl bg-[#f8faf9] shadow-[0_0_40px_rgba(15,23,42,0.08)]">
-        <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur-xl">
-          <div className="flex h-16 items-center gap-2 px-4 sm:px-6">
-            <button type="button" onClick={() => navigate("/wms-app")} className="mr-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-md" aria-label="Home WMS"><img src={logo} alt="Aimago" className="h-8 w-8 object-contain" /></button>
+      <div className="wms-app-frame mx-auto min-h-dvh w-full max-w-3xl shadow-[0_0_48px_rgba(15,23,42,0.07)]">
+        <header className="wms-topbar sticky top-0 z-40 border-b">
+          <div className="flex h-[68px] items-center gap-2.5 px-4 sm:px-6">
+            <button type="button" onClick={() => navigate("/wms-app")} className="mr-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-md transition hover:bg-slate-100" aria-label="Home WMS"><img src={logo} alt="Aimago" className="h-8 w-8 object-contain" /></button>
             <button
               type="button"
               onClick={() => setCompanyOpen(true)}
-              className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-left text-sm font-bold"
+              className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-md border border-slate-200/80 bg-white/80 px-3.5 text-left text-sm font-bold shadow-[0_2px_8px_rgba(15,23,42,0.035)] transition hover:border-slate-300"
               aria-label="Seleziona azienda"
               data-testid="wms-company-picker"
             >
@@ -101,7 +101,7 @@ export default function WmsAppLayout() {
           </div>
         </header>
 
-        <main className="px-4 pb-28 pt-6 sm:px-6">
+        <main className="px-4 pb-28 pt-7 sm:px-6 sm:pt-8">
           <Outlet context={{ entries: filteredEntries, allEntries: entries, clientId, clients, loadEntries }} />
         </main>
 
@@ -163,7 +163,7 @@ export default function WmsAppLayout() {
 
 function IconButton({ label, onClick, children }) {
   const primary = label === "Scansiona";
-  return <button type="button" aria-label={label} title={label} onClick={onClick} className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md ${primary ? "bg-slate-950 text-white" : "text-slate-700 hover:bg-slate-100"}`}>{children}</button>;
+  return <button type="button" aria-label={label} title={label} onClick={onClick} className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-md transition ${primary ? "bg-slate-950 text-white shadow-[0_5px_16px_rgba(15,23,42,0.2)] hover:bg-teal-800" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"}`}>{children}</button>;
 }
 
 function BottomNavigation() {
@@ -177,12 +177,12 @@ function BottomNavigation() {
     { label: "Packing", icon: PackageCheck, active: location.pathname.includes("/packing"), action: () => navigate("/packing-station") },
   ];
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-3xl border-t border-slate-200 bg-white/96 px-2 pb-[max(8px,env(safe-area-inset-bottom))] pt-1.5 backdrop-blur-xl" aria-label="Navigazione WMS">
+    <nav className="wms-bottom-nav fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-3xl border-t px-2 pb-[max(8px,env(safe-area-inset-bottom))] pt-1.5" aria-label="Navigazione WMS">
       <div className="grid grid-cols-5 gap-1">
         {items.map((item) => (
-          <button key={item.label} type="button" onClick={item.action} className={`relative flex min-h-14 flex-col items-center justify-center gap-1 rounded-md px-1 text-[11px] font-bold ${item.active ? "text-teal-800" : "text-slate-500 hover:bg-slate-50"}`}>
-            {item.active && <span className="absolute inset-x-3 top-0 h-0.5 bg-teal-700" />}
-            <item.icon className={`h-5 w-5 ${item.active ? "stroke-[2.5]" : ""}`} /> {item.label}
+          <button key={item.label} type="button" onClick={item.action} className={`relative flex min-h-14 flex-col items-center justify-center gap-1 rounded-md px-1 text-[10px] font-extrabold transition ${item.active ? "text-teal-800" : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"}`}>
+            <span className={`flex h-7 w-10 items-center justify-center rounded-md transition ${item.active ? "bg-teal-50" : ""}`}><item.icon className={`h-[19px] w-[19px] ${item.active ? "stroke-[2.5]" : ""}`} /></span>
+            {item.label}
           </button>
         ))}
       </div>
