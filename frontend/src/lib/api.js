@@ -2354,144 +2354,17 @@ function csvDateOrNow(value) {
 }
 
 async function importCsvWmsOrders(payload = {}) {
-  await assertWmsStaff();
-  const clienteId = String(payload.cliente_id || "").trim();
-  if (!clienteId) fail("Seleziona il cliente degli ordini CSV");
-  if (!Array.isArray(payload.rows) || !payload.rows.length) fail("Il file CSV non contiene righe");
-
-  const normalized = normalizeCsvOrders(payload.rows);
-  const { data: references, error: referencesError } = await requireSupabase()
-    .from("referenze")
-    .select("id,titolo,ean,sku,fnsku")
-    .eq("cliente_id", clienteId);
-  if (referencesError) fail(referencesError.message);
-
-  const byEan = new Map();
-  const bySku = new Map();
-  const byFnsku = new Map();
-  for (const reference of references || []) {
-    if (normalizedText(reference.ean)) byEan.set(normalizedText(reference.ean), reference);
-    if (normalizedText(reference.sku)) bySku.set(normalizedText(reference.sku), reference);
-    if (normalizedText(reference.fnsku)) byFnsku.set(normalizedText(reference.fnsku), reference);
-  }
-
-  const orders = normalized.orders.map((order) => {
-    const items = order.items.map((item) => {
-      const reference = byEan.get(normalizedText(item.ean))
-        || bySku.get(normalizedText(item.sku))
-        || byFnsku.get(normalizedText(item.fnsku))
-        || null;
-      return {
-        ...item,
-        reference,
-        title: item.title || reference?.titolo || item.ean || item.sku || item.fnsku,
-      };
-    });
-    return {
-      ...order,
-      items,
-      pieces: items.reduce((sum, item) => sum + item.quantity, 0),
-      unmatched: items.filter((item) => !item.reference).length,
-    };
+  const sb = requireSupabase();
+  const { data: sessionData } = await sb.auth.getSession();
+  const token = sessionData.session?.access_token;
+  if (!token) fail("Non autenticato", 401);
+  const { data, error } = await sb.functions.invoke("wms-import-csv-orders", {
+    body: payload,
+    headers: { Authorization: `Bearer ${token}` },
   });
-
-  const preview = {
-    valid: normalized.errors.length === 0 && orders.length > 0,
-    errors: normalized.errors,
-    orders: orders.map((order) => ({
-      order_number: order.order_number,
-      rows: order.items.length,
-      pieces: order.pieces,
-      unmatched: order.unmatched,
-      destination: [order.zip, order.city].filter(Boolean).join(" "),
-    })),
-    totals: {
-      orders: orders.length,
-      rows: orders.reduce((sum, order) => sum + order.items.length, 0),
-      pieces: orders.reduce((sum, order) => sum + order.pieces, 0),
-      unmatched: orders.reduce((sum, order) => sum + order.unmatched, 0),
-    },
-  };
-
-  if (payload.dry_run !== false) return ok(preview);
-  if (!preview.valid) fail("Correggi gli errori del CSV prima di importare");
-
-  const identifiers = orders.map((order) => csvOrderIdentifier(order.order_number));
-  const { data: existingOrders, error: existingError } = await requireSupabase()
-    .from("shopify_orders")
-    .select("id,shopify_order_id,wms_status,order_name")
-    .eq("cliente_id", clienteId)
-    .eq("shop_domain", "csv-import")
-    .in("shopify_order_id", identifiers);
-  if (existingError) fail(existingError.message);
-  const existingByIdentifier = new Map((existingOrders || []).map((order) => [order.shopify_order_id, order]));
-  const locked = (existingOrders || []).filter((order) => order.wms_status !== "da_preparare");
-  if (locked.length) {
-    fail(`Non posso aggiornare ${locked.map((order) => order.order_name).join(", ")}: picking gia avviato.`);
-  }
-
-  let imported = 0;
-  for (const order of orders) {
-    const identifier = csvOrderIdentifier(order.order_number);
-    const existing = existingByIdentifier.get(identifier);
-    const orderRow = {
-      cliente_id: clienteId,
-      shop_domain: "csv-import",
-      shopify_order_id: identifier,
-      order_name: order.order_number,
-      financial_status: "csv",
-      fulfillment_status: "unfulfilled",
-      wms_status: "in_verifica",
-      gate_status: "da_verificare",
-      processed_at: csvDateOrNow(order.processed_at),
-      note: order.note || null,
-      customer_email: order.email || null,
-      customer_phone: order.phone || null,
-      ship_name: order.recipient || null,
-      ship_company: order.company || null,
-      ship_address1: order.address1 || null,
-      ship_address2: order.address2 || null,
-      ship_zip: order.zip || null,
-      ship_city: order.city || null,
-      ship_province: order.province || null,
-      ship_country: order.country || null,
-      ship_country_code: order.country_code || null,
-      raw: { source: "csv", imported_at: nowIso() },
-      updated_at: nowIso(),
-    };
-
-    let savedOrder;
-    if (existing) {
-      const { data, error } = await requireSupabase().from("shopify_orders").update(orderRow).eq("id", existing.id).select().single();
-      if (error) fail(error.message);
-      savedOrder = data;
-      const { error: deleteError } = await requireSupabase().from("shopify_order_items").delete().eq("order_id", existing.id);
-      if (deleteError) fail(deleteError.message);
-    } else {
-      const { data, error } = await requireSupabase().from("shopify_orders").insert(orderRow).select().single();
-      if (error) fail(error.message);
-      savedOrder = data;
-    }
-
-    const itemRows = order.items.map((item, index) => ({
-      order_id: savedOrder.id,
-      shopify_line_item_id: csvItemIdentifier(item, index),
-      referenza_id: item.reference?.id || null,
-      sku: item.sku || item.reference?.sku || null,
-      ean: item.ean || item.reference?.ean || null,
-      titolo: item.title,
-      quantita: item.quantity,
-      fulfillable_quantity: item.quantity,
-      fulfillment_status: null,
-      raw: { source: "csv", source_row: item.source_row, fnsku: item.fnsku || null },
-      updated_at: nowIso(),
-    }));
-    const { error: itemsError } = await requireSupabase().from("shopify_order_items").insert(itemRows);
-    if (itemsError) fail(itemsError.message);
-    imported += 1;
-  }
-
-  return ok({ ...preview, imported });
+  if (error) fail(await edgeErrorMessage(error, "Impossibile importare il CSV"));
+  if (data?.detail) fail(data.detail);
+  return ok(data);
 }
 
 async function enrichShopifyOrders(orders) {
@@ -2547,6 +2420,20 @@ async function updateShopifyOrderStatus(id, payload = {}) {
     .select()
     .single();
   if (error) fail(error.message);
+  return ok(data);
+}
+
+async function updateClientOrder(id, payload = {}) {
+  const sb = requireSupabase();
+  const { data: sessionData } = await sb.auth.getSession();
+  const token = sessionData.session?.access_token;
+  if (!token) fail("Non autenticato", 401);
+  const { data, error } = await sb.functions.invoke("wms-update-client-order", {
+    body: { ...payload, order_id: id },
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (error) fail(await edgeErrorMessage(error, "Impossibile modificare l'ordine"));
+  if (data?.detail) fail(data.detail);
   return ok(data);
 }
 
@@ -6768,6 +6655,7 @@ export const api = {
     if (path.match(/^\/preparazioni\/[^/]+$/)) return updatePreparazione(path.split("/")[2], payload);
     if (path.match(/^\/preparazioni-righe\/[^/]+$/)) return updatePreparazioneRiga(path.split("/")[2], payload);
     if (path.match(/^\/shopify\/orders\/[^/]+\/stato$/)) return updateShopifyOrderStatus(path.split("/")[3], payload);
+    if (path.match(/^\/shopify\/orders\/[^/]+$/)) return updateClientOrder(path.split("/")[3], payload);
     if (path.match(/^\/wms\/spedizioni\/[^/]+$/)) return updateWmsShipment(path.split("/")[3], payload);
     if (path.match(/^\/wms\/tickets\/[^/]+$/)) return updateSupportTicket(path.split("/")[3], payload);
     if (path === "/wms/mappa") return updateWmsWarehouseMap(payload);
