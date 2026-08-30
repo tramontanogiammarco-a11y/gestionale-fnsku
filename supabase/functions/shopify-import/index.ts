@@ -51,11 +51,11 @@ Deno.serve(async (req) => {
 
   const { data: profile, error: profileError } = await userClient
     .from("profiles")
-    .select("role")
+    .select("role,cliente_id")
     .eq("id", authData.user.id)
     .single();
-  if (profileError || !["admin", "staff"].includes(profile?.role)) {
-    return json({ detail: "Accesso riservato allo staff" }, 403);
+  if (profileError || !["admin", "staff", "cliente"].includes(profile?.role)) {
+    return json({ detail: "Profilo non autorizzato" }, 403);
   }
 
   let payload: Payload;
@@ -65,7 +65,8 @@ Deno.serve(async (req) => {
     return json({ detail: "JSON non valido" }, 400);
   }
 
-  const clienteId = String(payload.cliente_id || "").trim();
+  const requestedClienteId = String(payload.cliente_id || "").trim();
+  const clienteId = profile.role === "cliente" ? String(profile.cliente_id || "") : requestedClienteId;
   const shopDomain = normalizeShopDomain(payload.shop_domain);
   let token = String(payload.access_token || "").trim();
   if (!clienteId || !shopDomain) {

@@ -76,7 +76,9 @@ Deno.serve(async (req) => {
   await registerOrderWebhooks(shopDomain, tokenBody.access_token, `${supabaseUrl}/functions/v1/shopify-orders-webhook`)
     .catch((webhookError) => console.error("shopify webhook registration", webhookError));
 
-  const redirect = new URL("/admin/integrazioni", frontendUrl);
+  const requestedReturnPath = String(statePayload.return_path || "");
+  const returnPath = requestedReturnPath === "/app/integrazioni" ? requestedReturnPath : "/admin/integrazioni";
+  const redirect = new URL(returnPath, frontendUrl);
   redirect.searchParams.set("shopify", "connected");
   redirect.searchParams.set("shop", shopDomain);
   return Response.redirect(redirect.toString(), 302);

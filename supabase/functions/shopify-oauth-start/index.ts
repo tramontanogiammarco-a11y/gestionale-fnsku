@@ -33,15 +33,16 @@ Deno.serve(async (req) => {
 
     const { data: profile, error: profileError } = await userClient
       .from("profiles")
-      .select("role")
+      .select("role,cliente_id")
       .eq("id", authData.user.id)
       .single();
-    if (profileError || !["admin", "staff"].includes(profile?.role)) {
-      return json({ detail: "Accesso riservato allo staff" }, 403);
+    if (profileError || !["admin", "staff", "cliente"].includes(profile?.role)) {
+      return json({ detail: "Profilo non autorizzato" }, 403);
     }
 
     const payload = await req.json().catch(() => ({}));
-    const clienteId = String(payload.cliente_id || "").trim();
+    const requestedClienteId = String(payload.cliente_id || "").trim();
+    const clienteId = profile.role === "cliente" ? String(profile.cliente_id || "") : requestedClienteId;
     const shopDomain = normalizeShopDomain(payload.shop_domain);
     if (!clienteId || !shopDomain) return json({ detail: "Cliente e dominio Shopify sono obbligatori" }, 400);
     if (!shopDomain.endsWith(".myshopify.com")) {
@@ -53,6 +54,7 @@ Deno.serve(async (req) => {
         cliente_id: clienteId,
         shop_domain: shopDomain,
         user_id: authData.user.id,
+        return_path: profile.role === "cliente" ? "/app/integrazioni" : "/admin/integrazioni",
         exp: Date.now() + 10 * 60 * 1000,
         nonce: crypto.randomUUID(),
       },

@@ -44,6 +44,7 @@ import ClientSpedizioni from "@/pages/client/Spedizioni";
 import ClientMagazzino from "@/pages/client/Magazzino";
 import ClientPreparazioni from "@/pages/client/Preparazioni";
 import ClientPreparazioneDetail from "@/pages/client/PreparazioneDetail";
+import ClientIntegrazioni from "@/pages/client/Integrazioni";
 import WmsAppLayout from "@/layouts/WmsAppLayout";
 import WmsAppDashboard from "@/pages/wms/WmsAppDashboard";
 import WmsAppHome from "@/pages/wms/WmsAppHome";
@@ -200,6 +201,7 @@ function App() {
               <Route path="box" element={<ClientBox />} />
               <Route path="spedizioni" element={<ClientSpedizioni />} />
               <Route path="fatturazione" element={<AdminFatturazione clientMode />} />
+              <Route path="integrazioni" element={<ClientIntegrazioni />} />
             </Route>
 
             <Route path="*" element={<Navigate to="/" replace />} />

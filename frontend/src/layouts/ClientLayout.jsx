@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import { Boxes, ChevronRight, ClipboardList, LayoutDashboard, LogOut, PackageOpen, Receipt, Tags, Truck, Warehouse } from "lucide-react";
+import { Boxes, ChevronRight, ClipboardList, LayoutDashboard, LogOut, PackageOpen, PlugZap, Receipt, Tags, Truck, Warehouse } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import logo from "@/assets/logo.png";
@@ -14,6 +14,7 @@ const NAV = [
   { to: "/app/box", label: "Box", icon: Boxes, id: "box" },
   { to: "/app/spedizioni", label: "Spedizioni", icon: Truck, id: "spedizioni" },
   { to: "/app/fatturazione", label: "Fatturazione", icon: Receipt, id: "fatturazione" },
+  { to: "/app/integrazioni", label: "Integrazioni", icon: PlugZap, id: "integrazioni" },
 ];
 
 function ClientNavLink({ item, mobile = false }) {
