@@ -29,6 +29,7 @@ import WmsPackingStationLayout from "@/layouts/WmsPackingStationLayout";
 import ControlOverview from "@/pages/control/ControlOverview";
 import ControlStock from "@/pages/control/ControlStock";
 import ControlOrders from "@/pages/control/ControlOrders";
+import ControlExceptions from "@/pages/control/ControlExceptions";
 import ControlShipments from "@/pages/control/ControlShipments";
 import ControlReturns from "@/pages/control/ControlReturns";
 import ControlBilling from "@/pages/control/ControlBilling";
@@ -102,6 +103,7 @@ function App() {
               <Route index element={<ControlOverview />} />
               <Route path="stock" element={<ControlStock />} />
               <Route path="orders" element={<ControlOrders />} />
+              <Route path="exceptions" element={<ControlExceptions />} />
               <Route path="shipments" element={<ControlShipments />} />
               <Route path="returns" element={<ControlReturns />} />
               <Route path="billing" element={<ControlBilling />} />

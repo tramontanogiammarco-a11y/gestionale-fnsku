@@ -78,6 +78,7 @@ Deno.serve(async (req) => {
       note: payload.note || null,
       raw: payload,
       updated_at: new Date().toISOString(),
+      ...(!existing ? { wms_status: "in_verifica", gate_status: "da_verificare" } : {}),
     };
     const { data: savedOrder, error: orderError } = await admin
       .from("shopify_orders")
@@ -87,7 +88,7 @@ Deno.serve(async (req) => {
     if (orderError || !savedOrder) throw orderError || new Error("Ordine non salvato");
 
     // Dopo l'avvio del picking le righe restano congelate per non cambiare una missione in corso.
-    if (!existing || existing.wms_status === "da_preparare") {
+    if (!existing || ["in_verifica", "eccezione", "da_preparare"].includes(existing.wms_status)) {
       const referenceMap = await buildReferenceMap(admin, connection.cliente_id);
       const itemIds: string[] = [];
       for (const item of payload.line_items || []) {
@@ -119,8 +120,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (payload.cancelled_at && (!existing || existing.wms_status === "da_preparare")) {
-      await admin.from("shopify_orders").update({ wms_status: "annullato", updated_at: new Date().toISOString() }).eq("id", savedOrder.id);
+    if (payload.cancelled_at && (!existing || ["in_verifica", "eccezione", "da_preparare"].includes(existing.wms_status))) {
+      await admin.from("shopify_orders").update({ wms_status: "annullato", gate_status: "ignorato", updated_at: new Date().toISOString() }).eq("id", savedOrder.id);
     }
     return json({ ok: true, order_id: savedOrder.id });
   } catch (error) {

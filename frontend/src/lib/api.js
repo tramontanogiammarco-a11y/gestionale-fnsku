@@ -1536,6 +1536,11 @@ async function completeWmsInbound(entrataId, payload = {}) {
   ]);
   const firstError = sessionError || entrataError;
   if (firstError) fail(firstError.message);
+  try {
+    await recheckWmsOrderExceptions({ cliente_id: snapshot.entrata.cliente_id, exception_type: "stock", limit: 100 });
+  } catch (error) {
+    console.warn("Ricontrollo automatico ordini non disponibile", error);
+  }
   return getWmsInbound(entrataId);
 }
 
@@ -2421,7 +2426,8 @@ async function importCsvWmsOrders(payload = {}) {
       order_name: order.order_number,
       financial_status: "csv",
       fulfillment_status: "unfulfilled",
-      wms_status: "da_preparare",
+      wms_status: "in_verifica",
+      gate_status: "da_verificare",
       processed_at: csvDateOrNow(order.processed_at),
       note: order.note || null,
       customer_email: order.email || null,
@@ -2496,7 +2502,7 @@ async function updateShopifyOrderStatus(id, payload = {}) {
   const profile = await currentProfile();
   if (!isStaff(profile)) fail("Accesso riservato allo staff", 403);
 
-  const allowed = ["da_preparare", "in_preparazione", "pronto", "spedito", "annullato"];
+  const allowed = ["in_verifica", "eccezione", "da_preparare", "in_preparazione", "pronto", "spedito", "annullato"];
   const stato = optionalText(payload.wms_status || payload.stato);
   if (!allowed.includes(stato)) fail("Stato ordine WMS non valido");
 
@@ -3626,6 +3632,164 @@ async function wmsPickingPlan(order, items) {
   return { ready: errors.length === 0 && replenishment.length === 0, allocations, replenishment, errors, locationMap, mapSettings: { ...mapSettings, obstacles: allLocations } };
 }
 
+function validateWmsOrderAddress(order = {}) {
+  const reasons = [];
+  const countryCode = normalizedText(order.ship_country_code || order.ship_country);
+  const address = optionalText(order.ship_address1);
+  const zip = optionalText(order.ship_zip);
+  const city = optionalText(order.ship_city);
+  const province = optionalText(order.ship_province);
+  const recipient = optionalText(order.ship_name || order.ship_company);
+
+  if (!recipient) reasons.push("Destinatario mancante");
+  if (!address) reasons.push("Indirizzo mancante");
+  if (address && !/\d/.test(address)) reasons.push("Numero civico non riconosciuto");
+  if (!zip) reasons.push("CAP mancante");
+  if (!city) reasons.push("Citta mancante");
+  if (!countryCode) reasons.push("Paese mancante");
+  if (["it", "ita", "italia", "italy"].includes(countryCode)) {
+    if (zip && !/^\d{5}$/.test(zip)) reasons.push("CAP italiano non valido");
+    if (!province) reasons.push("Provincia mancante");
+  }
+
+  return {
+    valid: reasons.length === 0,
+    confidence: reasons.length ? 0 : 0.92,
+    source: "controllo_intelligente_regole",
+    reasons,
+    normalized: { recipient, address, zip, city, province, country_code: countryCode },
+  };
+}
+
+async function evaluateWmsOrderGate(orderId, options = {}) {
+  const profile = await assertWmsStaff();
+  const { data: order, error: orderError } = await requireSupabase()
+    .from("shopify_orders")
+    .select("*")
+    .eq("id", orderId)
+    .single();
+  if (orderError || !order) fail(orderError?.message || "Ordine non trovato", 404);
+
+  const lockedStatuses = ["in_preparazione", "pronto", "in_attesa_packing", "in_packing", "spedito", "annullato"];
+  if (lockedStatuses.includes(order.wms_status) && !options.force) {
+    return { ...order, skipped: true };
+  }
+
+  const { data: items, error: itemsError } = await requireSupabase()
+    .from("shopify_order_items")
+    .select("*")
+    .eq("order_id", order.id);
+  if (itemsError) fail(itemsError.message);
+
+  const checkedAt = nowIso();
+  const addressValidation = validateWmsOrderAddress(order);
+  let update;
+  let eventReason;
+
+  if (!addressValidation.valid) {
+    update = {
+      wms_status: "eccezione",
+      gate_status: "eccezione_indirizzo",
+      exception_type: "indirizzo",
+      exception_reasons: addressValidation.reasons,
+      address_validation: addressValidation,
+      stock_shortages: [],
+      gate_checked_at: checkedAt,
+      unblocked_at: null,
+      updated_at: checkedAt,
+    };
+    eventReason = addressValidation.reasons.join("; ");
+  } else {
+    const plan = await wmsPickingPlan(order, items || []);
+    const stockShortages = [
+      ...(plan.errors || []).map((reason) => ({ titolo: reason, required: null, available: null })),
+      ...(plan.replenishment || [])
+        .filter((row) => Number(row.pallet_available || 0) < Number(row.quantita || 0))
+        .map((row) => ({
+          referenza_id: row.referenza_id,
+          titolo: row.titolo,
+          required: Number(row.quantita || 0),
+          available: Number(row.pallet_available || 0),
+          missing: Math.max(0, Number(row.quantita || 0) - Number(row.pallet_available || 0)),
+        })),
+    ];
+    const requiresReplenishment = (plan.replenishment || []).some((row) => Number(row.pallet_available || 0) >= Number(row.quantita || 0));
+    if (stockShortages.length) {
+      update = {
+        wms_status: "eccezione",
+        gate_status: "eccezione_stock",
+        exception_type: "stock",
+        exception_reasons: stockShortages.map((row) => row.titolo),
+        address_validation: addressValidation,
+        stock_shortages: stockShortages,
+        gate_checked_at: checkedAt,
+        unblocked_at: null,
+        updated_at: checkedAt,
+      };
+      eventReason = "Stock insufficiente";
+    } else {
+      update = {
+        wms_status: "da_preparare",
+        gate_status: "sbloccato",
+        exception_type: null,
+        exception_reasons: [],
+        address_validation: { ...addressValidation, requires_replenishment: requiresReplenishment },
+        stock_shortages: [],
+        gate_checked_at: checkedAt,
+        unblocked_at: checkedAt,
+        updated_at: checkedAt,
+      };
+      eventReason = requiresReplenishment ? "Sbloccato con rifornimento slot richiesto" : "Controlli superati";
+    }
+  }
+
+  const { data: saved, error: updateError } = await requireSupabase()
+    .from("shopify_orders")
+    .update(update)
+    .eq("id", order.id)
+    .select()
+    .single();
+  if (updateError) fail(updateError.message);
+
+  const { error: eventError } = await requireSupabase().from("wms_order_gate_events").insert({
+    order_id: order.id,
+    cliente_id: order.cliente_id,
+    from_status: order.gate_status || "da_verificare",
+    to_status: update.gate_status,
+    reason: eventReason,
+    details: { address_validation: update.address_validation, stock_shortages: update.stock_shortages },
+    created_by: profile.id,
+  });
+  if (eventError) fail(eventError.message);
+  return saved;
+}
+
+async function recheckWmsOrderExceptions(payload = {}) {
+  await assertWmsStaff();
+  let query = requireSupabase()
+    .from("shopify_orders")
+    .select("id")
+    .in("gate_status", payload.pending_only
+      ? ["da_verificare", "verifica_indirizzo", "verifica_stock"]
+      : ["da_verificare", "verifica_indirizzo", "verifica_stock", "eccezione_indirizzo", "eccezione_stock"])
+    .order("created_at", { ascending: true })
+    .limit(Math.min(100, Math.max(1, Number(payload.limit || 50))));
+  if (optionalText(payload.cliente_id)) query = query.eq("cliente_id", payload.cliente_id);
+  if (optionalText(payload.exception_type)) query = query.eq("exception_type", payload.exception_type);
+  const { data, error } = await query;
+  if (error) fail(error.message);
+
+  const results = [];
+  for (const order of data || []) {
+    try {
+      results.push({ id: order.id, order: await evaluateWmsOrderGate(order.id) });
+    } catch (gateError) {
+      results.push({ id: order.id, error: gateError?.message || "Verifica non riuscita" });
+    }
+  }
+  return ok({ checked: results.length, unblocked: results.filter((row) => row.order?.gate_status === "sbloccato").length, results });
+}
+
 async function replenishWmsSlot(payload = {}) {
   const profile = await assertWmsStaff();
   const clienteId = optionalText(payload.cliente_id);
@@ -3751,6 +3915,11 @@ async function adjustWmsLocationQuantity(payload = {}) {
       updated_at: now,
     });
   if (countError) fail(countError.message);
+  try {
+    await recheckWmsOrderExceptions({ cliente_id: item.cliente_id, exception_type: "stock", limit: 100 });
+  } catch (error) {
+    console.warn("Ricontrollo automatico ordini non disponibile", error);
+  }
   return ok({ ok: true, location: location.codice, quantita: quantity });
 }
 
@@ -6515,6 +6684,8 @@ export const api = {
     if (path === "/shopify/orders/import") return importShopifyOrders(payload);
     if (path === "/wms/ordini/import-csv") return importCsvWmsOrders(payload);
     if (path === "/wms/rifornimenti") return replenishWmsSlot(payload);
+    if (path === "/wms/order-gate/recheck") return recheckWmsOrderExceptions(payload);
+    if (path.match(/^\/wms\/order-gate\/[^/]+\/evaluate$/)) return ok(await evaluateWmsOrderGate(path.split("/")[3], { force: Boolean(payload?.force) }));
     if (path === "/wms/stock/quantita") return adjustWmsLocationQuantity(payload);
     if (path === "/wms/stock/sposta") return moveWmsStockQuantity(payload);
     if (path === "/wms/stock/pallet-slot") return moveWmsPalletToSlot(payload);

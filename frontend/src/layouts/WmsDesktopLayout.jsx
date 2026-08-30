@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
 import {
-  Boxes, LayoutDashboard, LogOut, MapPinned, MessageSquareText,
+  AlertTriangle, Boxes, LayoutDashboard, LogOut, MapPinned, MessageSquareText,
   PackageSearch, Receipt, RotateCcw, ShoppingCart, Smartphone, Truck, Warehouse,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,7 @@ const CORE_NAV = [
   { to: "/wms", end: true, label: "Panoramica", icon: LayoutDashboard },
   { to: "/wms/stock", label: "Stock", icon: Warehouse },
   { to: "/wms/orders", label: "Ordini", icon: ShoppingCart },
+  { to: "/wms/exceptions", label: "Eccezioni", icon: AlertTriangle },
   { to: "/wms/shipments", label: "Spedizioni", icon: Truck },
   { to: "/wms/returns", label: "Resi", icon: RotateCcw },
   { to: "/wms/billing", label: "Fatturazione", icon: Receipt },
@@ -41,6 +42,15 @@ export default function WmsDesktopLayout() {
     if (!isStaff) return;
     api.get("/clienti").then((response) => setClients(response.data || [])).catch(() => setClients([]));
   }, [isStaff]);
+
+  useEffect(() => {
+    if (!isStaff) return;
+    api.post("/wms/order-gate/recheck", {
+      cliente_id: clientId === "all" ? null : clientId,
+      pending_only: true,
+      limit: 50,
+    }).catch(() => {});
+  }, [clientId, isStaff]);
 
   const current = useMemo(() => {
     const all = [...CORE_NAV, ...(isStaff ? ADMIN_NAV : [])];
