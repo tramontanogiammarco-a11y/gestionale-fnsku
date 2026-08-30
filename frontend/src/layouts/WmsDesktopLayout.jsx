@@ -4,7 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
 import {
   AlertTriangle, Boxes, LayoutDashboard, LogOut, MapPinned, MessageSquareText,
-  PackageSearch, Receipt, RotateCcw, ShoppingCart, Smartphone, Truck, Warehouse,
+  PackageSearch, Receipt, RotateCcw, ShoppingCart, Smartphone, Truck, Users, Warehouse,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -24,6 +24,7 @@ const CORE_NAV = [
 ];
 
 const ADMIN_NAV = [
+  { to: "/admin/clienti", label: "Clienti", icon: Users },
   { to: "/wms/mappa", label: "Magazzino 3D", icon: MapPinned },
   { to: "/admin", label: "Amazon Prep", icon: PackageSearch },
   { to: "/wms-app", label: "App operativa", icon: Smartphone },
