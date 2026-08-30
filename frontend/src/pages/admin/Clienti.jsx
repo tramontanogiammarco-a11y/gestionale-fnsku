@@ -13,7 +13,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2, UserPlus, Pencil, ChevronRight } from "lucide-react";
+import { Check, ChevronRight, Copy, KeyRound, Loader2, Pencil, RefreshCw, UserPlus } from "lucide-react";
 
 const DEFAULT_LISTINO = {
   fnsku: 0.10, busta: 0, nastratura: 0, pluriball: 0,
@@ -116,6 +116,7 @@ export default function AdminClienti() {
                     <TableCell className="text-xs">€ {Number(l.stoccaggio_pallet || 0).toFixed(2)}</TableCell>
                     <TableCell className="text-xs">{Number(l.iva ?? 22)}%</TableCell>
                     <TableCell className="text-right">
+                      <ResetPasswordDialog cliente={c} />
                       <ModificaClienteDialog cliente={c} onSaved={load} />
                       <ChevronRight className="ml-2 inline h-4 w-4 text-muted-foreground" />
                     </TableCell>
@@ -128,6 +129,66 @@ export default function AdminClienti() {
       </Card>
     </div>
   );
+}
+
+function temporaryPassword() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$";
+  const bytes = new Uint8Array(16);
+  window.crypto.getRandomValues(bytes);
+  return [...bytes].map((value) => alphabet[value % alphabet.length]).join("");
+}
+
+function ResetPasswordDialog({ cliente }) {
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleOpen = (next) => {
+    setOpen(next);
+    if (next) {
+      setPassword(temporaryPassword());
+      setSaved(false);
+      setCopied(false);
+    }
+  };
+
+  const copyPassword = async () => {
+    await navigator.clipboard.writeText(password);
+    setCopied(true);
+  };
+
+  const save = async () => {
+    if (password.length < 10) return toast.error("La password deve contenere almeno 10 caratteri");
+    setSaving(true);
+    try {
+      await api.post(`/clienti/${cliente.id}/password`, { password });
+      setSaved(true);
+      toast.success("Password cliente aggiornata");
+    } catch (error) {
+      toast.error(formatApiError(error.response?.data?.detail || error.message));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <Dialog open={open} onOpenChange={handleOpen}>
+    <DialogTrigger asChild>
+      <Button variant="ghost" size="sm" title="Reimposta password" aria-label={`Reimposta password ${cliente.ragione_sociale}`} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+        <KeyRound className="h-4 w-4" />
+      </Button>
+    </DialogTrigger>
+    <DialogContent onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+      <DialogHeader><DialogTitle>Nuova password cliente</DialogTitle></DialogHeader>
+      <div className="space-y-4">
+        <div className="rounded-md bg-slate-50 p-3"><p className="font-semibold">{cliente.ragione_sociale}</p><p className="mt-1 text-xs text-slate-500">{cliente.email}</p></div>
+        <div><Label>Password temporanea</Label><div className="mt-1 flex gap-2"><Input value={password} onChange={(event) => { setPassword(event.target.value); setSaved(false); }} className="font-mono" /><Button type="button" variant="outline" size="icon" onClick={() => { setPassword(temporaryPassword()); setSaved(false); setCopied(false); }} title="Genera password"><RefreshCw className="h-4 w-4" /></Button><Button type="button" variant="outline" size="icon" onClick={copyPassword} title="Copia password">{copied ? <Check className="h-4 w-4 text-emerald-700" /> : <Copy className="h-4 w-4" />}</Button></div></div>
+        <p className="text-xs leading-5 text-slate-500">La password precedente non è leggibile. Salvando, questa nuova password la sostituisce immediatamente.</p>
+      </div>
+      <DialogFooter><Button onClick={save} disabled={saving || saved}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{saved ? <><Check className="mr-2 h-4 w-4" />Aggiornata</> : "Imposta password"}</Button></DialogFooter>
+    </DialogContent>
+  </Dialog>;
 }
 
 function NuovoClienteDialog({ onCreated }) {

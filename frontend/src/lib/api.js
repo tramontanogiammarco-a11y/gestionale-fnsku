@@ -350,6 +350,21 @@ async function createCliente(payload) {
   return ok(data);
 }
 
+async function resetClientePassword(clienteId, payload = {}) {
+  const sb = requireSupabase();
+  const { data: sessionData } = await sb.auth.getSession();
+  const token = sessionData.session?.access_token;
+  if (!token) fail("Non autenticato", 401);
+
+  const { data, error } = await sb.functions.invoke("reset-client-password", {
+    body: { cliente_id: clienteId, password: payload.password },
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (error) fail(await edgeErrorMessage(error, "Impossibile reimpostare la password"));
+  if (data?.detail) fail(data.detail);
+  return ok(data);
+}
+
 async function importShopify(payload) {
   const sb = requireSupabase();
   const { data: sessionData } = await sb.auth.getSession();
@@ -6680,6 +6695,7 @@ export const api = {
   async post(url, payload, config = {}) {
     const { path } = pathAndQuery(url);
     if (path === "/clienti") return createCliente(payload);
+    if (path.match(/^\/clienti\/[^/]+\/password$/)) return resetClientePassword(path.split("/")[2], payload);
     if (path === "/shopify/import") return importShopify(payload);
     if (path === "/shopify/orders/import") return importShopifyOrders(payload);
     if (path === "/wms/ordini/import-csv") return importCsvWmsOrders(payload);
