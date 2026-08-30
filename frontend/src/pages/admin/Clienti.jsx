@@ -155,8 +155,10 @@ function ResetPasswordDialog({ cliente }) {
   };
 
   const copyPassword = async () => {
+    if (!saved) return;
     await navigator.clipboard.writeText(password);
     setCopied(true);
+    toast.success("Password attiva copiata");
   };
 
   const save = async () => {
@@ -165,7 +167,13 @@ function ResetPasswordDialog({ cliente }) {
     try {
       await api.post(`/clienti/${cliente.id}/password`, { password });
       setSaved(true);
-      toast.success("Password cliente aggiornata");
+      try {
+        await navigator.clipboard.writeText(password);
+        setCopied(true);
+        toast.success("Password aggiornata e copiata");
+      } catch (_) {
+        toast.success("Password aggiornata. Ora puoi copiarla.");
+      }
     } catch (error) {
       toast.error(formatApiError(error.response?.data?.detail || error.message));
     } finally {
@@ -183,10 +191,10 @@ function ResetPasswordDialog({ cliente }) {
       <DialogHeader><DialogTitle>Nuova password cliente</DialogTitle></DialogHeader>
       <div className="space-y-4">
         <div className="rounded-md bg-slate-50 p-3"><p className="font-semibold">{cliente.ragione_sociale}</p><p className="mt-1 text-xs text-slate-500">{cliente.email}</p></div>
-        <div><Label>Password temporanea</Label><div className="mt-1 flex gap-2"><Input value={password} onChange={(event) => { setPassword(event.target.value); setSaved(false); }} className="font-mono" /><Button type="button" variant="outline" size="icon" onClick={() => { setPassword(temporaryPassword()); setSaved(false); setCopied(false); }} title="Genera password"><RefreshCw className="h-4 w-4" /></Button><Button type="button" variant="outline" size="icon" onClick={copyPassword} title="Copia password">{copied ? <Check className="h-4 w-4 text-emerald-700" /> : <Copy className="h-4 w-4" />}</Button></div></div>
-        <p className="text-xs leading-5 text-slate-500">La password precedente non è leggibile. Salvando, questa nuova password la sostituisce immediatamente.</p>
+        <div><Label>Password temporanea</Label><div className="mt-1 flex gap-2"><Input value={password} onChange={(event) => { setPassword(event.target.value); setSaved(false); setCopied(false); }} className="font-mono" /><Button type="button" variant="outline" size="icon" onClick={() => { setPassword(temporaryPassword()); setSaved(false); setCopied(false); }} title="Genera password"><RefreshCw className="h-4 w-4" /></Button><Button type="button" variant="outline" size="icon" onClick={copyPassword} disabled={!saved} title={saved ? "Copia password attiva" : "Prima imposta la password"}>{copied ? <Check className="h-4 w-4 text-emerald-700" /> : <Copy className="h-4 w-4" />}</Button></div></div>
+        <p className="text-xs leading-5 text-slate-500">La password precedente non è leggibile. Premi “Imposta e copia”: la nuova password verrà attivata e poi copiata.</p>
       </div>
-      <DialogFooter><Button onClick={save} disabled={saving || saved}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{saved ? <><Check className="mr-2 h-4 w-4" />Aggiornata</> : "Imposta password"}</Button></DialogFooter>
+      <DialogFooter><Button onClick={save} disabled={saving || saved}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{saved ? <><Check className="mr-2 h-4 w-4" />Attiva e copiata</> : "Imposta e copia"}</Button></DialogFooter>
     </DialogContent>
   </Dialog>;
 }
