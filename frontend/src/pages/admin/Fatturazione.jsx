@@ -20,11 +20,11 @@ import { STATI_PREP } from "@/lib/statuses";
 const MESI = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno",
   "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"];
 
-export default function AdminFatturazione({ clientMode = false }) {
+export default function AdminFatturazione({ clientMode = false, forcedClienteId = "" }) {
   const now = new Date();
   const [searchParams] = useSearchParams();
   const [clienti, setClienti] = useState([]);
-  const [clienteId, setClienteId] = useState(clientMode ? "" : searchParams.get("cliente_id") || "");
+  const [clienteId, setClienteId] = useState(clientMode ? "" : forcedClienteId || searchParams.get("cliente_id") || "");
   const [anno, setAnno] = useState(now.getFullYear());
   const [mese, setMese] = useState(now.getMonth() + 1);
   const [pallet, setPallet] = useState(0);
@@ -36,8 +36,9 @@ export default function AdminFatturazione({ clientMode = false }) {
   }, [clientMode]);
   useEffect(() => {
     const fromUrl = searchParams.get("cliente_id");
-    if (!clientMode && fromUrl) setClienteId(fromUrl);
-  }, [clientMode, searchParams]);
+    if (!clientMode && forcedClienteId) setClienteId(forcedClienteId);
+    else if (!clientMode && fromUrl) setClienteId(fromUrl);
+  }, [clientMode, forcedClienteId, searchParams]);
 
   const calcola = async (silent = false) => {
     if (!clientMode && !clienteId) {
@@ -94,7 +95,7 @@ export default function AdminFatturazione({ clientMode = false }) {
 
       <Card className="p-5">
         <div className={`grid grid-cols-1 gap-3 items-end ${clientMode ? "md:grid-cols-3" : "md:grid-cols-5"}`}>
-          {!clientMode && (
+          {!clientMode && !forcedClienteId && (
             <div className="md:col-span-2">
               <Label className="text-xs">Cliente</Label>
               <Select value={clienteId} onValueChange={setClienteId}>

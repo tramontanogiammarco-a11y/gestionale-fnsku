@@ -24,10 +24,10 @@ export default function Login() {
     setLoading(false);
     if (res.ok) {
       const requestedPath = location.state?.from;
-      const staffDestination = typeof requestedPath === "string" && requestedPath.startsWith("/wms-app")
+      const staffDestination = typeof requestedPath === "string" && requestedPath.startsWith("/wms")
         ? requestedPath
-        : "/admin";
-      navigate(res.user.role === "cliente" ? "/app" : staffDestination, { replace: true });
+        : "/wms";
+      navigate(res.user.role === "cliente" ? "/wms" : staffDestination, { replace: true });
     } else {
       setError(res.error);
     }
@@ -44,9 +44,9 @@ export default function Login() {
           <div className="logo-glow">
             <img src={logo} alt="Aimago" className="h-72 w-auto object-contain drop-shadow-[0_22px_36px_rgba(12,19,36,0.16)]" />
           </div>
-          <h1 className="mt-10 font-heading text-6xl font-black leading-none text-slate-950">Gestionale FBA</h1>
+          <h1 className="mt-10 font-heading text-6xl font-black leading-none text-slate-950">Aimago Logistics</h1>
           <p className="mt-5 max-w-lg text-lg leading-8 text-slate-600">
-            Un pannello operativo per ricezione merce, magazzino virtuale, preparazioni, etichette FNSKU e spedizioni Amazon.
+            La piattaforma unica per stock, ordini, preparazione, spedizioni, resi e assistenza logistica.
           </p>
           <div className="mt-9 grid w-full max-w-lg grid-cols-3 gap-3 text-left">
             <div className="rounded-lg border border-white/80 bg-white/55 p-4 shadow-sm backdrop-blur">
@@ -71,7 +71,7 @@ export default function Login() {
         <div className="w-full max-w-md animate-fade-up">
           <div className="mb-9 flex flex-col items-start lg:hidden">
             <img src={logo} alt="Aimago" className="h-28 w-auto object-contain drop-shadow-[0_16px_28px_rgba(12,19,36,0.12)]" />
-            <span className="mt-4 font-heading text-2xl font-extrabold text-slate-950">Gestionale FBA</span>
+            <span className="mt-4 font-heading text-2xl font-extrabold text-slate-950">Aimago Logistics</span>
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-white p-7 shadow-xl shadow-slate-200/70 sm:p-8">

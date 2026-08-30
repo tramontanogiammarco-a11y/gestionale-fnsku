@@ -2206,8 +2206,10 @@ async function assertPreparazioneDisponibile(clienteId, righe = [], options = {}
 }
 
 async function listShopifyOrders(params) {
+  const profile = await currentProfile();
+  const scopedClienteId = isStaff(profile) ? params.get("cliente_id") : profile.cliente_id;
   let query = requireSupabase().from("shopify_orders").select("*").order("processed_at", { ascending: false });
-  if (params.get("cliente_id")) query = query.eq("cliente_id", params.get("cliente_id"));
+  if (scopedClienteId) query = query.eq("cliente_id", scopedClienteId);
   if (params.get("wms_status")) query = query.eq("wms_status", params.get("wms_status"));
   const { data, error } = await query;
   if (error) fail(error.message);
@@ -2528,8 +2530,10 @@ async function updateShopifyOrderStatus(id, payload = {}) {
 }
 
 async function listWmsShipments(params) {
+  const profile = await currentProfile();
+  const scopedClienteId = isStaff(profile) ? params.get("cliente_id") : profile.cliente_id;
   let query = requireSupabase().from("wms_shipments").select("*").order("created_at", { ascending: false });
-  if (params.get("cliente_id")) query = query.eq("cliente_id", params.get("cliente_id"));
+  if (scopedClienteId) query = query.eq("cliente_id", scopedClienteId);
   if (params.get("order_id")) query = query.eq("order_id", params.get("order_id"));
   if (params.get("stato")) query = query.eq("stato", params.get("stato"));
   const { data, error } = await query;
@@ -2546,6 +2550,100 @@ async function listWmsShipments(params) {
     ...shipment,
     order: shipment.order_id ? orderMap[shipment.order_id] || null : null,
   })));
+}
+
+async function listSupportTickets(params) {
+  const profile = await currentProfile();
+  const scopedClienteId = isStaff(profile) ? params.get("cliente_id") : profile.cliente_id;
+  let query = requireSupabase().from("support_tickets").select("*").order("updated_at", { ascending: false });
+  if (scopedClienteId) query = query.eq("cliente_id", scopedClienteId);
+  if (params.get("status")) query = query.eq("status", params.get("status"));
+  const { data, error } = await query;
+  if (error) fail(error.message);
+
+  const orderIds = [...new Set((data || []).map((row) => row.order_id).filter(Boolean))];
+  const clientIds = [...new Set((data || []).map((row) => row.cliente_id).filter(Boolean))];
+  const [ordersRes, clientsRes] = await Promise.all([
+    orderIds.length ? supabase.from("shopify_orders").select("id,order_name,wms_status").in("id", orderIds) : { data: [], error: null },
+    clientIds.length ? supabase.from("clienti").select("id,ragione_sociale").in("id", clientIds) : { data: [], error: null },
+  ]);
+  const firstError = ordersRes.error || clientsRes.error;
+  if (firstError) fail(firstError.message);
+  const orderMap = Object.fromEntries((ordersRes.data || []).map((row) => [row.id, row]));
+  const clientMap = Object.fromEntries((clientsRes.data || []).map((row) => [row.id, row]));
+  return ok((data || []).map((row) => ({ ...row, order: orderMap[row.order_id] || null, cliente: clientMap[row.cliente_id] || null })));
+}
+
+async function listSupportMessages(ticketId) {
+  const { data, error } = await requireSupabase()
+    .from("support_ticket_messages")
+    .select("*")
+    .eq("ticket_id", ticketId)
+    .order("created_at", { ascending: true });
+  if (error) fail(error.message);
+  const authorIds = [...new Set((data || []).map((row) => row.author_id).filter(Boolean))];
+  const { data: authors, error: authorError } = authorIds.length
+    ? await supabase.from("profiles").select("id,name,role").in("id", authorIds)
+    : { data: [], error: null };
+  if (authorError) fail(authorError.message);
+  const authorMap = Object.fromEntries((authors || []).map((row) => [row.id, row]));
+  return ok((data || []).map((row) => ({ ...row, author: authorMap[row.author_id] || null })));
+}
+
+async function createSupportTicket(payload = {}) {
+  const profile = await currentProfile();
+  const clienteId = isStaff(profile) ? payload.cliente_id : profile.cliente_id;
+  if (!clienteId) fail("Cliente obbligatorio");
+  if (!String(payload.subject || "").trim()) fail("Oggetto obbligatorio");
+  const { data, error } = await requireSupabase().from("support_tickets").insert({
+    cliente_id: clienteId,
+    order_id: payload.order_id || null,
+    subject: String(payload.subject).trim(),
+    category: payload.category || "ordine",
+    priority: payload.priority || "normale",
+    created_by: profile.id,
+  }).select().single();
+  if (error) fail(error.message);
+  if (String(payload.message || "").trim()) {
+    await createSupportMessage(data.id, { body: payload.message, internal: false });
+  }
+  return ok(data);
+}
+
+async function createSupportMessage(ticketId, payload = {}) {
+  const profile = await currentProfile();
+  const body = String(payload.body || "").trim();
+  if (!body) fail("Messaggio obbligatorio");
+  const { data, error } = await requireSupabase().from("support_ticket_messages").insert({
+    ticket_id: ticketId,
+    author_id: profile.id,
+    body,
+    internal: isStaff(profile) ? Boolean(payload.internal) : false,
+  }).select().single();
+  if (error) fail(error.message);
+  await supabase.from("support_tickets").update({ updated_at: nowIso() }).eq("id", ticketId);
+  return ok(data);
+}
+
+async function updateSupportTicket(ticketId, payload = {}) {
+  const profile = await currentProfile();
+  if (!isStaff(profile)) fail("Solo Aimago puo aggiornare lo stato del ticket", 403);
+  const allowed = ["status", "priority", "assigned_to"];
+  const updates = Object.fromEntries(Object.entries(payload).filter(([key]) => allowed.includes(key)));
+  updates.updated_at = nowIso();
+  const { data, error } = await requireSupabase().from("support_tickets").update(updates).eq("id", ticketId).select().single();
+  if (error) fail(error.message);
+  return ok(data);
+}
+
+async function listWmsReturns(params) {
+  const profile = await currentProfile();
+  const scopedClienteId = isStaff(profile) ? params.get("cliente_id") : profile.cliente_id;
+  let query = requireSupabase().from("wms_returns").select("*").order("updated_at", { ascending: false });
+  if (scopedClienteId) query = query.eq("cliente_id", scopedClienteId);
+  const { data, error } = await query;
+  if (error) fail(error.message);
+  return ok(data || []);
 }
 
 async function createWmsShipment(payload) {
@@ -6373,6 +6471,9 @@ export const api = {
     if (path === "/shopify/connections") return listShopifyConnections();
     if (path === "/shopify/orders") return listShopifyOrders(params);
     if (path === "/wms/spedizioni") return listWmsShipments(params);
+    if (path === "/wms/tickets") return listSupportTickets(params);
+    if (path.match(/^\/wms\/tickets\/[^/]+\/messages$/)) return listSupportMessages(path.split("/")[3]);
+    if (path === "/wms/resi") return listWmsReturns(params);
     if (path === "/wms/stock") return wmsStock(params);
     if (path === "/wms/mappa") return getWmsWarehouseMap();
     if (path === "/wms/scan") return wmsScan(params);
@@ -6432,6 +6533,8 @@ export const api = {
     if (path === "/shippypro/label") return createShippyProLabel(payload);
     if (path === "/shippypro/carriers") return listShippyProCarriers(payload);
     if (path === "/wms/spedizioni") return createWmsShipment(payload);
+    if (path === "/wms/tickets") return createSupportTicket(payload);
+    if (path.match(/^\/wms\/tickets\/[^/]+\/messages$/)) return createSupportMessage(path.split("/")[3], payload);
     if (path === "/wms/ubicazioni") return createWmsLocation(payload);
     if (path === "/wms/inventario/avvia") return startWmsInventory(payload);
     if (path.match(/^\/wms\/inventario\/[^/]+\/conteggio$/)) return updateWmsInventoryCount(path.split("/")[3], payload);
@@ -6479,6 +6582,7 @@ export const api = {
     if (path.match(/^\/preparazioni-righe\/[^/]+$/)) return updatePreparazioneRiga(path.split("/")[2], payload);
     if (path.match(/^\/shopify\/orders\/[^/]+\/stato$/)) return updateShopifyOrderStatus(path.split("/")[3], payload);
     if (path.match(/^\/wms\/spedizioni\/[^/]+$/)) return updateWmsShipment(path.split("/")[3], payload);
+    if (path.match(/^\/wms\/tickets\/[^/]+$/)) return updateSupportTicket(path.split("/")[3], payload);
     if (path === "/wms/mappa") return updateWmsWarehouseMap(payload);
     if (path === "/wms/configurazione") return updateWmsSettings(payload);
     fail(`Endpoint non migrato: ${path}`, 404);

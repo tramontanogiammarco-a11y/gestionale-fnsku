@@ -1,0 +1,10 @@
+import { useEffect, useState } from "react";
+import { useNavigate, useOutletContext } from "react-router-dom";
+import { RotateCcw } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { api } from "@/lib/api";
+import { formatDate, queryForClient } from "./controlData";
+import { EmptyState, PageIntro, PageLoader, Panel, StatusPill } from "./ControlUi";
+
+const LABELS={richiesto:"Richiesto",autorizzato:"Autorizzato",in_transito:"In transito",ricevuto:"Ricevuto",controllato:"Controllato",reintegrato:"Reintegrato",rimborsato:"Rimborsato",chiuso:"Chiuso"};
+export default function ControlReturns(){const context=useOutletContext();const navigate=useNavigate();const[rows,setRows]=useState(null);useEffect(()=>{let live=true;setRows(null);api.get(`/wms/resi${queryForClient(context.clientId)}`).then((r)=>live&&setRows(r.data||[])).catch(()=>live&&setRows([]));return()=>{live=false;};},[context.clientId]);if(!rows)return<PageLoader/>;return <div><PageIntro eyebrow="Reverse logistics" title="Resi" description="Controlla autorizzazioni, rientri, verifiche merce e reintegri a stock." action={<Button onClick={()=>navigate("/wms/tickets?new=1&category=reso")}><RotateCcw className="mr-2 h-4 w-4"/>Richiedi un reso</Button>}/><Panel title="Pratiche di reso" description={`${rows.length} pratiche`}>{rows.length?<div className="divide-y divide-slate-100">{rows.map((row)=><div key={row.id} className="grid gap-3 px-5 py-5 md:grid-cols-[1fr_0.7fr_0.6fr]"><div><p className="font-extrabold">Reso {row.id.slice(0,8).toUpperCase()}</p><p className="mt-1 text-xs text-slate-500">{row.reason||"Motivazione non indicata"}</p></div><div><p className="font-mono text-xs text-slate-500">{row.tracking||"Tracking non disponibile"}</p><p className="mt-1 text-xs">{formatDate(row.updated_at,true)}</p></div><div className="md:text-right"><StatusPill tone={["chiuso","reintegrato","rimborsato"].includes(row.status)?"emerald":"amber"}>{LABELS[row.status]||row.status}</StatusPill></div></div>)}</div>:<EmptyState title="Nessun reso aperto" description="Apri un ticket collegato all'ordine per richiedere l'autorizzazione al reso."/>}</Panel></div>;}

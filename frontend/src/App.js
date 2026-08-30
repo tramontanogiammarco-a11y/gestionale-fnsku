@@ -23,11 +23,16 @@ import AdminPreparazioneDetail from "@/pages/admin/PreparazioneDetail";
 import AdminComposizioneBox from "@/pages/admin/ComposizioneBox";
 import AdminFatturazione from "@/pages/admin/Fatturazione";
 import AdminIntegrazioni from "@/pages/admin/Integrazioni";
-import AdminOrdiniWms from "@/pages/admin/OrdiniWms";
-import AdminWmsControl from "@/pages/admin/WmsControl";
 import AdminWmsInbound from "@/pages/admin/WmsInbound";
 import WmsDesktopLayout from "@/layouts/WmsDesktopLayout";
 import WmsPackingStationLayout from "@/layouts/WmsPackingStationLayout";
+import ControlOverview from "@/pages/control/ControlOverview";
+import ControlStock from "@/pages/control/ControlStock";
+import ControlOrders from "@/pages/control/ControlOrders";
+import ControlShipments from "@/pages/control/ControlShipments";
+import ControlReturns from "@/pages/control/ControlReturns";
+import ControlBilling from "@/pages/control/ControlBilling";
+import ControlTickets from "@/pages/control/ControlTickets";
 
 import ClientDashboard from "@/pages/client/Dashboard";
 import ClientReferenze from "@/pages/client/Referenze";
@@ -67,9 +72,8 @@ function RootRedirect() {
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
-  if (!user) return <Navigate to="/login" replace state={wmsOnly ? { from: "/wms-app" } : undefined} />;
-  if (wmsOnly && user.role !== "cliente") return <Navigate to="/wms-app" replace />;
-  return <Navigate to={user.role === "cliente" ? "/app" : "/admin"} replace />;
+  if (!user) return <Navigate to="/login" replace state={wmsOnly ? { from: "/wms" } : undefined} />;
+  return <Navigate to="/wms" replace />;
 }
 
 function LegacyWmsInboundRedirect() {
@@ -90,15 +94,21 @@ function App() {
             <Route
               path="/wms"
               element={
-                <ProtectedRoute roles={["admin", "staff"]}>
+                <ProtectedRoute roles={["admin", "staff", "cliente"]}>
                   <WmsDesktopLayout />
                 </ProtectedRoute>
               }
             >
-              <Route index element={<AdminWmsControl />} />
-              <Route path="mappa" element={<Suspense fallback={<div className="flex min-h-[70vh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>}><AdminWmsWarehouseMap /></Suspense>} />
-              <Route path="inbound/:id" element={<AdminWmsInbound />} />
-              <Route path="ordini" element={<AdminOrdiniWms />} />
+              <Route index element={<ControlOverview />} />
+              <Route path="stock" element={<ControlStock />} />
+              <Route path="orders" element={<ControlOrders />} />
+              <Route path="shipments" element={<ControlShipments />} />
+              <Route path="returns" element={<ControlReturns />} />
+              <Route path="billing" element={<ControlBilling />} />
+              <Route path="tickets" element={<ControlTickets />} />
+              <Route path="mappa" element={<ProtectedRoute roles={["admin", "staff"]}><Suspense fallback={<div className="flex min-h-[70vh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>}><AdminWmsWarehouseMap /></Suspense></ProtectedRoute>} />
+              <Route path="inbound/:id" element={<ProtectedRoute roles={["admin", "staff"]}><AdminWmsInbound /></ProtectedRoute>} />
+              <Route path="ordini" element={<Navigate to="/wms/orders" replace />} />
             </Route>
 
             <Route
@@ -166,7 +176,7 @@ function App() {
               <Route path="wms" element={<Navigate to="/wms" replace />} />
               <Route path="wms/mappa" element={<Navigate to="/wms/mappa" replace />} />
               <Route path="wms/inbound/:id" element={<LegacyWmsInboundRedirect />} />
-              <Route path="ordini-wms" element={<Navigate to="/wms/ordini" replace />} />
+              <Route path="ordini-wms" element={<Navigate to="/wms/orders" replace />} />
             </Route>
 
             {/* Area cliente */}
