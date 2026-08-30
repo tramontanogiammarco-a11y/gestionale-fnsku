@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import {
-  Barcode, ChevronRight, ClipboardList, LayoutDashboard, LogOut, PackageOpen,
+  ArrowLeft, Barcode, ChevronRight, ClipboardList, LayoutDashboard, LogOut, PackageOpen,
   PackagePlus, PlugZap, Receipt, Tags, Users, Warehouse,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -11,6 +11,10 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import logo from "@/assets/logo.png";
 
 const NAV_SECTIONS = [
+  {
+    label: "Sistema",
+    items: [{ to: "/wms", label: "WMS Control", icon: ArrowLeft, id: "wms-control" }],
+  },
   {
     label: "Panoramica",
     items: [{ to: "/admin", end: true, label: "Dashboard", icon: LayoutDashboard, id: "dashboard" }],
@@ -129,6 +133,9 @@ export default function AdminLayout() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <NavLink to="/wms" className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-600" aria-label="Torna a WMS Control">
+              <ArrowLeft className="h-4 w-4" />
+            </NavLink>
             <InstallAppButton compact />
             <button className="rounded-md p-2 text-slate-600" onClick={handleLogout} data-testid="logout-btn-mobile" aria-label="Esci">
               <LogOut className="h-5 w-5" />
@@ -148,6 +155,9 @@ export default function AdminLayout() {
             <span className="font-medium text-slate-500">{currentItem.label}</span>
           </div>
           <div className="ml-auto flex w-full max-w-xl items-center gap-4">
+            <NavLink to="/wms" className="flex h-9 shrink-0 items-center gap-2 rounded-md border border-slate-200 px-3 text-xs font-bold text-slate-700 transition hover:bg-slate-50">
+              <ArrowLeft className="h-4 w-4" /> WMS Control
+            </NavLink>
             <div className="min-w-0 flex-1"><GlobalSearch /></div>
             <InstallAppButton />
             <div className="flex shrink-0 items-center gap-2 text-xs font-semibold text-slate-500">
