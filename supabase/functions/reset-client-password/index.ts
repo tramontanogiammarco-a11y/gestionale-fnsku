@@ -43,13 +43,29 @@ Deno.serve(async (req) => {
     .single();
   if (clienteError || !cliente?.user_id) return json({ detail: "Account cliente non trovato" }, 404);
 
+  const { data: authUserData, error: authUserError } = await adminClient.auth.admin.getUserById(cliente.user_id);
+  const authEmail = String(authUserData?.user?.email || "").trim().toLowerCase();
+  if (authUserError || !authEmail) return json({ detail: "Email Auth del cliente non trovata" }, 404);
+
   const { error: updateError } = await adminClient.auth.admin.updateUserById(cliente.user_id, {
     password,
     user_metadata: { password_reset_by_admin_at: new Date().toISOString() },
   });
   if (updateError) return json({ detail: updateError.message }, 400);
 
-  return json({ ok: true, email: cliente.email }, 200);
+  const verificationClient = createClient(supabaseUrl, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { error: verificationError } = await verificationClient.auth.signInWithPassword({
+    email: authEmail,
+    password,
+  });
+  if (verificationError) {
+    return json({ detail: `Password aggiornata ma verifica accesso fallita: ${verificationError.message}` }, 500);
+  }
+  await verificationClient.auth.signOut();
+
+  return json({ ok: true, email: authEmail, email_changed: authEmail !== String(cliente.email || "").trim().toLowerCase() }, 200);
 });
 
 function json(body: unknown, status = 200) {

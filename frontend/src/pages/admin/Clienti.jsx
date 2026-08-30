@@ -144,6 +144,7 @@ function ResetPasswordDialog({ cliente }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [loginEmail, setLoginEmail] = useState(cliente.email || "");
 
   const handleOpen = (next) => {
     setOpen(next);
@@ -151,6 +152,7 @@ function ResetPasswordDialog({ cliente }) {
       setPassword(temporaryPassword());
       setSaved(false);
       setCopied(false);
+      setLoginEmail(cliente.email || "");
     }
   };
 
@@ -165,12 +167,14 @@ function ResetPasswordDialog({ cliente }) {
     if (password.length < 10) return toast.error("La password deve contenere almeno 10 caratteri");
     setSaving(true);
     try {
-      await api.post(`/clienti/${cliente.id}/password`, { password });
+      const response = await api.post(`/clienti/${cliente.id}/password`, { password });
+      const verifiedEmail = response.data?.email || cliente.email || "";
+      setLoginEmail(verifiedEmail);
       setSaved(true);
       try {
         await navigator.clipboard.writeText(password);
         setCopied(true);
-        toast.success("Password aggiornata e copiata");
+        toast.success("Credenziali verificate: password copiata");
       } catch (_) {
         toast.success("Password aggiornata. Ora puoi copiarla.");
       }
@@ -192,6 +196,7 @@ function ResetPasswordDialog({ cliente }) {
       <div className="space-y-4">
         <div className="rounded-md bg-slate-50 p-3"><p className="font-semibold">{cliente.ragione_sociale}</p><p className="mt-1 text-xs text-slate-500">{cliente.email}</p></div>
         <div><Label>Password temporanea</Label><div className="mt-1 flex gap-2"><Input value={password} onChange={(event) => { setPassword(event.target.value); setSaved(false); setCopied(false); }} className="font-mono" /><Button type="button" variant="outline" size="icon" onClick={() => { setPassword(temporaryPassword()); setSaved(false); setCopied(false); }} title="Genera password"><RefreshCw className="h-4 w-4" /></Button><Button type="button" variant="outline" size="icon" onClick={copyPassword} disabled={!saved} title={saved ? "Copia password attiva" : "Prima imposta la password"}>{copied ? <Check className="h-4 w-4 text-emerald-700" /> : <Copy className="h-4 w-4" />}</Button></div></div>
+        {saved && <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm"><p className="font-semibold text-emerald-900">Accesso verificato</p><p className="mt-1 font-mono text-emerald-800">{loginEmail}</p></div>}
         <p className="text-xs leading-5 text-slate-500">La password precedente non è leggibile. Premi “Imposta e copia”: la nuova password verrà attivata e poi copiata.</p>
       </div>
       <DialogFooter><Button onClick={save} disabled={saving || saved}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{saved ? <><Check className="mr-2 h-4 w-4" />Attiva e copiata</> : "Imposta e copia"}</Button></DialogFooter>
