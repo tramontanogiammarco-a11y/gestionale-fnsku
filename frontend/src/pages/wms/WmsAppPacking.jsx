@@ -30,6 +30,24 @@ function cartStateFromSnapshot(snapshot, previous = null) {
   };
 }
 
+function printBlobWithBrowserDialog(blob) {
+  const url = URL.createObjectURL(blob);
+  const frame = document.createElement("iframe");
+  frame.className = "hidden";
+  frame.src = url;
+  const cleanup = () => {
+    frame.remove();
+    URL.revokeObjectURL(url);
+  };
+  frame.onload = () => {
+    frame.contentWindow?.addEventListener("afterprint", cleanup, { once: true });
+    frame.contentWindow?.focus();
+    frame.contentWindow?.print();
+    window.setTimeout(cleanup, 300000);
+  };
+  document.body.appendChild(frame);
+}
+
 export default function WmsAppPacking() {
   const scannerRef = useRef(null);
   const scanInFlightRef = useRef(false);
@@ -135,19 +153,7 @@ export default function WmsAppPacking() {
     }
     try {
       const response = await api.get(`/wms/packing/bag/${bagCode}/etichette`, { responseType: "blob" });
-      const url = URL.createObjectURL(response.data);
-      const frame = document.createElement("iframe");
-      frame.className = "hidden";
-      frame.src = url;
-      frame.onload = () => {
-        frame.contentWindow?.focus();
-        frame.contentWindow?.print();
-        window.setTimeout(() => {
-          frame.remove();
-          URL.revokeObjectURL(url);
-        }, 3000);
-      };
-      document.body.appendChild(frame);
+      printBlobWithBrowserDialog(response.data);
       return false;
     } catch (error) {
       toast.error(error.response?.data?.detail || "Etichette corriere non disponibili");
@@ -167,19 +173,7 @@ export default function WmsAppPacking() {
     }
     try {
       const response = await api.get("/wms/packing/etichetta-test", { responseType: "blob" });
-      const url = URL.createObjectURL(response.data);
-      const frame = document.createElement("iframe");
-      frame.className = "hidden";
-      frame.src = url;
-      frame.onload = () => {
-        frame.contentWindow?.focus();
-        frame.contentWindow?.print();
-        window.setTimeout(() => {
-          frame.remove();
-          URL.revokeObjectURL(url);
-        }, 3000);
-      };
-      document.body.appendChild(frame);
+      printBlobWithBrowserDialog(response.data);
     } catch (error) {
       toast.error(error.response?.data?.detail || "Impossibile creare l'etichetta di prova");
     }

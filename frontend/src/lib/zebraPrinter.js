@@ -2,7 +2,7 @@ const ZEBRA_TIMEOUT_MS = 3500;
 
 function zebraServiceUrl(path) {
   const secure = typeof window !== "undefined" && window.location.protocol === "https:";
-  return `${secure ? "https" : "http"}://127.0.0.1:${secure ? 9101 : 9100}${path}`;
+  return `${secure ? "https" : "http"}://localhost:${secure ? 9101 : 9100}${path}`;
 }
 
 async function zebraFetch(path, options = {}) {
@@ -32,10 +32,13 @@ export async function printZebraPackingLabels(labels = []) {
   if (!labels.length) throw new Error("Nessuna etichetta da stampare");
   const printer = await getDefaultZebraPrinter();
   const data = labels.map(packingLabelZpl).join("\n");
+  const body = new URLSearchParams();
+  body.set("device", JSON.stringify(zebraDevicePayload(printer)));
+  body.set("data", data);
   await zebraFetch("/write", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ device: zebraDevicePayload(printer), data }),
+    headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" },
+    body: body.toString(),
   });
   return printer;
 }
