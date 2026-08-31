@@ -88,6 +88,16 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
             <span className="text-xs font-black uppercase text-teal-700">{purpose === "cart" ? "Scansiona il master" : "Scansiona lo slot"}</span>
             <div className="mt-2 flex items-end justify-between gap-3"><strong className="font-mono text-4xl font-black tracking-wide text-slate-950">{context.location}</strong><span className="rounded-md bg-teal-700 px-2 py-1 text-xs font-black text-white">{context.requested} pz</span></div>
             <p className="mt-2 truncate text-sm font-semibold text-slate-600">{context.title}</p>
+            {context.bagAllocations?.length > 0 && <div className="mt-4 border-t border-slate-200 pt-4">
+              <p className="text-xs font-black uppercase text-amber-800">Dopo il prelievo inserisci subito nelle bag</p>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                {context.bagAllocations.map((allocation) => <div key={`${allocation.posizione_bag}-${allocation.bag_code}`} className="rounded-md border border-amber-200 bg-amber-50 p-2">
+                  <span className="block text-[10px] font-black uppercase text-amber-800">Bag {allocation.posizione_bag}</span>
+                  <strong className="block font-mono text-sm text-slate-950">{allocation.bag_code}</strong>
+                  <span className="mt-1 block text-lg font-black text-amber-950">x{allocation.quantita}</span>
+                </div>)}
+              </div>
+            </div>}
           </div>
         </section>}
         <div className="relative aspect-[4/5] max-h-[64dvh] overflow-hidden rounded-md bg-slate-950 shadow-inner">
