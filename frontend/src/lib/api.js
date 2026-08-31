@@ -5660,7 +5660,7 @@ async function scanWmsPackingStation(payload = {}) {
 
   if (!activeBagCode) {
     if (/^CARRELLO-[0-9]{2}$/.test(code)) return packingCartSnapshot(code);
-    if (code.startsWith("PK-")) return completePackingStationLabel(await packingStationSnapshotForLabel(code), code);
+    if (code.startsWith("PK-")) fail("Scansiona prima la bag da imballare");
     if (!/^B-[0-9]{5}$/.test(code)) fail("Scansiona prima il barcode della bag");
     const snapshot = await packingStationSnapshot(code);
     if (snapshot.data.phase === "completed") {

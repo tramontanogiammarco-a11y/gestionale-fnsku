@@ -17,6 +17,7 @@ function isCompletePackingScan(value) {
 
 export default function WmsAppPacking() {
   const scannerRef = useRef(null);
+  const scanInFlightRef = useRef(false);
   const [station, setStation] = useState(null);
   const [cart, setCart] = useState(null);
   const [code, setCode] = useState("");
@@ -126,7 +127,8 @@ export default function WmsAppPacking() {
 
   const submitScan = async (overrideCode = null) => {
     const value = normalizeScannerCode(overrideCode ?? code);
-    if (!value || working) return;
+    if (!value || working || scanInFlightRef.current) return;
+    scanInFlightRef.current = true;
     setWorking(true);
     try {
       const response = await api.post("/wms/packing/station/scan", {
@@ -158,6 +160,7 @@ export default function WmsAppPacking() {
       toast.error(error.response?.data?.detail || "Scansione non valida");
       if (navigator.vibrate) navigator.vibrate(180);
     } finally {
+      scanInFlightRef.current = false;
       setWorking(false);
       focusScanner();
     }
