@@ -24,13 +24,30 @@ Deno.serve(async (req) => {
 
   const payload = await req.json().catch(() => ({}));
   const orderId = String(payload.order_id || "").trim();
+  const action = String(payload.action || "").trim().toLowerCase();
   const items = Array.isArray(payload.items) ? payload.items : [];
   if (!orderId) return json({ detail: "Ordine non indicato" }, 400);
-  if (!items.length) return json({ detail: "Inserisci almeno un prodotto" }, 400);
   const admin = createClient(url, service);
   const { data: order, error: orderError } = await admin.from("shopify_orders").select("id,cliente_id,wms_status,order_name").eq("id", orderId).single();
   if (orderError || !order) return json({ detail: "Ordine non trovato" }, 404);
   if (profile.role === "cliente" && order.cliente_id !== profile.cliente_id) return json({ detail: "Ordine non appartenente al cliente" }, 403);
+
+  if (action === "cancel") {
+    if (order.wms_status !== "da_preparare") return json({ detail: "Puoi annullare soltanto un ordine nello stato Nuovo" }, 409);
+    const now = new Date().toISOString();
+    const { error: cancelError } = await admin.from("shopify_orders").update({
+      wms_status: "annullato",
+      gate_status: "ignorato",
+      exception_type: null,
+      exception_reasons: [],
+      stock_shortages: [],
+      updated_at: now,
+    }).eq("id", order.id);
+    if (cancelError) return json({ detail: cancelError.message }, 400);
+    return json({ ok: true, order_id: order.id, order_name: order.order_name, wms_status: "annullato" });
+  }
+
+  if (!items.length) return json({ detail: "Inserisci almeno un prodotto" }, 400);
   if (!editableStatuses.has(order.wms_status)) return json({ detail: "Il picking è già iniziato: apri un ticket per richiedere la modifica" }, 409);
 
   const referenceIds = [...new Set(items.map((item: any) => String(item.referenza_id || "")).filter(Boolean))];
