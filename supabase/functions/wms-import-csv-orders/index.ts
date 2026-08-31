@@ -50,6 +50,7 @@ Deno.serve(async (req) => {
     sku: new Map((references || []).filter((r) => norm(r.sku)).map((r) => [norm(r.sku), r])),
     fnsku: new Map((references || []).filter((r) => norm(r.fnsku)).map((r) => [norm(r.fnsku), r])),
   };
+  const stockByReferenceId = await availableStockByReference(admin, clienteId, references || []);
   const orders = normalized.orders.map((order: any) => {
     const items = order.items.map((item: any) => {
       const reference: any = maps.ean.get(norm(item.ean)) || maps.sku.get(norm(item.sku)) || maps.fnsku.get(norm(item.fnsku)) || null;
@@ -77,7 +78,8 @@ Deno.serve(async (req) => {
   for (const order of orders as any[]) {
     const existing: any = existingMap.get(identifier(order.order_number));
     const now = new Date().toISOString();
-    const row = { cliente_id: clienteId, shop_domain: "csv-import", shopify_order_id: identifier(order.order_number), order_name: order.order_number, financial_status: "csv", fulfillment_status: "unfulfilled", wms_status: "in_verifica", gate_status: "da_verificare", processed_at: dateOrNow(order.processed_at), note: order.note || null, customer_email: order.email || null, customer_phone: order.phone || null, ship_name: order.recipient || null, ship_company: order.company || null, ship_address1: order.address1 || null, ship_address2: order.address2 || null, ship_zip: order.zip || null, ship_city: order.city || null, ship_province: order.province || null, ship_country: order.country || null, ship_country_code: order.country_code || null, raw: { source: "csv", imported_at: now }, updated_at: now };
+    const gate = await gateImportedOrder(order, stockByReferenceId);
+    const row = { cliente_id: clienteId, shop_domain: "csv-import", shopify_order_id: identifier(order.order_number), order_name: order.order_number, financial_status: "csv", fulfillment_status: "unfulfilled", wms_status: gate.wms_status, gate_status: gate.gate_status, exception_type: gate.exception_type, exception_reasons: gate.exception_reasons, address_validation: gate.address_validation, stock_shortages: gate.stock_shortages, gate_checked_at: now, unblocked_at: gate.gate_status === "sbloccato" ? now : null, processed_at: dateOrNow(order.processed_at), note: order.note || null, customer_email: order.email || null, customer_phone: order.phone || null, ship_name: order.recipient || null, ship_company: order.company || null, ship_address1: order.address1 || null, ship_address2: order.address2 || null, ship_zip: order.zip || null, ship_city: order.city || null, ship_province: order.province || null, ship_country: order.country || null, ship_country_code: order.country_code || null, raw: { source: "csv", imported_at: now }, updated_at: now };
     const savedResult = existing ? await admin.from("shopify_orders").update(row).eq("id", existing.id).select().single() : await admin.from("shopify_orders").insert(row).select().single();
     if (savedResult.error) return response({ detail: savedResult.error.message }, 400);
     if (existing) { const deleted = await admin.from("shopify_order_items").delete().eq("order_id", existing.id); if (deleted.error) return response({ detail: deleted.error.message }, 400); }
@@ -103,5 +105,52 @@ function normalizeOrders(rows: Record<string, unknown>[]) {
     const order = grouped.get(orderNumber); const itemKey = `${norm(ean)}|${norm(sku)}|${norm(fnsku)}`; const existing = order.items.get(itemKey); if (existing) existing.quantity += quantity; else order.items.set(itemKey, { ean, sku, fnsku, title: field(source, "title"), quantity, source_row: line });
   });
   return { errors, orders: [...grouped.values()].map((order) => ({ ...order, items: [...order.items.values()] })) };
+}
+
+async function availableStockByReference(admin: any, clienteId: string, references: any[]) {
+  const empty = new Map<string, number>();
+  const { data: entries, error: entriesError } = await admin.from("entrate").select("id").eq("cliente_id", clienteId);
+  if (entriesError || !(entries || []).length) return empty;
+  const entryIds = entries.map((entry: any) => entry.id);
+  const { data: entryRows, error: rowsError } = await admin.from("entrate_righe").select("id,ean,fnsku").in("entrata_id", entryIds);
+  if (rowsError || !(entryRows || []).length) return empty;
+  const rowIds = entryRows.map((row: any) => row.id);
+  const { data: movements, error: movementsError } = await admin.from("wms_inbound_movements").select("entrata_riga_id,quantita").eq("disposizione", "disponibile").in("entrata_riga_id", rowIds);
+  if (movementsError) return empty;
+  const referenceByEan = new Map(references.filter((reference: any) => norm(reference.ean)).map((reference: any) => [norm(reference.ean), reference]));
+  const referenceByFnsku = new Map(references.filter((reference: any) => norm(reference.fnsku)).map((reference: any) => [norm(reference.fnsku), reference]));
+  const rowById = new Map((entryRows || []).map((row: any) => [row.id, row]));
+  const totals = new Map<string, number>();
+  for (const movement of movements || []) {
+    const source = rowById.get(movement.entrata_riga_id);
+    const reference = source && (referenceByFnsku.get(norm(source.fnsku)) || referenceByEan.get(norm(source.ean)));
+    if (!reference?.id) continue;
+    totals.set(reference.id, Number(totals.get(reference.id) || 0) + Number(movement.quantita || 0));
+  }
+  return totals;
+}
+
+async function gateImportedOrder(order: any, stockByReferenceId: Map<string, number>) {
+  const address = String(order.address1 || "").trim();
+  const zip = String(order.zip || "").trim();
+  const city = String(order.city || "").trim();
+  const province = String(order.province || "").trim();
+  const countryCode = String(order.country_code || "IT").trim().toUpperCase();
+  const recipient = String(order.recipient || order.company || "").trim();
+  const addressReasons = [
+    ...(!recipient ? ["Destinatario mancante"] : []),
+    ...(!address ? ["Indirizzo mancante"] : []),
+    ...(address && !/\d/.test(address) ? ["Numero civico non riconosciuto"] : []),
+    ...(!zip ? ["CAP mancante"] : []),
+    ...(!city ? ["Citta mancante"] : []),
+    ...(!countryCode ? ["Paese mancante"] : []),
+    ...(countryCode === "IT" && !/^\d{5}$/.test(zip) ? ["CAP italiano non valido"] : []),
+    ...(countryCode === "IT" && !province ? ["Provincia mancante"] : []),
+  ];
+  const addressValidation = { valid: addressReasons.length === 0, confidence: addressReasons.length ? 0 : 0.92, source: "controllo_locale", reasons: addressReasons, normalized: { recipient, address, zip, city, province, country_code: countryCode }, verified_at: new Date().toISOString() };
+  if (addressReasons.length) return { wms_status: "eccezione", gate_status: "eccezione_indirizzo", exception_type: "indirizzo", exception_reasons: addressReasons, address_validation: addressValidation, stock_shortages: [] };
+  const stockShortages = order.items.filter((item: any) => !item.reference || Number(stockByReferenceId.get(item.reference.id) || 0) < Number(item.quantity || 0)).map((item: any) => ({ referenza_id: item.reference?.id || null, titolo: item.title, required: Number(item.quantity || 0), available: Number(stockByReferenceId.get(item.reference?.id) || 0), missing: Math.max(0, Number(item.quantity || 0) - Number(stockByReferenceId.get(item.reference?.id) || 0)) }));
+  if (stockShortages.length) return { wms_status: "eccezione", gate_status: "eccezione_stock", exception_type: "stock", exception_reasons: stockShortages.map((item: any) => item.titolo), address_validation: addressValidation, stock_shortages: stockShortages };
+  return { wms_status: "da_preparare", gate_status: "sbloccato", exception_type: null, exception_reasons: [], address_validation: addressValidation, stock_shortages: [] };
 }
 function response(body: unknown, status = 200) { return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } }); }
