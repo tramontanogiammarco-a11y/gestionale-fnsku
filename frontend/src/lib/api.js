@@ -5519,9 +5519,16 @@ async function packingCartSnapshot(rawCartCode) {
     : { data: [], error: null };
   if (sessionsError) fail(sessionsError.message);
   const sessionsByBag = groupBy(sessions || [], "bag_code");
+  const righe = Math.max(1, Number(cart.righe || 1));
+  const colonne = Math.max(1, Number(cart.colonne || 1));
   return ok({
     phase: "cart_ready",
     cart_code: cart.codice,
+    cart_layout: {
+      righe,
+      colonne,
+      capacita: righe * colonne,
+    },
     bag_code: null,
     batch: null,
     sessions: [],

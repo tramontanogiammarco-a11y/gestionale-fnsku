@@ -16,6 +16,20 @@ function isCompletePackingScan(value) {
   return /^CARRELLO-[0-9]{2}$/.test(code) || /^B-[0-9]{5}$/.test(code) || /^PK-[A-F0-9]{12}$/.test(code);
 }
 
+function cartStateFromSnapshot(snapshot, previous = null) {
+  const bags = snapshot?.cart_bags || previous?.bags || [];
+  const highestPosition = bags.reduce((highest, bag) => Math.max(highest, Number(bag.posizione || 0)), 0);
+  const righe = Math.max(1, Number(snapshot?.cart_layout?.righe || previous?.righe || 1));
+  const colonne = Math.max(1, Number(snapshot?.cart_layout?.colonne || previous?.colonne || highestPosition || 1));
+  return {
+    cart_code: snapshot?.cart_code || previous?.cart_code,
+    bags,
+    righe,
+    colonne,
+    capacity: Math.max(Number(snapshot?.cart_layout?.capacita || previous?.capacity || 0), righe * colonne, highestPosition),
+  };
+}
+
 export default function WmsAppPacking() {
   const scannerRef = useRef(null);
   const scanInFlightRef = useRef(false);
@@ -57,7 +71,7 @@ export default function WmsAppPacking() {
       setCode("");
       return next;
     }
-    setCart({ cart_code: next.cart_code, bags: next.cart_bags || [] });
+    setCart((current) => cartStateFromSnapshot(next, current));
     setStation(next);
     setCode("");
     return next;
@@ -91,7 +105,15 @@ export default function WmsAppPacking() {
     const timeout = window.setTimeout(() => {
       if (cart?.cart_code) {
         refreshCart().catch(() => {
-          setStation({ phase: "cart_ready", cart_code: cart.cart_code, cart_bags: cart.bags, sessions: [], labels: [], summary: { orders: 0 } });
+          setStation({
+            phase: "cart_ready",
+            cart_code: cart.cart_code,
+            cart_bags: cart.bags,
+            cart_layout: { righe: cart.righe, colonne: cart.colonne, capacita: cart.capacity },
+            sessions: [],
+            labels: [],
+            summary: { orders: 0 },
+          });
           setCode("");
         }).finally(focusScanner);
         return;
@@ -183,7 +205,7 @@ export default function WmsAppPacking() {
         toast.success("Carrello completato. Scansiona un nuovo carrello o una bag.");
         return;
       }
-      if (next.phase === "cart_ready") setCart({ cart_code: next.cart_code, bags: next.cart_bags || [] });
+      if (next.phase === "cart_ready") setCart((current) => cartStateFromSnapshot(next, current));
       setStation(next);
       setCode("");
       if (navigator.vibrate) navigator.vibrate([55, 35, 55]);
@@ -206,6 +228,9 @@ export default function WmsAppPacking() {
   const phase = station?.phase || "scan_bag";
   const completedLabels = station?.labels?.filter((label) => label.scanned).length || 0;
   const pendingLabels = station?.labels?.filter((label) => !label.scanned).length || 0;
+  const visibleCart = cart?.cart_code ? cart : (station?.phase === "cart_ready" ? cartStateFromSnapshot(station) : null);
+  const visibleCartBags = visibleCart?.bags || [];
+  const bagsByPosition = new Map(visibleCartBags.map((bag) => [Number(bag.posizione), bag]));
   const prompt = phase === "double_check"
     ? "Riscansiona la stessa bag"
     : phase === "scan_labels"
@@ -273,22 +298,51 @@ export default function WmsAppPacking() {
       </form>}
     </section>
 
-    {phase === "cart_ready" && station?.cart_bags?.length > 0 && <section className="rounded-md border border-slate-200 bg-white p-5">
+    {visibleCart && visibleCartBags.length > 0 && <section className="rounded-md border border-slate-200 bg-white p-5">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-black">{station.cart_code}</h2>
-          <p className="mt-1 text-sm text-slate-500">Inserisci una bag fissa per vedere i prodotti prima di chiuderla.</p>
+          <h2 className="text-xl font-black">{visibleCart.cart_code}</h2>
+          <p className="mt-1 text-sm text-slate-500">Schema fisico del carrello: la bag attiva resta evidenziata durante il packing.</p>
         </div>
-        <span className="rounded-full bg-teal-50 px-3 py-1 text-sm font-black text-teal-800">
-          {station.cart_bags.filter((bag) => bag.completed).length}/{station.cart_bags.length} completate
-        </span>
+        <div className="shrink-0 text-right">
+          <span className="block rounded-full bg-teal-50 px-3 py-1 text-sm font-black text-teal-800">
+            {visibleCartBags.filter((bag) => bag.completed).length}/{visibleCartBags.length} completate
+          </span>
+          <span className="mt-1 block text-xs font-bold text-slate-500">{visibleCart.righe} righe x {visibleCart.colonne} colonne</span>
+        </div>
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
-        {station.cart_bags.map((bag) => <button key={bag.bag_code} type="button" onClick={() => { setCode(bag.bag_code); focusScanner(); }} className={`rounded-md border p-3 text-left ${bag.ready ? "border-teal-200 bg-teal-50" : bag.completed ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-slate-50"}`}>
-          <span className="block text-xs font-black uppercase text-slate-500">Posizione {bag.posizione}</span>
-          <strong className="mt-1 block font-mono text-lg">{bag.bag_code}</strong>
-          <span className="mt-1 block text-xs font-bold text-slate-500">{bag.ready ? `${bag.orders} ordine pronto` : bag.completed ? "Completata" : "Vuota"}</span>
-        </button>)}
+      <div className="mt-4 overflow-x-auto pb-2">
+        <div
+          className="grid gap-2"
+          style={{
+            gridTemplateColumns: `repeat(${visibleCart.colonne}, minmax(104px, 1fr))`,
+            minWidth: `${Math.max(visibleCart.colonne * 112, 280)}px`,
+          }}
+        >
+          {Array.from({ length: visibleCart.capacity }, (_, index) => index + 1).map((position) => {
+            const bag = bagsByPosition.get(position);
+            const active = Boolean(bag && station?.bag_code === bag.bag_code);
+            return <button
+              key={position}
+              type="button"
+              disabled={!bag || phase !== "cart_ready"}
+              onClick={() => { setCode(bag.bag_code); focusScanner(); }}
+              className={`min-h-24 rounded-md border p-3 text-left transition-colors ${active
+                ? "border-amber-500 bg-amber-50 ring-2 ring-amber-400"
+                : bag?.completed
+                  ? "border-emerald-200 bg-emerald-50"
+                  : bag?.ready
+                    ? "border-teal-200 bg-teal-50"
+                    : "border-dashed border-slate-200 bg-slate-50"}`}
+            >
+              <span className="block text-xs font-black uppercase text-slate-500">Posizione {position}</span>
+              <strong className={`mt-1 block font-mono text-base ${bag ? "text-slate-950" : "text-slate-300"}`}>{bag?.bag_code || "Vuota"}</strong>
+              <span className={`mt-1 block text-xs font-bold ${active ? "text-amber-800" : "text-slate-500"}`}>
+                {active ? "Bag attiva" : bag?.ready ? `${bag.orders} ordine pronto` : bag?.completed ? "Completata" : bag ? "Libera" : "Nessuna bag"}
+              </span>
+            </button>;
+          })}
+        </div>
       </div>
     </section>}
 
