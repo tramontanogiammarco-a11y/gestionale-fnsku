@@ -60,6 +60,7 @@ import WmsAppBagHistory from "@/pages/wms/WmsAppBagHistory";
 import WmsAppProductSearch from "@/pages/wms/WmsAppProductSearch";
 import WmsAppTools from "@/pages/wms/WmsAppTools";
 import WmsAppSettings from "@/pages/wms/WmsAppSettings";
+import WmsAppCartBags from "@/pages/wms/WmsAppCartBags";
 
 const AdminWmsWarehouseMap = lazy(() => import("@/pages/admin/WmsWarehouseMap"));
 
@@ -156,6 +157,7 @@ function App() {
               <Route path="bag-storico" element={<WmsAppBagHistory />} />
               <Route path="cerca-prodotto" element={<WmsAppProductSearch />} />
               <Route path="strumenti" element={<WmsAppTools />} />
+              <Route path="carrelli-bag" element={<WmsAppCartBags />} />
               <Route path="configurazione" element={<WmsAppSettings />} />
             </Route>
 

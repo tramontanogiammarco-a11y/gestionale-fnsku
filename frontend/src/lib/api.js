@@ -4091,6 +4091,178 @@ async function listWmsBags() {
   return ok(data || []);
 }
 
+function normalizedWmsCartCode(value) {
+  const code = normalizedScanCode(value);
+  if (!/^[A-Z][A-Z0-9_-]{2,39}$/.test(code)) {
+    fail("Scansiona un carrello nel formato CARRELLO-01.");
+  }
+  return code;
+}
+
+async function assertWmsCartUnlocked(cartCode) {
+  if (cartCode !== "CARRELLO-01") return;
+  const { data, error } = await requireSupabase()
+    .from("wms_galluse_batches")
+    .select("id")
+    .in("stato", ["da_associare_bag", "in_corso"])
+    .limit(1);
+  if (error) fail(error.message);
+  if ((data || []).length) fail("Il carrello Galluse e in uso: completa o annulla il picking prima di modificare le bag.", 409);
+}
+
+async function findOrCreateWmsCart(rawCode) {
+  const codice = normalizedWmsCartCode(rawCode);
+  const sb = requireSupabase();
+  const { data: existing, error: existingError } = await sb.from("wms_carts").select("*").eq("codice", codice).maybeSingle();
+  if (existingError) fail(existingError.message);
+  if (existing) return existing;
+  const { data: created, error: createError } = await sb.from("wms_carts")
+    .insert({ codice, righe: 2, colonne: 5, updated_at: nowIso() })
+    .select()
+    .single();
+  if (createError || !created) fail(createError?.message || "Carrello non creato");
+  return created;
+}
+
+async function wmsCartSnapshotFromCart(cart) {
+  const sb = requireSupabase();
+  const { data: positions, error: positionsError } = await sb
+    .from("wms_cart_bag_positions")
+    .select("*")
+    .eq("cart_id", cart.id)
+    .order("posizione");
+  if (positionsError) fail(positionsError.message);
+  const bagIds = (positions || []).map((position) => position.bag_id);
+  const { data: bags, error: bagsError } = bagIds.length
+    ? await sb.from("wms_bags").select("id,codice,stato").in("id", bagIds)
+    : { data: [], error: null };
+  if (bagsError) fail(bagsError.message);
+  const bagMap = Object.fromEntries((bags || []).map((bag) => [bag.id, bag]));
+  return ok({
+    cart,
+    positions: (positions || []).map((position) => ({ ...position, bag: bagMap[position.bag_id] || null })),
+    capacity: Number(cart.righe || 1) * Number(cart.colonne || 1),
+  });
+}
+
+async function wmsCartSnapshot(rawCode, { create = false } = {}) {
+  await assertWmsStaff();
+  const codice = normalizedWmsCartCode(rawCode);
+  const sb = requireSupabase();
+  let { data: cart, error } = await sb.from("wms_carts").select("*").eq("codice", codice).maybeSingle();
+  if (error) fail(error.message);
+  if (!cart && create) cart = await findOrCreateWmsCart(codice);
+  if (!cart) fail("Carrello non configurato. Scansionalo per crearlo.", 404);
+  return wmsCartSnapshotFromCart(cart);
+}
+
+async function syncGalluseLegacyCart(cart) {
+  if (cart.codice !== "CARRELLO-01") return;
+  const sb = requireSupabase();
+  const { data: positions, error: positionsError } = await sb
+    .from("wms_cart_bag_positions")
+    .select("posizione,bag_id,bag_code")
+    .eq("cart_id", cart.id)
+    .lte("posizione", 10)
+    .order("posizione");
+  if (positionsError) fail(positionsError.message);
+  const { error: clearError } = await sb.from("wms_galluse_cart_positions").delete().gte("posizione", 1);
+  if (clearError) fail(clearError.message);
+  if (!(positions || []).length) return;
+  const { error: insertError } = await sb.from("wms_galluse_cart_positions").insert((positions || []).map((position) => ({
+    posizione: position.posizione,
+    bag_id: position.bag_id,
+    bag_code: position.bag_code,
+    updated_at: nowIso(),
+  })));
+  if (insertError) fail(insertError.message);
+}
+
+async function scanWmsCart(payload = {}) {
+  await assertWmsStaff();
+  const cart = await findOrCreateWmsCart(payload.codice || payload.code);
+  return wmsCartSnapshotFromCart(cart);
+}
+
+async function updateWmsCart(rawCode, payload = {}) {
+  await assertWmsStaff();
+  const cart = await findOrCreateWmsCart(rawCode);
+  await assertWmsCartUnlocked(cart.codice);
+  const righe = Math.floor(Number(payload.righe || cart.righe));
+  const colonne = Math.floor(Number(payload.colonne || cart.colonne));
+  if (righe < 1 || righe > 6 || colonne < 1 || colonne > 10) fail("La griglia puo avere da 1 a 6 righe e da 1 a 10 colonne.");
+  const capacity = righe * colonne;
+  const { count, error: countError } = await requireSupabase()
+    .from("wms_cart_bag_positions")
+    .select("posizione", { count: "exact", head: true })
+    .eq("cart_id", cart.id)
+    .gt("posizione", capacity);
+  if (countError) fail(countError.message);
+  if (count) fail("Prima libera le bag che resterebbero fuori dalla nuova griglia.", 409);
+  const { data: updated, error } = await requireSupabase().from("wms_carts")
+    .update({ righe, colonne, updated_at: nowIso() })
+    .eq("id", cart.id)
+    .select()
+    .single();
+  if (error || !updated) fail(error?.message || "Griglia non aggiornata");
+  await syncGalluseLegacyCart(updated);
+  return wmsCartSnapshotFromCart(updated);
+}
+
+async function assignWmsCartBag(rawCode, payload = {}) {
+  await assertWmsStaff();
+  const cart = await findOrCreateWmsCart(rawCode);
+  await assertWmsCartUnlocked(cart.codice);
+  const posizione = Math.floor(Number(payload.posizione || 0));
+  const capacity = Number(cart.righe || 1) * Number(cart.colonne || 1);
+  if (posizione < 1 || posizione > capacity) fail("Posizione della griglia non valida.");
+  const bagCode = normalizedScanCode(payload.bag_code || payload.codice || payload.code);
+  if (!/^B-[0-9]{5}$/.test(bagCode)) fail("Scansiona una bag nel formato B-12345.");
+  const sb = requireSupabase();
+  let { data: bag, error: bagError } = await sb.from("wms_bags").select("*").eq("codice", bagCode).maybeSingle();
+  if (bagError) fail(bagError.message);
+  if (!bag) {
+    const { data: created, error: createError } = await sb.from("wms_bags").insert({ codice: bagCode, stato: "disponibile", updated_at: nowIso() }).select().single();
+    if (createError || !created) fail(createError?.message || "Bag non creata");
+    bag = created;
+  }
+  if (bag.stato !== "disponibile") fail(`La bag ${bagCode} e in uso e non puo essere configurata.`, 409);
+  const { data: currentPlacement, error: placementError } = await sb
+    .from("wms_cart_bag_positions")
+    .select("cart_id,posizione")
+    .eq("bag_id", bag.id)
+    .maybeSingle();
+  if (placementError) fail(placementError.message);
+  if (currentPlacement && (currentPlacement.cart_id !== cart.id || Number(currentPlacement.posizione) !== posizione)) {
+    fail(`La bag ${bagCode} e gia assegnata a un'altra casella. Rimuovila prima da li.`, 409);
+  }
+  const { error } = await sb.from("wms_cart_bag_positions").upsert({
+    cart_id: cart.id,
+    posizione,
+    bag_id: bag.id,
+    bag_code: bagCode,
+    updated_at: nowIso(),
+  }, { onConflict: "cart_id,posizione" });
+  if (error) fail(error.message);
+  await syncGalluseLegacyCart(cart);
+  return wmsCartSnapshotFromCart(cart);
+}
+
+async function removeWmsCartBag(rawCode, payload = {}) {
+  await assertWmsStaff();
+  const cart = await findOrCreateWmsCart(rawCode);
+  await assertWmsCartUnlocked(cart.codice);
+  const posizione = Math.floor(Number(payload.posizione || 0));
+  if (posizione < 1) fail("Posizione della griglia non valida.");
+  const { error } = await requireSupabase().from("wms_cart_bag_positions")
+    .delete()
+    .eq("cart_id", cart.id)
+    .eq("posizione", posizione);
+  if (error) fail(error.message);
+  await syncGalluseLegacyCart(cart);
+  return wmsCartSnapshotFromCart(cart);
+}
+
 async function emptyAllWmsBags() {
   await assertWmsStaff();
   const sb = requireSupabase();
@@ -6598,6 +6770,7 @@ export const api = {
     if (path.match(/^\/wms\/picking-galluse\/[^/]+$/)) return wmsGalluseSnapshot(path.split("/")[3]);
     if (path === "/wms/packing") return listWmsPacking();
     if (path === "/wms/bags") return listWmsBags();
+    if (path.match(/^\/wms\/carrelli\/[^/]+$/)) return wmsCartSnapshot(decodeURIComponent(path.split("/")[3]));
     if (path === "/wms/bags/storico") return listWmsBagHistory();
     if (path === "/wms/bags/pdf" && config.responseType === "blob") return wmsBagsPdf();
     if (path.match(/^\/wms\/packing\/bag\/B-[0-9]{5}\/etichette$/) && config.responseType === "blob") return wmsPackingCarrierLabelsPdf(path.split("/")[4]);
@@ -6637,6 +6810,9 @@ export const api = {
     if (path === "/wms/stock/scambia") return swapWmsLocations(payload);
     if (path === "/wms/stock/home-catalog-reset") return resetWmsHomeStockCatalog();
     if (path === "/wms/bags/svuota") return emptyAllWmsBags();
+    if (path === "/wms/carrelli/scansiona") return scanWmsCart(payload);
+    if (path.match(/^\/wms\/carrelli\/[^/]+\/bag$/)) return assignWmsCartBag(decodeURIComponent(path.split("/")[3]), payload);
+    if (path.match(/^\/wms\/carrelli\/[^/]+\/rimuovi-bag$/)) return removeWmsCartBag(decodeURIComponent(path.split("/")[3]), payload);
     if (path === "/wms/picking-massivo/avvia") return startWmsMassPicking(payload);
     if (path.match(/^\/wms\/picking-massivo\/[^/]+\/scan$/)) return scanWmsMassPicking(path.split("/")[3], payload);
     if (path === "/wms/picking-galluse/avvia") return startWmsGallusePicking(payload);
@@ -6702,6 +6878,7 @@ export const api = {
     if (path.match(/^\/wms\/tickets\/[^/]+$/)) return updateSupportTicket(path.split("/")[3], payload);
     if (path === "/wms/mappa") return updateWmsWarehouseMap(payload);
     if (path === "/wms/configurazione") return updateWmsSettings(payload);
+    if (path.match(/^\/wms\/carrelli\/[^/]+$/)) return updateWmsCart(decodeURIComponent(path.split("/")[3]), payload);
     fail(`Endpoint non migrato: ${path}`, 404);
   },
 

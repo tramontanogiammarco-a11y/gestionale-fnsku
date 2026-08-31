@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   Archive, ChevronRight, DatabaseZap, MapPinned, PackageSearch, Printer,
-  QrCode, ScanLine, ShoppingBag, SlidersHorizontal,
+  QrCode, ScanLine, ShoppingBag, ShoppingCart, SlidersHorizontal,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -15,6 +15,7 @@ export default function WmsAppTools() {
   const showStockReset = new URLSearchParams(location.search).get("stock") === "home";
   const showBagEmpty = new URLSearchParams(location.search).get("bags") === "empty";
   const tools = [
+    { icon: ShoppingCart, title: "Carrelli / Bag", subtitle: "Scansiona un carrello e configura la griglia delle bag", action: () => navigate("/wms-app/carrelli-bag") },
     { icon: Printer, title: "Codici stampabili", subtitle: "Etichette e codici di magazzino", action: () => toast.info("Stampe: prossimo collegamento operativo") },
     { icon: MapPinned, title: "Ubicazioni magazzino", subtitle: "Pallet e slot censiti", action: () => navigate("/wms-app/ubicazioni") },
     { icon: Archive, title: "Inventario", subtitle: "Conta e rettifica una posizione", action: () => navigate("/wms-app/inventario") },
