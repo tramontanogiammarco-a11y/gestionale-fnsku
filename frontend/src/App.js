@@ -83,6 +83,11 @@ function LegacyWmsInboundRedirect() {
   return <Navigate to={`/wms/inbound/${id}`} replace />;
 }
 
+function WmsIntegrationsRoute() {
+  const { user } = useAuth();
+  return user?.role === "cliente" ? <ClientIntegrazioni /> : <Navigate to="/admin/integrazioni" replace />;
+}
+
 function App() {
   return (
     <div className="App">
@@ -109,6 +114,7 @@ function App() {
               <Route path="returns" element={<ControlReturns />} />
               <Route path="billing" element={<ControlBilling />} />
               <Route path="tickets" element={<ControlTickets />} />
+              <Route path="integrations" element={<WmsIntegrationsRoute />} />
               <Route path="mappa" element={<ProtectedRoute roles={["admin", "staff"]}><Suspense fallback={<div className="flex min-h-[70vh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>}><AdminWmsWarehouseMap /></Suspense></ProtectedRoute>} />
               <Route path="inbound/:id" element={<ProtectedRoute roles={["admin", "staff"]}><AdminWmsInbound /></ProtectedRoute>} />
               <Route path="ordini" element={<Navigate to="/wms/orders" replace />} />

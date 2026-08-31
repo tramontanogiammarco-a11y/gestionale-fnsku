@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import {
   AlertTriangle, Boxes, LayoutDashboard, LogOut, MapPinned, MessageSquareText,
   PackageSearch, Receipt, RotateCcw, ShoppingCart, Smartphone, Truck, Users, Warehouse,
+  PlugZap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -31,6 +32,10 @@ const ADMIN_NAV = [
   { to: "/packing-station", label: "Packing station", icon: Boxes },
 ];
 
+const CLIENT_NAV = [
+  { to: "/wms/integrations", label: "Integrazioni", icon: PlugZap },
+];
+
 export default function WmsDesktopLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -54,7 +59,7 @@ export default function WmsDesktopLayout() {
   }, [clientId, isStaff]);
 
   const current = useMemo(() => {
-    const all = [...CORE_NAV, ...(isStaff ? ADMIN_NAV : [])];
+    const all = [...CORE_NAV, ...(isStaff ? ADMIN_NAV : CLIENT_NAV)];
     return [...all].sort((a, b) => b.to.length - a.to.length)
       .find((item) => item.end ? location.pathname === item.to : location.pathname.startsWith(item.to)) || CORE_NAV[0];
   }, [isStaff, location.pathname]);
@@ -72,6 +77,7 @@ export default function WmsDesktopLayout() {
         <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Control Tower">
           <NavGroup label="Control Tower" items={CORE_NAV} />
           {isStaff && <NavGroup label="Operazioni Aimago" items={ADMIN_NAV} className="mt-6" />}
+          {!isStaff && <NavGroup label="Collegamenti" items={CLIENT_NAV} className="mt-6" />}
         </nav>
         <div className="border-t border-slate-100 p-3">
           <div className="mb-2 flex items-center gap-3 rounded-md bg-slate-50 p-3">
@@ -97,7 +103,7 @@ export default function WmsDesktopLayout() {
               <button type="button" onClick={signOut} className="flex h-10 w-10 items-center justify-center rounded-md text-slate-500 hover:bg-rose-50 hover:text-rose-700 lg:hidden" aria-label="Esci"><LogOut className="h-5 w-5" /></button>
             </div>
           </div>
-          <nav className="flex gap-1 overflow-x-auto border-t border-slate-100 px-3 lg:hidden" aria-label="Control Tower mobile">{CORE_NAV.map((item) => <MobileNavLink key={item.to} item={item} />)}</nav>
+          <nav className="flex gap-1 overflow-x-auto border-t border-slate-100 px-3 lg:hidden" aria-label="Control Tower mobile">{[...CORE_NAV, ...(!isStaff ? CLIENT_NAV : [])].map((item) => <MobileNavLink key={item.to} item={item} />)}</nav>
         </header>
         <main className="px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
           <div className="mx-auto max-w-[1500px] animate-fade-up"><Outlet context={{ clientId: clientId === "all" ? null : clientId, clients, selectedClient, isStaff }} /></div>

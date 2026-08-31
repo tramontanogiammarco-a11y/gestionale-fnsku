@@ -54,7 +54,7 @@ Deno.serve(async (req) => {
         cliente_id: clienteId,
         shop_domain: shopDomain,
         user_id: authData.user.id,
-        return_path: profile.role === "cliente" ? "/app/integrazioni" : "/admin/integrazioni",
+        return_path: profile.role === "cliente" ? "/wms/integrations" : "/admin/integrazioni",
         exp: Date.now() + 10 * 60 * 1000,
         nonce: crypto.randomUUID(),
       },

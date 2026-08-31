@@ -22,7 +22,9 @@ export default function ClientIntegrazioni() {
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [ordersLoading, setOrdersLoading] = useState(false);
   const [result, setResult] = useState(null);
+  const [ordersResult, setOrdersResult] = useState(null);
 
   const loadConnection = useCallback(async () => {
     setLoading(true);
@@ -78,6 +80,25 @@ export default function ClientIntegrazioni() {
       toast.error(formatApiError(error.response?.data?.detail || error.message));
     } finally {
       setImporting(false);
+    }
+  };
+
+  const importOrders = async (dryRun) => {
+    if (!shopDomain.trim()) return toast.error("Collega prima il negozio Shopify");
+    setOrdersLoading(true);
+    setOrdersResult(null);
+    try {
+      const { data } = await api.post("/shopify/orders/import", {
+        cliente_id: user?.cliente_id,
+        shop_domain: shopDomain,
+        dry_run: dryRun,
+      });
+      setOrdersResult(data);
+      toast.success(dryRun ? "Anteprima ordini pronta" : "Ordini Shopify importati");
+    } catch (error) {
+      toast.error(formatApiError(error.response?.data?.detail || error.message));
+    } finally {
+      setOrdersLoading(false);
     }
   };
 
@@ -146,6 +167,17 @@ export default function ClientIntegrazioni() {
                 </Button>
                 <Button variant="ghost" onClick={loadConnection} disabled={loading}><RefreshCw className="mr-2 h-4 w-4" /> Aggiorna stato</Button>
               </div>
+              <div className="mt-4 border-t border-emerald-200 pt-4">
+                <p className="mb-3 text-xs font-bold uppercase text-emerald-900">Sincronizzazione ordini</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" onClick={() => importOrders(true)} disabled={ordersLoading} className="bg-white">
+                    {ordersLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Eye className="mr-2 h-4 w-4" />} Anteprima ordini
+                  </Button>
+                  <Button onClick={() => importOrders(false)} disabled={ordersLoading}>
+                    {ordersLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <DownloadCloud className="mr-2 h-4 w-4" />} Importa ordini Shopify
+                  </Button>
+                </div>
+              </div>
             </div>
           )}
         </Card>
@@ -190,6 +222,16 @@ export default function ClientIntegrazioni() {
             </Table>
           )}
           {!result.dry_run && <Button asChild className="mt-5"><Link to="/app/referenze">Vedi referenze importate <ArrowRight className="ml-2 h-4 w-4" /></Link></Button>}
+        </Card>
+      )}
+      {ordersResult && (
+        <Card className="p-5 sm:p-6" data-testid="client-shopify-orders-result">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div><h2 className="font-heading text-xl font-bold">{ordersResult.dry_run ? "Anteprima ordini Shopify" : "Ordini Shopify importati"}</h2><p className="mt-1 text-sm text-muted-foreground">{ordersResult.shop_domain}</p></div>
+            <div className="flex gap-2"><Metric label="Ordini" value={ordersResult.ordini ?? ((ordersResult.create || 0) + (ordersResult.update || 0))}/><Metric label="Righe" value={ordersResult.righe ?? "-"}/><Metric label="Collegate" value={ordersResult.righe_collegate ?? "-"}/></div>
+          </div>
+          {ordersResult.anteprima?.length > 0 && <Table className="mt-5"><TableHeader><TableRow><TableHead>Ordine</TableHead><TableHead>Stato</TableHead><TableHead>Righe</TableHead><TableHead>Totale</TableHead></TableRow></TableHeader><TableBody>{ordersResult.anteprima.map((row)=><TableRow key={row.shopify_order_id}><TableCell className="font-bold">{row.order_name}</TableCell><TableCell>{row.fulfillment_status||row.financial_status||"-"}</TableCell><TableCell>{row.righe}</TableCell><TableCell>{row.total_price?`${row.total_price} ${row.currency||""}`:"-"}</TableCell></TableRow>)}</TableBody></Table>}
+          {!ordersResult.dry_run && <Button asChild className="mt-5"><Link to="/wms/orders">Apri ordini <ArrowRight className="ml-2 h-4 w-4"/></Link></Button>}
         </Card>
       )}
     </div>
