@@ -2228,7 +2228,12 @@ async function assertPreparazioneDisponibile(clienteId, righe = [], options = {}
 async function listShopifyOrders(params) {
   const profile = await currentProfile();
   const scopedClienteId = isStaff(profile) ? params.get("cliente_id") : profile.cliente_id;
-  let query = requireSupabase().from("shopify_orders").select("*").order("processed_at", { ascending: false });
+  let query = requireSupabase()
+    .from("shopify_orders")
+    .select("*")
+    .order("processed_at", { ascending: false })
+    .order("created_at", { ascending: false })
+    .order("order_name", { ascending: false });
   if (scopedClienteId) query = query.eq("cliente_id", scopedClienteId);
   if (params.get("wms_status")) query = query.eq("wms_status", params.get("wms_status"));
   const { data, error } = await query;
@@ -3313,7 +3318,9 @@ async function wmsOperationalOrdersData(params = new URLSearchParams()) {
     .from("shopify_orders")
     .select("*")
     .neq("wms_status", "annullato")
-    .order("processed_at", { ascending: false });
+    .order("processed_at", { ascending: false })
+    .order("created_at", { ascending: false })
+    .order("order_name", { ascending: false });
   if (params.get("cliente_id")) query = query.eq("cliente_id", params.get("cliente_id"));
   const { data, error } = await query;
   if (error) fail(error.message);
