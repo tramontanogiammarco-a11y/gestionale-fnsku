@@ -28,6 +28,7 @@ type ShopifyProduct = {
   vendor?: string | null;
   status?: string | null;
   featuredImage?: { url?: string | null } | null;
+  media?: { nodes?: Array<{ preview?: { image?: { url?: string | null } | null } | null }> };
   variants?: { nodes?: ShopifyVariant[] };
 };
 
@@ -120,7 +121,7 @@ Deno.serve(async (req) => {
 
   const { data: existing, error: existingError } = await adminClient
     .from("referenze")
-    .select("id,ean,sku")
+    .select("id,ean,sku,foto_url")
     .eq("cliente_id", clienteId);
   if (existingError) return json({ detail: existingError.message }, 400);
 
@@ -139,7 +140,9 @@ Deno.serve(async (req) => {
           ean: row.ean,
           sku: row.sku,
           titolo: row.titolo,
-          foto_url: row.foto_url,
+          // Shopify is the default source, but a manually uploaded photo must never be erased
+          // when the connected product has no media yet.
+          foto_url: row.foto_url || existingRow.foto_url || null,
           origine: "shopify",
         })
         .eq("id", existingRow.id);
@@ -182,6 +185,11 @@ async function fetchShopifyVariants(shopDomain: string, token: string) {
           vendor
           status
           featuredImage { url }
+          media(first: 1) {
+            nodes {
+              preview { image { url } }
+            }
+          }
           variants(first: 100) {
             nodes {
               id
@@ -219,6 +227,9 @@ async function fetchShopifyVariants(shopDomain: string, token: string) {
 
     const products: ShopifyProduct[] = body.data?.products?.nodes || [];
     for (const product of products) {
+      const galleryImage = product.media?.nodes
+        ?.map((media) => media.preview?.image?.url || null)
+        .find(Boolean) || null;
       for (const variant of product.variants?.nodes || []) {
         const barcode = String(variant.barcode || "").trim();
         const sku = String(variant.sku || "").trim();
@@ -236,7 +247,7 @@ async function fetchShopifyVariants(shopDomain: string, token: string) {
           sku: sku || null,
           asin: null,
           titolo: title || catalogCode,
-          foto_url: variant.image?.url || product.featuredImage?.url || null,
+          foto_url: variant.image?.url || product.featuredImage?.url || galleryImage,
           fnsku: null,
           is_bundle: false,
           componenti: [],
