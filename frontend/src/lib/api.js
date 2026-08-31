@@ -2390,7 +2390,7 @@ async function updateShopifyOrderStatus(id, payload = {}) {
   const profile = await currentProfile();
   if (!isStaff(profile)) fail("Accesso riservato allo staff", 403);
 
-  const allowed = ["in_verifica", "eccezione", "da_preparare", "in_preparazione", "pronto", "spedito", "annullato"];
+  const allowed = ["in_verifica", "eccezione", "da_preparare", "in_preparazione", "in_attesa_packing", "in_packing", "imballato", "spedito", "annullato"];
   const stato = optionalText(payload.wms_status || payload.stato);
   if (!allowed.includes(stato)) fail("Stato ordine WMS non valido");
 
@@ -2401,7 +2401,7 @@ async function updateShopifyOrderStatus(id, payload = {}) {
     .single();
   if (orderError || !order) fail(orderError?.message || "Ordine WMS non trovato", 404);
 
-  if (["in_preparazione", "pronto"].includes(stato)) {
+  if (["in_preparazione", "in_attesa_packing"].includes(stato)) {
     const { data: items, error: itemsError } = await requireSupabase()
       .from("shopify_order_items")
       .select("id,referenza_id,titolo")
@@ -3527,7 +3527,7 @@ async function wmsPickingPlan(order, items) {
   return { ready: errors.length === 0 && replenishment.length === 0, allocations, replenishment, errors, locationMap, mapSettings: { ...mapSettings, obstacles: allLocations } };
 }
 
-function validateWmsOrderAddress(order = {}) {
+function validateWmsOrderAddressLocally(order = {}) {
   const reasons = [];
   const countryCode = normalizedText(order.ship_country_code || order.ship_country);
   const address = optionalText(order.ship_address1);
@@ -3556,6 +3556,39 @@ function validateWmsOrderAddress(order = {}) {
   };
 }
 
+async function validateWmsOrderAddress(order = {}) {
+  const localValidation = validateWmsOrderAddressLocally(order);
+  if (!localValidation.valid) return localValidation;
+
+  try {
+    const { data, error } = await requireSupabase().functions.invoke("wms-validate-address", {
+      body: {
+        recipient: localValidation.normalized.recipient,
+        address: localValidation.normalized.address,
+        zip: localValidation.normalized.zip,
+        city: localValidation.normalized.city,
+        province: localValidation.normalized.province,
+        country_code: localValidation.normalized.country_code,
+      },
+    });
+    if (error || data?.detail || typeof data?.valid !== "boolean") {
+      return { ...localValidation, map_check: "non_disponibile" };
+    }
+    return {
+      valid: data.valid,
+      confidence: Number(data.confidence || (data.valid ? 0.98 : 0)),
+      source: data.source || "google_maps",
+      reasons: Array.isArray(data.reasons) ? data.reasons : [],
+      normalized: { ...localValidation.normalized, ...(data.normalized || {}) },
+      map_check: data.map_check || "verificato",
+      verified_at: data.verified_at || nowIso(),
+    };
+  } catch {
+    // Il controllo sintattico mantiene il flusso operativo disponibile se il provider esterno non risponde.
+    return { ...localValidation, map_check: "non_disponibile" };
+  }
+}
+
 async function evaluateWmsOrderGate(orderId, options = {}) {
   const profile = await assertWmsStaff();
   const { data: order, error: orderError } = await requireSupabase()
@@ -3565,7 +3598,7 @@ async function evaluateWmsOrderGate(orderId, options = {}) {
     .single();
   if (orderError || !order) fail(orderError?.message || "Ordine non trovato", 404);
 
-  const lockedStatuses = ["in_preparazione", "pronto", "in_attesa_packing", "in_packing", "spedito", "annullato"];
+  const lockedStatuses = ["in_preparazione", "in_attesa_packing", "in_packing", "imballato", "spedito", "annullato"];
   if (lockedStatuses.includes(order.wms_status) && !options.force) {
     return { ...order, skipped: true };
   }
@@ -3577,7 +3610,7 @@ async function evaluateWmsOrderGate(orderId, options = {}) {
   if (itemsError) fail(itemsError.message);
 
   const checkedAt = nowIso();
-  const addressValidation = validateWmsOrderAddress(order);
+  const addressValidation = await validateWmsOrderAddress(order);
   let update;
   let eventReason;
 
@@ -4104,7 +4137,7 @@ async function emptyAllWmsBags() {
     : { data: [], error: null };
   if (linkedOrdersError) fail(linkedOrdersError.message);
   const resettableOrderIds = (linkedOrders || [])
-    .filter((order) => !["pronto", "spedito", "annullato"].includes(order.wms_status))
+    .filter((order) => !["imballato", "spedito", "annullato"].includes(order.wms_status))
     .map((order) => order.id);
 
   const steps = [
@@ -5343,7 +5376,7 @@ async function completePackingLabel(session) {
   const completedAt = nowIso();
   const { error: orderError } = await requireSupabase()
     .from("shopify_orders")
-    .update({ wms_status: "pronto", updated_at: completedAt })
+    .update({ wms_status: "imballato", updated_at: completedAt })
     .eq("id", session.order_id);
   if (orderError) fail(orderError.message);
 
@@ -5440,12 +5473,18 @@ async function scanWmsPackingStation(payload = {}) {
     const eligible = snapshot.data.sessions.filter((session) => ["in_attesa_packing", "da_imballare", "in_verifica_bag"].includes(session.stato));
     if (!eligible.length) fail("Questa bag e gia in attesa delle etichette");
     const scannedAt = nowIso();
-    const { error } = await requireSupabase().from("wms_packing_sessions").update({
-      stato: "in_verifica_bag",
-      bag_first_scanned_at: scannedAt,
-      updated_at: scannedAt,
-    }).in("id", eligible.map((session) => session.id));
-    if (error) fail(error.message);
+    const [sessionResult, orderResult] = await Promise.all([
+      requireSupabase().from("wms_packing_sessions").update({
+        stato: "in_verifica_bag",
+        bag_first_scanned_at: scannedAt,
+        updated_at: scannedAt,
+      }).in("id", eligible.map((session) => session.id)),
+      requireSupabase().from("shopify_orders").update({
+        wms_status: "in_packing",
+        updated_at: scannedAt,
+      }).in("id", eligible.map((session) => session.order_id)),
+    ]);
+    if (sessionResult.error || orderResult.error) fail((sessionResult.error || orderResult.error).message);
     return packingStationSnapshot(code);
   }
 
@@ -5530,8 +5569,12 @@ async function startWmsPacking(orderId, payload = {}) {
     if (massError || !["completata", "in_packing", "completata_packing"].includes(massBatch?.stato)) fail("Completa prima il picking Massivo", 409);
   }
   const session = existingSession || await ensurePackingSession(orderId, pickTask?.id || null);
-  const { error } = await requireSupabase().from("wms_packing_sessions").update({ stato: "in_corso", station_code: optionalText(payload.station_code) || "PACK-01", operatore_id: profile.id, started_at: nowIso(), updated_at: nowIso() }).eq("id", session.id);
-  if (error) fail(error.message);
+  const startedAt = nowIso();
+  const [sessionResult, orderResult] = await Promise.all([
+    requireSupabase().from("wms_packing_sessions").update({ stato: "in_corso", station_code: optionalText(payload.station_code) || "PACK-01", operatore_id: profile.id, started_at: startedAt, updated_at: startedAt }).eq("id", session.id),
+    requireSupabase().from("shopify_orders").update({ wms_status: "in_packing", updated_at: startedAt }).eq("id", orderId),
+  ]);
+  if (sessionResult.error || orderResult.error) fail((sessionResult.error || orderResult.error).message);
   return wmsPackingSnapshot(orderId);
 }
 
@@ -5560,8 +5603,12 @@ async function completeWmsPacking(sessionId) {
   if (sessionError || !session) fail(sessionError?.message || "Sessione packing non trovata", 404);
   const snapshot = await wmsPackingSnapshot(session.order_id);
   if (snapshot.data.current_line) fail("Verifica tutti i prodotti prima di chiudere il collo");
-  const { error } = await requireSupabase().from("wms_packing_sessions").update({ stato: "completata", completed_at: nowIso(), updated_at: nowIso() }).eq("id", sessionId);
-  if (error) fail(error.message);
+  const completedAt = nowIso();
+  const [sessionResult, orderResult] = await Promise.all([
+    requireSupabase().from("wms_packing_sessions").update({ stato: "completata", completed_at: completedAt, updated_at: completedAt }).eq("id", sessionId),
+    requireSupabase().from("shopify_orders").update({ wms_status: "imballato", updated_at: completedAt }).eq("id", session.order_id),
+  ]);
+  if (sessionResult.error || orderResult.error) fail((sessionResult.error || orderResult.error).message);
   let releaseBag = !session.mass_batch_id;
   if (session.mass_batch_id) {
     const { error: linkError } = await requireSupabase().from("wms_mass_pick_orders").update({ stato: "completato" }).eq("batch_id", session.mass_batch_id).eq("order_id", session.order_id);

@@ -39,7 +39,9 @@ export const ORDER_STATUS = {
   eccezione: { label: "Eccezione", tone: "rose" },
   da_preparare: { label: "Nuovo", tone: "amber" },
   in_preparazione: { label: "In preparazione", tone: "sky" },
-  pronto: { label: "Pronto", tone: "violet" },
+  in_attesa_packing: { label: "Pronto da imballare", tone: "violet" },
+  in_packing: { label: "In imballaggio", tone: "sky" },
+  imballato: { label: "Imballato", tone: "violet" },
   spedito: { label: "Spedito", tone: "teal" },
   annullato: { label: "Annullato", tone: "slate" },
 };
