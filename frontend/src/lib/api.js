@@ -96,7 +96,15 @@ function normalizedText(value) {
 }
 
 function normalizedScanCode(value) {
-  return String(value || "").trim().toUpperCase().replace(/\s+/g, "");
+  return normalizeScannerCode(value);
+}
+
+export function normalizeScannerCode(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/['’‘`´ʼ]/g, "-")
+    .replace(/\s+/g, "");
 }
 
 function groupBy(rows, key) {

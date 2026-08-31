@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Barcode, CheckCircle2, ChevronRight, Layers3, Loader2, MapPin, PackageCheck, Play, ScanLine, ShoppingBag, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { api, fileUrl } from "@/lib/api";
+import { api, fileUrl, normalizeScannerCode } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
@@ -147,7 +147,7 @@ function GalluseMission({ batchId }) {
   useEffect(() => { setCode(""); setQuantity(0); }, [current?.id, current?.location_confirmed_at]);
 
   const scanCart = async (rawCode) => {
-    const value = String(rawCode || code).trim().toUpperCase();
+    const value = normalizeScannerCode(rawCode || code);
     if (!value) { toast.error("Scansiona il codice master del carrello."); return; }
     setWorking(true);
     try {
@@ -163,7 +163,7 @@ function GalluseMission({ batchId }) {
     }
   };
   const scanSlot = async (rawCode) => {
-    const value = String(rawCode || code).trim();
+    const value = normalizeScannerCode(rawCode || code);
     if (!value) return;
     setWorking(true);
     try {

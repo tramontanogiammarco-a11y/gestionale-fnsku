@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Grid3X3, Loader2, Minus, Plus, ScanLine, ShoppingBag, ShoppingCart, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
+import { api, normalizeScannerCode } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import CameraScanner from "@/components/wms/CameraScanner";
@@ -36,7 +36,7 @@ export default function WmsAppCartBags() {
   useEffect(() => { loadDefault(); }, [loadDefault]);
 
   const scanCart = async (rawValue) => {
-    const codice = String(rawValue || cartCode).trim().toUpperCase();
+    const codice = normalizeScannerCode(rawValue || cartCode);
     if (!codice) return toast.error("Scansiona prima il carrello.");
     setWorking(true);
     try {
@@ -64,7 +64,7 @@ export default function WmsAppCartBags() {
   };
 
   const assignBag = async (rawValue) => {
-    const codice = String(rawValue || bagCode).trim().toUpperCase();
+    const codice = normalizeScannerCode(rawValue || bagCode);
     if (!snapshot || !selectedPosition) return;
     if (!codice) return toast.error("Scansiona la bag da inserire.");
     setWorking(true);
@@ -107,7 +107,7 @@ export default function WmsAppCartBags() {
     <section className="border-2 border-slate-950 bg-white p-4">
       <p className="text-xs font-black uppercase text-teal-700">1. Carrello</p>
       <h2 className="mt-1 text-xl font-black">Scansiona il master del carrello</h2>
-      <div className="mt-4 flex gap-2"><Input value={cartCode} onChange={(event) => setCartCode(event.target.value.toUpperCase())} placeholder={DEFAULT_CART} className="h-14 flex-1 font-mono text-lg" autoComplete="off" /><Button type="button" className="h-14 px-4" onClick={() => setScanner("cart")} disabled={working} aria-label="Apri fotocamera carrello"><ScanLine className="h-5 w-5" /></Button></div>
+      <div className="mt-4 flex gap-2"><Input value={cartCode} onChange={(event) => setCartCode(normalizeScannerCode(event.target.value))} placeholder={DEFAULT_CART} className="h-14 flex-1 font-mono text-lg" autoComplete="off" /><Button type="button" className="h-14 px-4" onClick={() => setScanner("cart")} disabled={working} aria-label="Apri fotocamera carrello"><ScanLine className="h-5 w-5" /></Button></div>
       <Button type="button" variant="outline" className="mt-2 h-11 w-full" onClick={() => scanCart()} disabled={!cartCode.trim() || working}>Apri carrello</Button>
     </section>
 
@@ -138,7 +138,7 @@ export default function WmsAppCartBags() {
             </div>;
           })}
         </div>
-        {selectedPosition && <div className="mt-4 rounded-md border-2 border-teal-500 bg-teal-50 p-3"><div className="flex items-center justify-between"><span className="text-sm font-black text-teal-950">Posizione {selectedPosition}</span><button type="button" onClick={() => setSelectedPosition(null)} className="text-xs font-bold text-slate-500">Annulla</button></div><div className="mt-3 flex gap-2"><Input value={bagCode} onChange={(event) => setBagCode(event.target.value.toUpperCase())} placeholder="B-12345" className="h-12 flex-1 font-mono" autoComplete="off" /><Button type="button" className="h-12 px-4" onClick={() => setScanner("bag")} disabled={working} aria-label="Scansiona bag"><ScanLine className="h-5 w-5" /></Button></div><Button type="button" variant="outline" className="mt-2 h-10 w-full bg-white" onClick={() => assignBag()} disabled={!bagCode.trim() || working}>Assegna bag alla posizione {selectedPosition}</Button></div>}
+        {selectedPosition && <div className="mt-4 rounded-md border-2 border-teal-500 bg-teal-50 p-3"><div className="flex items-center justify-between"><span className="text-sm font-black text-teal-950">Posizione {selectedPosition}</span><button type="button" onClick={() => setSelectedPosition(null)} className="text-xs font-bold text-slate-500">Annulla</button></div><div className="mt-3 flex gap-2"><Input value={bagCode} onChange={(event) => setBagCode(normalizeScannerCode(event.target.value))} placeholder="B-12345" className="h-12 flex-1 font-mono" autoComplete="off" /><Button type="button" className="h-12 px-4" onClick={() => setScanner("bag")} disabled={working} aria-label="Scansiona bag"><ScanLine className="h-5 w-5" /></Button></div><Button type="button" variant="outline" className="mt-2 h-10 w-full bg-white" onClick={() => assignBag()} disabled={!bagCode.trim() || working}>Assegna bag alla posizione {selectedPosition}</Button></div>}
       </section>
     </>}
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Barcode, Camera, CheckCircle2, ImageIcon, Loader2, PackageCheck, Printer, ShoppingBag } from "lucide-react";
 import { toast } from "sonner";
-import { api, fileUrl } from "@/lib/api";
+import { api, fileUrl, normalizeScannerCode } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import CameraScanner from "@/components/wms/CameraScanner";
 
@@ -11,7 +11,7 @@ function cartIsComplete(snapshot) {
 }
 
 function isCompletePackingScan(value) {
-  const code = String(value || "").trim().toUpperCase().replace(/\s+/g, "");
+  const code = normalizeScannerCode(value);
   return /^CARRELLO-[0-9]{2}$/.test(code) || /^B-[0-9]{5}$/.test(code) || /^PK-[A-F0-9]{12}$/.test(code);
 }
 
@@ -125,7 +125,7 @@ export default function WmsAppPacking() {
   };
 
   const submitScan = async (overrideCode = null) => {
-    const value = String(overrideCode ?? code).trim().toUpperCase().replace(/\s+/g, "");
+    const value = normalizeScannerCode(overrideCode ?? code);
     if (!value || working) return;
     setWorking(true);
     try {
@@ -203,7 +203,7 @@ export default function WmsAppPacking() {
           ref={scannerRef}
           value={code}
           onChange={(event) => {
-            const nextCode = event.target.value.toUpperCase();
+            const nextCode = normalizeScannerCode(event.target.value);
             setCode(nextCode);
             if (isCompletePackingScan(nextCode)) window.setTimeout(() => submitScan(nextCode), 0);
           }}
