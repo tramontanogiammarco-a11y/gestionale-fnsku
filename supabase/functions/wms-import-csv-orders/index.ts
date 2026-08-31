@@ -56,7 +56,13 @@ Deno.serve(async (req) => {
       const reference: any = maps.ean.get(norm(item.ean)) || maps.sku.get(norm(item.sku)) || maps.fnsku.get(norm(item.fnsku)) || null;
       return { ...item, reference, title: item.title || reference?.titolo || item.ean || item.sku || item.fnsku };
     });
-    return { ...order, items, pieces: items.reduce((sum: number, item: any) => sum + item.quantity, 0), unmatched: items.filter((item: any) => !item.reference).length };
+    return {
+      ...order,
+      zip: normalizeCsvZip(order.zip, order.country_code),
+      items,
+      pieces: items.reduce((sum: number, item: any) => sum + item.quantity, 0),
+      unmatched: items.filter((item: any) => !item.reference).length,
+    };
   });
   const preview = {
     valid: normalized.errors.length === 0 && orders.length > 0,
@@ -94,6 +100,11 @@ Deno.serve(async (req) => {
 function key(value: unknown) { return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, ""); }
 function field(row: Record<string, unknown>, name: string) { const normalized = Object.fromEntries(Object.entries(row || {}).map(([k, v]) => [key(k), v])); for (const alias of aliases[name] || []) { if (String(normalized[alias] ?? "").trim()) return String(normalized[alias]).trim(); } return ""; }
 function norm(value: unknown) { return String(value || "").trim().toLowerCase(); }
+function normalizeCsvZip(value: unknown, countryCode: unknown) {
+  const zip = String(value || "").trim();
+  const country = String(countryCode || "IT").trim().toUpperCase();
+  return country === "IT" && /^\d{1,4}$/.test(zip) ? zip.padStart(5, "0") : zip;
+}
 function identifier(value: unknown) { return `csv:${norm(value)}`; }
 function itemIdentifier(item: any, index: number) { return `csv:${index + 1}:${norm(item.ean || item.sku || item.fnsku || item.title).replace(/[^a-z0-9]+/g, "-").slice(0, 80) || "riga"}`; }
 function dateOrNow(value: unknown) { const parsed = value ? new Date(String(value)) : new Date(); return Number.isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString(); }
