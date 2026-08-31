@@ -1574,10 +1574,10 @@ async function createWmsLocation(payload = {}) {
   return ok(data);
 }
 
-async function getWmsWarehouseMap() {
+async function getWmsWarehouseMap(params = new URLSearchParams()) {
   await assertWmsStaff();
   const [stockResponse, { data: settings, error: settingsError }] = await Promise.all([
-    wmsStock(new URLSearchParams()),
+    wmsStock(params),
     requireSupabase().from("wms_warehouse_map").select("*").eq("id", true).single(),
   ]);
   if (settingsError) fail(settingsError.message);
@@ -6539,7 +6539,7 @@ export const api = {
     if (path.match(/^\/wms\/tickets\/[^/]+\/messages$/)) return listSupportMessages(path.split("/")[3]);
     if (path === "/wms/resi") return listWmsReturns(params);
     if (path === "/wms/stock") return wmsStock(params);
-    if (path === "/wms/mappa") return getWmsWarehouseMap();
+    if (path === "/wms/mappa") return getWmsWarehouseMap(params);
     if (path === "/wms/scan") return wmsScan(params);
     if (path === "/wms/configurazione") return getWmsSettings();
     if (path === "/wms/ordini") return listWmsOperationalOrders(params);

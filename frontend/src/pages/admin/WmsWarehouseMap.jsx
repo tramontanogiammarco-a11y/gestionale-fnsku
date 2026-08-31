@@ -1,6 +1,7 @@
 import {
   forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 } from "react";
+import { useOutletContext } from "react-router-dom";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
@@ -637,6 +638,7 @@ const WarehouseScene = forwardRef(function WarehouseScene({
 });
 
 export default function WmsWarehouseMap() {
+  const { clientId, selectedClient } = useOutletContext() || {};
   const sceneRef = useRef(null);
   const [locations, setLocations] = useState([]);
   const [map, setMap] = useState(DEFAULT_MAP);
@@ -655,19 +657,21 @@ export default function WmsWarehouseMap() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await api.get("/wms/mappa");
+      const suffix = clientId ? `?cliente_id=${encodeURIComponent(clientId)}` : "";
+      const response = await api.get(`/wms/mappa${suffix}`);
       const nextLocations = normalizeLocations(response.data.locations || []);
       const nextMap = normalizeMap(response.data.map || {});
       setLocations(nextLocations);
       setMap(nextMap);
       setInitialSnapshot(mapSnapshot(nextLocations, nextMap));
       setMoveHistory([]);
+      setSelectedId(null);
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Mappa non disponibile");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [clientId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -806,6 +810,7 @@ export default function WmsWarehouseMap() {
             <Badge variant="outline"><Truck className="mr-1 h-3.5 w-3.5 text-emerald-600" /> Outbound</Badge>
             <Badge variant="outline"><PackageCheck className="mr-1 h-3.5 w-3.5 text-sky-600" /> Packing station</Badge>
             <Badge variant="outline"><Boxes className="mr-1 h-3.5 w-3.5 text-sky-700" /> {stats.occupied} occupate</Badge>
+            {clientId && <Badge className="bg-cyan-100 text-cyan-900 hover:bg-cyan-100">Stock: {selectedClient?.ragione_sociale || "Cliente selezionato"}</Badge>}
             {dirty && <Badge className="bg-amber-100 text-amber-900 hover:bg-amber-100">Modifiche non salvate</Badge>}
           </div>
         </div>
