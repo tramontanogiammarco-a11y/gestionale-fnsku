@@ -6751,6 +6751,73 @@ function generateLabelsPdfBlob(payload = {}) {
   return new Blob([pdf], { type: "application/pdf" });
 }
 
+function generateTestShippingLabelPdfBlob() {
+  const { widthPt, heightPt } = parseLabelFormat("100x150");
+  const margin = 16;
+  const tracking = "AIMTEST20260831001";
+  const barcodeX = margin;
+  const barcodeY = 48;
+  const barcodeWidth = widthPt - margin * 2;
+  const barcodeHeight = 72;
+  const text = (font, size, x, y, value) => [
+    "BT",
+    `/${font} ${size} Tf`,
+    `${x} ${y} Td`,
+    `(${pdfEscape(value)}) Tj`,
+    "ET",
+  ].join("\n");
+  const line = (x1, y1, x2, y2, width = 1) => `${width} w ${x1} ${y1} m ${x2} ${y2} l S`;
+  const stream = [
+    "0 0 0 RG",
+    "0 0 0 rg",
+    `${margin / 2} ${margin / 2} ${widthPt - margin} ${heightPt - margin} re S`,
+    text("F2", 24, margin, heightPt - 42, "AIMAGO"),
+    text("F2", 10, widthPt - 64, heightPt - 35, "TEST"),
+    text("F1", 7, widthPt - 92, heightPt - 47, "ETICHETTA NON REALE"),
+    line(margin, heightPt - 60, widthPt - margin, heightPt - 60, 1.5),
+    text("F2", 8, margin, heightPt - 78, "MITTENTE"),
+    text("F2", 11, margin, heightPt - 94, "Aimago Logistics"),
+    text("F1", 9, margin, heightPt - 108, "Via Esempio 10 - 00100 Roma RM"),
+    line(margin, heightPt - 120, widthPt - margin, heightPt - 120),
+    text("F2", 8, margin, heightPt - 140, "DESTINATARIO"),
+    text("F2", 16, margin, heightPt - 164, "Mario Rossi"),
+    text("F1", 12, margin, heightPt - 184, "Via delle Prove 25"),
+    text("F2", 13, margin, heightPt - 205, "20100 MILANO MI"),
+    text("F1", 10, margin, heightPt - 222, "ITALIA"),
+    line(margin, heightPt - 235, widthPt - margin, heightPt - 235),
+    text("F2", 8, margin, heightPt - 253, "SERVIZIO"),
+    text("F2", 12, margin, heightPt - 271, "STANDARD 24/48H"),
+    text("F2", 8, widthPt - 92, heightPt - 253, "COLLO"),
+    text("F2", 12, widthPt - 92, heightPt - 271, "1 / 1"),
+    line(margin, 135, widthPt - margin, 135),
+    barcodeOps(tracking, barcodeX, barcodeY, barcodeWidth, barcodeHeight),
+    text("F3", 11, ((widthPt - tracking.length * 6.6) / 2).toFixed(2), 28, tracking),
+    text("F1", 7, margin, 14, "Tracking finto per prova di stampa"),
+  ].join("\n");
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${widthPt.toFixed(2)} ${heightPt.toFixed(2)}] /Resources << /Font << /F1 4 0 R /F2 5 0 R /F3 6 0 R >> >> /Contents 7 0 R >>`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Courier-Bold >>",
+    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(pdf.length);
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefOffset = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => {
+    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  });
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return new Blob([pdf], { type: "application/pdf" });
+}
+
 export const api = {
   async get(url, config = {}) {
     const { path, params } = pathAndQuery(url);
@@ -6780,6 +6847,7 @@ export const api = {
     if (path.match(/^\/wms\/carrelli\/[^/]+$/)) return wmsCartSnapshot(decodeURIComponent(path.split("/")[3]));
     if (path === "/wms/bags/storico") return listWmsBagHistory();
     if (path === "/wms/bags/pdf" && config.responseType === "blob") return wmsBagsPdf();
+    if (path === "/wms/packing/etichetta-test" && config.responseType === "blob") return ok(generateTestShippingLabelPdfBlob());
     if (path.match(/^\/wms\/packing\/bag\/B-[0-9]{5}\/etichette$/) && config.responseType === "blob") return wmsPackingCarrierLabelsPdf(path.split("/")[4]);
     if (path.match(/^\/wms\/packing\/bag\/B-[0-9]{5}$/)) return wmsBagPackingSnapshot(path.split("/")[4]);
     if (path.match(/^\/wms\/picking\/[^/]+$/)) return wmsPickSnapshot(path.split("/")[3]);

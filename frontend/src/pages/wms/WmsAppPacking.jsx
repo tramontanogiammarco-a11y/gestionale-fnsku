@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Barcode, Camera, CheckCircle2, ImageIcon, Loader2, PackageCheck, ShoppingBag } from "lucide-react";
+import { Barcode, Camera, CheckCircle2, ImageIcon, Loader2, PackageCheck, Printer, ShoppingBag } from "lucide-react";
 import { toast } from "sonner";
 import { api, fileUrl } from "@/lib/api";
 import { Input } from "@/components/ui/input";
@@ -98,6 +98,27 @@ export default function WmsAppPacking() {
     }
   };
 
+  const printTestLabel = async () => {
+    try {
+      const response = await api.get("/wms/packing/etichetta-test", { responseType: "blob" });
+      const url = URL.createObjectURL(response.data);
+      const frame = document.createElement("iframe");
+      frame.className = "hidden";
+      frame.src = url;
+      frame.onload = () => {
+        frame.contentWindow?.focus();
+        frame.contentWindow?.print();
+        window.setTimeout(() => {
+          frame.remove();
+          URL.revokeObjectURL(url);
+        }, 3000);
+      };
+      document.body.appendChild(frame);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Impossibile creare l'etichetta di prova");
+    }
+  };
+
   const submitScan = async (overrideCode = null) => {
     const value = String(overrideCode ?? code).trim().toUpperCase().replace(/\s+/g, "");
     if (!value || working) return;
@@ -156,8 +177,12 @@ export default function WmsAppPacking() {
           : "Scansiona un carrello o una bag";
 
   return <div className="wms-page mx-auto max-w-5xl pb-24" data-testid="wms-packing-station">
-    <header className="wms-page-header">
+    <header className="wms-page-header items-start gap-4">
       <div><p className="wms-eyebrow">Outbound</p><h1 className="wms-title">Packing station</h1><p className="wms-subtitle">La fotocamera resta attiva e guida ogni passaggio.</p></div>
+      <button type="button" onClick={printTestLabel} className="flex h-11 shrink-0 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-black text-slate-800 hover:border-teal-600 hover:text-teal-800">
+        <Printer className="h-4 w-4" />
+        <span className="hidden sm:inline">Etichetta test</span>
+      </button>
     </header>
 
     <section className={`rounded-md border-2 bg-white p-5 shadow-sm ${phase === "completed" ? "border-emerald-500" : phase === "scan_labels" ? "border-teal-500" : "border-slate-950"}`}>
