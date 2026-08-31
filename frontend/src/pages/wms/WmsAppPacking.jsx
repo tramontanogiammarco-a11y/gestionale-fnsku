@@ -12,7 +12,7 @@ function cartIsComplete(snapshot) {
 
 function isCompletePackingScan(value) {
   const code = String(value || "").trim().toUpperCase().replace(/\s+/g, "");
-  return code === "CARRELLO-01" || /^B-[0-9]{5}$/.test(code) || /^PK-[A-F0-9]{12}$/.test(code);
+  return /^CARRELLO-[0-9]{2}$/.test(code) || /^B-[0-9]{5}$/.test(code) || /^PK-[A-F0-9]{12}$/.test(code);
 }
 
 export default function WmsAppPacking() {
@@ -40,10 +40,12 @@ export default function WmsAppPacking() {
   }, [focusScanner]);
 
   const refreshCart = useCallback(async () => {
+    const cartCode = cart?.cart_code || station?.cart_code;
+    if (!cartCode) return null;
     const response = await api.post("/wms/packing/station/scan", {
-      codice: "CARRELLO-01",
+      codice: cartCode,
       bag_code: null,
-      cart_code: "CARRELLO-01",
+      cart_code: cartCode,
     });
     const next = response.data;
     if (cartIsComplete(next)) {
@@ -56,7 +58,7 @@ export default function WmsAppPacking() {
     setStation(next);
     setCode("");
     return next;
-  }, []);
+  }, [cart?.cart_code, station?.cart_code]);
 
   useEffect(() => {
     focusScanner();
@@ -205,7 +207,7 @@ export default function WmsAppPacking() {
             setCode(nextCode);
             if (isCompletePackingScan(nextCode)) window.setTimeout(() => submitScan(nextCode), 0);
           }}
-          placeholder={phase === "scan_labels" ? "Scansiona etichetta corriere" : phase === "cart_ready" ? "B-73846" : "CARRELLO-01 oppure bag"}
+          placeholder={phase === "scan_labels" ? "Scansiona etichetta corriere" : phase === "cart_ready" ? "Scansiona una bag" : "CARRELLO-01 oppure bag"}
           className="h-16 min-w-0 flex-1 border-slate-950 bg-slate-50 text-center font-mono text-xl font-black tracking-wider sm:text-2xl"
           autoComplete="off"
           inputMode="none"
@@ -228,11 +230,11 @@ export default function WmsAppPacking() {
     {phase === "cart_ready" && station?.cart_bags?.length > 0 && <section className="rounded-md border border-slate-200 bg-white p-5">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-black">Carrello 01</h2>
+          <h2 className="text-xl font-black">{station.cart_code}</h2>
           <p className="mt-1 text-sm text-slate-500">Inserisci una bag fissa per vedere i prodotti prima di chiuderla.</p>
         </div>
         <span className="rounded-full bg-teal-50 px-3 py-1 text-sm font-black text-teal-800">
-          {station.cart_bags.filter((bag) => bag.completed).length}/10 completate
+          {station.cart_bags.filter((bag) => bag.completed).length}/{station.cart_bags.length} completate
         </span>
       </div>
       <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">

@@ -5485,10 +5485,20 @@ function packingLabelCode(sessionId) {
   return `PK-${String(sessionId || "").replace(/-/g, "").slice(0, 12).toUpperCase()}`;
 }
 
-async function packingCartSnapshot() {
-  const { data: positions, error: positionsError } = await requireSupabase()
-    .from("wms_galluse_cart_positions")
+async function packingCartSnapshot(rawCartCode) {
+  const cartCode = normalizedWmsCartCode(rawCartCode);
+  const sb = requireSupabase();
+  const { data: cart, error: cartError } = await sb
+    .from("wms_carts")
+    .select("id,codice,righe,colonne")
+    .eq("codice", cartCode)
+    .maybeSingle();
+  if (cartError) fail(cartError.message);
+  if (!cart) fail("Carrello non configurato", 404);
+  const { data: positions, error: positionsError } = await sb
+    .from("wms_cart_bag_positions")
     .select("posizione,bag_code")
+    .eq("cart_id", cart.id)
     .order("posizione");
   if (positionsError) fail(positionsError.message);
   const bagCodes = (positions || []).map((position) => position.bag_code).filter(Boolean);
@@ -5503,7 +5513,7 @@ async function packingCartSnapshot() {
   const sessionsByBag = groupBy(sessions || [], "bag_code");
   return ok({
     phase: "cart_ready",
-    cart_code: "CARRELLO-01",
+    cart_code: cart.codice,
     bag_code: null,
     batch: null,
     sessions: [],
@@ -5641,12 +5651,12 @@ async function scanWmsPackingStation(payload = {}) {
   if (!code) fail("Scansiona una bag o un'etichetta");
 
   if (!activeBagCode) {
-    if (normalizedText(code) === normalizedText("CARRELLO-01")) return packingCartSnapshot();
+    if (/^CARRELLO-[0-9]{2}$/.test(code)) return packingCartSnapshot(code);
     if (code.startsWith("PK-")) return completePackingStationLabel(await packingStationSnapshotForLabel(code), code);
     if (!/^B-[0-9]{5}$/.test(code)) fail("Scansiona prima il barcode della bag");
     const snapshot = await packingStationSnapshot(code);
     if (snapshot.data.phase === "completed") {
-      if (normalizedText(payload.cart_code) === normalizedText("CARRELLO-01")) return packingCartSnapshot();
+      if (/^CARRELLO-[0-9]{2}$/.test(normalizedScanCode(payload.cart_code))) return packingCartSnapshot(payload.cart_code);
       return snapshot;
     }
     const eligible = snapshot.data.sessions.filter((session) => ["in_attesa_packing", "da_imballare", "in_verifica_bag"].includes(session.stato));
