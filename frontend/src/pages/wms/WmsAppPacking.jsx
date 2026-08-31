@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Barcode, Camera, CheckCircle2, ImageIcon, Loader2, PackageCheck, Printer, ShoppingBag } from "lucide-react";
+import { Barcode, Camera, CheckCircle2, CircleAlert, ImageIcon, Loader2, PackageCheck, Printer, ShoppingBag } from "lucide-react";
 import { toast } from "sonner";
 import { api, fileUrl, normalizeScannerCode } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import CameraScanner from "@/components/wms/CameraScanner";
+import { getDefaultZebraPrinter, printZebraPackingLabels } from "@/lib/zebraPrinter";
 
 function cartIsComplete(snapshot) {
   const bags = snapshot?.cart_bags || [];
@@ -24,6 +25,7 @@ export default function WmsAppPacking() {
   const [working, setWorking] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraSession, setCameraSession] = useState(0);
+  const [zebra, setZebra] = useState({ status: "checking", name: "" });
 
   const openCamera = useCallback(() => {
     setCameraSession((value) => value + 1);
@@ -68,6 +70,22 @@ export default function WmsAppPacking() {
     return () => window.removeEventListener("focus", keepFocus);
   }, [focusScanner]);
 
+  const checkZebra = useCallback(async ({ notify = false } = {}) => {
+    setZebra((current) => ({ ...current, status: "checking" }));
+    try {
+      const printer = await getDefaultZebraPrinter();
+      setZebra({ status: "ready", name: printer.name || "Zebra predefinita" });
+      if (notify) toast.success(`Zebra collegata: ${printer.name || "stampante predefinita"}`);
+      return printer;
+    } catch (error) {
+      setZebra({ status: "unavailable", name: "" });
+      if (notify) toast.error("Avvia Zebra Browser Print e imposta la Zebra come stampante predefinita");
+      return null;
+    }
+  }, []);
+
+  useEffect(() => { checkZebra(); }, [checkZebra]);
+
   useEffect(() => {
     if (!station || station.phase !== "completed") return undefined;
     const timeout = window.setTimeout(() => {
@@ -83,7 +101,16 @@ export default function WmsAppPacking() {
     return () => window.clearTimeout(timeout);
   }, [cart, focusScanner, refreshCart, resetStation, station]);
 
-  const printCarrierLabels = async (bagCode) => {
+  const printCarrierLabels = async (bagCode, labels) => {
+    try {
+      const printer = await printZebraPackingLabels(labels);
+      setZebra({ status: "ready", name: printer.name || "Zebra predefinita" });
+      toast.success(`${labels.length} etichette stampate su ${printer.name || "Zebra"}`);
+      return true;
+    } catch (zebraError) {
+      setZebra({ status: "unavailable", name: "" });
+      toast.error("Stampa automatica non riuscita: avvia Zebra Browser Print. Apro la stampa browser di emergenza.");
+    }
     try {
       const response = await api.get(`/wms/packing/bag/${bagCode}/etichette`, { responseType: "blob" });
       const url = URL.createObjectURL(response.data);
@@ -99,12 +126,23 @@ export default function WmsAppPacking() {
         }, 3000);
       };
       document.body.appendChild(frame);
+      return false;
     } catch (error) {
       toast.error(error.response?.data?.detail || "Etichette corriere non disponibili");
+      return false;
     }
   };
 
   const printTestLabel = async () => {
+    try {
+      const printer = await printZebraPackingLabels([{ code: "PK-000000000001", order_name: "TEST STAMPANTE" }]);
+      setZebra({ status: "ready", name: printer.name || "Zebra predefinita" });
+      toast.success(`Etichetta test stampata su ${printer.name || "Zebra"}`);
+      return;
+    } catch {
+      setZebra({ status: "unavailable", name: "" });
+      toast.error("Zebra non raggiungibile: uso la stampa browser di emergenza");
+    }
     try {
       const response = await api.get("/wms/packing/etichetta-test", { responseType: "blob" });
       const url = URL.createObjectURL(response.data);
@@ -152,8 +190,7 @@ export default function WmsAppPacking() {
       if (next.phase === "cart_ready") toast.success("Carrello riconosciuto: ora scansiona una bag");
       if (next.phase === "double_check") toast.success("Bag riconosciuta: riscansionala per il doppio controllo");
       if (next.phase === "scan_labels" && station?.phase === "double_check") {
-        toast.success(`${next.labels.length} etichette inviate alla stampante`);
-        printCarrierLabels(next.bag_code);
+        await printCarrierLabels(next.bag_code, next.labels);
       }
       if (next.phase === "completed") toast.success("Packing completato. Bag liberata.");
     } catch (error) {
@@ -182,11 +219,17 @@ export default function WmsAppPacking() {
   return <div className="wms-page mx-auto max-w-5xl pb-24" data-testid="wms-packing-station">
     <header className="wms-page-header items-start gap-4">
       <div><p className="wms-eyebrow">Outbound</p><h1 className="wms-title">Packing station</h1><p className="wms-subtitle">Scanner sempre pronto. La fotocamera si apre solo quando serve.</p></div>
-      <button type="button" onClick={printTestLabel} className="flex h-11 shrink-0 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-black text-slate-800 hover:border-teal-600 hover:text-teal-800">
-        <Printer className="h-4 w-4" />
-        <span className="hidden sm:inline">Etichetta test</span>
-      </button>
+      <div className="flex flex-col items-end gap-2">
+        <button type="button" onClick={() => checkZebra({ notify: true })} className={`flex h-10 shrink-0 items-center gap-2 rounded-md border px-3 text-xs font-black ${zebra.status === "ready" ? "border-emerald-300 bg-emerald-50 text-emerald-800" : zebra.status === "checking" ? "border-slate-300 bg-white text-slate-600" : "border-rose-300 bg-rose-50 text-rose-700"}`}>
+          {zebra.status === "checking" ? <Loader2 className="h-4 w-4 animate-spin" /> : zebra.status === "ready" ? <Printer className="h-4 w-4" /> : <CircleAlert className="h-4 w-4" />}
+          <span>{zebra.status === "ready" ? zebra.name : zebra.status === "checking" ? "Cerco Zebra" : "Zebra non collegata"}</span>
+        </button>
+        <button type="button" onClick={printTestLabel} className="flex h-10 shrink-0 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-xs font-black text-slate-800 hover:border-teal-600 hover:text-teal-800">
+          <Printer className="h-4 w-4" /> Etichetta test
+        </button>
+      </div>
     </header>
+    {zebra.status === "unavailable" && <div className="mb-4 flex items-start gap-3 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><CircleAlert className="mt-0.5 h-5 w-5 shrink-0" /><div><strong className="block">Stampa automatica Zebra non attiva</strong><span className="mt-1 block text-xs leading-5">Avvia Zebra Browser Print sul PC, collega la stampante e impostala come predefinita, poi premi “Zebra non collegata” per riprovare.</span></div></div>}
 
     <section className={`rounded-md border-2 bg-white p-5 shadow-sm ${phase === "completed" ? "border-emerald-500" : phase === "scan_labels" ? "border-teal-500" : "border-slate-950"}`}>
       <div className="flex items-center gap-4">
