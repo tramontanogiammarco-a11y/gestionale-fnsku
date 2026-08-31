@@ -3,7 +3,7 @@ import { useNavigate, useOutletContext } from "react-router-dom";
 import { AlertTriangle, Boxes, MapPin, MessageSquarePlus, RefreshCw, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
-import { EXCEPTION_STATUSES, formatDate, queryForClient, SHIPMENT_STATUS } from "./controlData";
+import { exceptionGuidance, EXCEPTION_STATUSES, formatDate, queryForClient, SHIPMENT_STATUS } from "./controlData";
 import { EmptyState, Metric, PageIntro, PageLoader, Panel, StatusPill } from "./ControlUi";
 
 const FILTERS = [["all", "Tutte"], ["indirizzo", "Indirizzi"], ["stock", "Stock"], ["consegna", "Consegne"]];
@@ -46,7 +46,7 @@ export default function ControlExceptions() {
       order,
       title: order.order_name || "Ordine",
       subtitle: order.exception_type === "indirizzo" ? "Indirizzo da correggere" : "Disponibilita insufficiente",
-      reasons: order.exception_reasons || [],
+      guidance: exceptionGuidance(order),
       updated_at: order.gate_checked_at || order.updated_at,
     }));
     const shipmentRows = data.shipments.filter((shipment) => EXCEPTION_STATUSES.has(shipment.stato)).map((shipment) => ({
@@ -56,7 +56,7 @@ export default function ControlExceptions() {
       order_id: shipment.order_id,
       title: shipment.order?.order_name || shipment.tracking || "Spedizione",
       subtitle: SHIPMENT_STATUS[shipment.stato] || shipment.stato,
-      reasons: shipment.note ? [shipment.note] : [],
+      guidance: exceptionGuidance(shipment),
       updated_at: shipment.tracking_updated_at || shipment.updated_at,
     }));
     return [...orderRows, ...shipmentRows].filter((row) => filter === "all" || row.kind === filter)
@@ -83,7 +83,7 @@ export default function ControlExceptions() {
       {exceptions.length ? <div className="divide-y divide-slate-100">{exceptions.map((row) => <div key={row.id} className="grid gap-4 px-5 py-5 lg:grid-cols-[auto_1fr_0.8fr_auto] lg:items-center">
         <span className={`flex h-11 w-11 items-center justify-center rounded-md ${row.kind === "stock" ? "bg-amber-100 text-amber-800" : "bg-rose-100 text-rose-700"}`}>{row.kind === "indirizzo" ? <MapPin className="h-5 w-5" /> : row.kind === "stock" ? <Boxes className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}</span>
         <div><div className="flex flex-wrap items-center gap-2"><p className="font-extrabold">{row.title}</p><StatusPill tone={row.kind === "stock" ? "amber" : "rose"}>{row.subtitle}</StatusPill></div><p className="mt-2 text-xs text-slate-500">{formatDate(row.updated_at, true)}</p></div>
-        <div><p className="text-[10px] font-extrabold uppercase text-slate-400">Motivo</p><p className="mt-1 text-sm font-bold text-slate-700">{row.reasons.length ? row.reasons.join(" · ") : "Richiede verifica operativa"}</p></div>
+        <div><p className="text-[10px] font-extrabold uppercase text-slate-400">Problema</p><p className="mt-1 text-sm font-bold text-slate-800">{row.guidance.reason}</p><p className="mt-2 text-[10px] font-extrabold uppercase text-teal-700">Cosa fare</p><p className="mt-1 text-xs font-semibold leading-5 text-slate-600">{row.guidance.action}</p></div>
         <Button variant="outline" size="sm" onClick={() => navigate(`/wms/tickets?order_id=${row.order?.id || row.order_id || ""}&category=${row.kind === "consegna" ? "spedizione" : row.kind}`)}><MessageSquarePlus className="mr-2 h-4 w-4" />Apri ticket</Button>
       </div>)}</div> : <EmptyState title="Nessuna eccezione attiva" description="Gli ordini e le spedizioni sono regolari." />}
     </Panel>
