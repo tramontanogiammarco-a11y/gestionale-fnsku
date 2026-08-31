@@ -2914,7 +2914,6 @@ async function deletePreparazione(id) {
 async function magazzino(params) {
   const cid = await resolveClienteId(params.get("cliente_id") || undefined);
   const {
-    activeOperationalEans,
     bundleMap,
     bundleRefs,
     titoloMap,
@@ -2928,15 +2927,9 @@ async function magazzino(params) {
   } = await stockSnapshotForCliente(cid);
   const bundleEans = new Set(Object.keys(bundleMap));
   const usageEans = new Set([...Object.keys(ricevuto), ...Object.keys(spedito), ...Object.keys(inPreparazione)]);
-  const activeFnskus = new Set(
-    [...usageEans, ...(activeOperationalEans || [])]
-      .map((ean) => fnskuMap[ean])
-      .filter(Boolean)
-  );
   const componentDisponibile = {};
   const eans = [...new Set([...Object.keys(titoloMap), ...Object.keys(ricevuto), ...Object.keys(spedito), ...Object.keys(inPreparazione)])]
     .filter((ean) => !bundleEans.has(ean))
-    .filter((ean) => usageEans.has(ean) || !activeFnskus.has(fnskuMap[ean]))
     .sort();
 
   const rows = eans.map((ean) => {

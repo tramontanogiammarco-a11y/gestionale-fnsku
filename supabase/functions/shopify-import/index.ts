@@ -14,6 +14,7 @@ type Payload = {
 };
 
 type ShopifyVariant = {
+  id?: string | null;
   title?: string | null;
   sku?: string | null;
   barcode?: string | null;
@@ -103,7 +104,7 @@ Deno.serve(async (req) => {
     return json({ detail: error instanceof Error ? error.message : "Errore Shopify" }, 400);
   }
   const rows = imported.rows.map((row) => ({ ...row, cliente_id: clienteId }));
-  const skipped = imported.skipped;
+  const withoutBarcode = imported.withoutBarcode;
 
   if (payload.dry_run) {
     return json({
@@ -112,7 +113,7 @@ Deno.serve(async (req) => {
       shop_domain: shopDomain,
       cliente: cliente.ragione_sociale,
       trovate: rows.length,
-      senza_barcode: skipped.length,
+      senza_barcode: withoutBarcode.length,
       anteprima: rows.slice(0, 10),
     });
   }
@@ -157,7 +158,7 @@ Deno.serve(async (req) => {
     cliente: cliente.ragione_sociale,
     create,
     update,
-    senza_barcode: skipped.length,
+    senza_barcode: withoutBarcode.length,
     errori: errors.slice(0, 20),
   });
 });
@@ -183,6 +184,7 @@ async function fetchShopifyVariants(shopDomain: string, token: string) {
           featuredImage { url }
           variants(first: 100) {
             nodes {
+              id
               title
               sku
               barcode
@@ -196,7 +198,7 @@ async function fetchShopifyVariants(shopDomain: string, token: string) {
     }
   `;
   const rows: Array<Record<string, unknown>> = [];
-  const skipped: Array<Record<string, unknown>> = [];
+  const withoutBarcode: Array<Record<string, unknown>> = [];
   let cursor: string | null = null;
   let pages = 0;
 
@@ -223,15 +225,17 @@ async function fetchShopifyVariants(shopDomain: string, token: string) {
         const title = [product.title, variant.title && variant.title !== "Default Title" ? variant.title : ""]
           .filter(Boolean)
           .join(" · ");
-        if (!barcode) {
-          skipped.push({ titolo: title, sku, motivo: "barcode/EAN mancante" });
-          continue;
-        }
+        const variantId = String(variant.id || "").trim().split("/").pop();
+        const catalogCode = barcode || sku || (variantId ? `SHOPIFY-${variantId}` : "");
+        if (!catalogCode) continue;
+        if (!barcode) withoutBarcode.push({ titolo: title, sku, codice: catalogCode });
         rows.push({
-          ean: barcode,
+          // The ean field is the WMS product key. Shopify variants without a
+          // barcode use their SKU or a stable Shopify fallback instead.
+          ean: catalogCode,
           sku: sku || null,
           asin: null,
-          titolo: title || barcode,
+          titolo: title || catalogCode,
           foto_url: variant.image?.url || product.featuredImage?.url || null,
           fnsku: null,
           is_bundle: false,
@@ -245,7 +249,7 @@ async function fetchShopifyVariants(shopDomain: string, token: string) {
     pages += 1;
   } while (cursor && pages < 40);
 
-  return { rows, skipped };
+  return { rows, withoutBarcode };
 }
 
 function json(body: unknown, status = 200) {

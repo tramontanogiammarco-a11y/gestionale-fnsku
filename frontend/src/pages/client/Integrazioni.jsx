@@ -114,8 +114,8 @@ export default function ClientIntegrazioni() {
             Sincronizza prodotti, varianti, SKU, EAN e immagini direttamente dal tuo catalogo Shopify.
           </p>
         </div>
-        <Link to="/app/referenze" className="inline-flex items-center gap-2 text-sm font-bold text-teal-700 hover:text-teal-900">
-          Apri prodotti <ArrowRight className="h-4 w-4" />
+        <Link to="/wms/stock" className="inline-flex items-center gap-2 text-sm font-bold text-teal-700 hover:text-teal-900">
+          Apri stock <ArrowRight className="h-4 w-4" />
         </Link>
       </div>
 
@@ -211,7 +211,7 @@ export default function ClientIntegrazioni() {
             </div>
           </div>
           <div className="mt-5 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-            Varianti senza barcode/EAN non importate: <b>{result.senza_barcode || 0}</b>
+            Varianti importate senza barcode/EAN, usando SKU o codice Shopify: <b>{result.senza_barcode || 0}</b>
           </div>
           {result.anteprima?.length > 0 && (
             <Table className="mt-4">
@@ -221,7 +221,7 @@ export default function ClientIntegrazioni() {
               ))}</TableBody>
             </Table>
           )}
-          {!result.dry_run && <Button asChild className="mt-5"><Link to="/app/referenze">Vedi referenze importate <ArrowRight className="ml-2 h-4 w-4" /></Link></Button>}
+          {!result.dry_run && <Button asChild className="mt-5"><Link to="/wms/stock">Vedi stock aggiornato <ArrowRight className="ml-2 h-4 w-4" /></Link></Button>}
         </Card>
       )}
       {ordersResult && (
