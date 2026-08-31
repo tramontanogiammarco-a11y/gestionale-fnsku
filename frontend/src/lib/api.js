@@ -5471,7 +5471,9 @@ async function scanWmsPackingStation(payload = {}) {
       return snapshot;
     }
     const eligible = snapshot.data.sessions.filter((session) => ["in_attesa_packing", "da_imballare", "in_verifica_bag"].includes(session.stato));
-    if (!eligible.length) fail("Questa bag e gia in attesa delle etichette");
+    // La stazione puo essere riaperta dopo la stampa: in quel caso la scansione della bag deve riprendere dalle etichette.
+    if (!eligible.length && snapshot.data.phase === "scan_labels") return snapshot;
+    if (!eligible.length) fail("Questa bag non e disponibile per il packing");
     const scannedAt = nowIso();
     const [sessionResult, orderResult] = await Promise.all([
       requireSupabase().from("wms_packing_sessions").update({
