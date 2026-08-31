@@ -10,6 +10,11 @@ function cartIsComplete(snapshot) {
   return snapshot?.phase === "cart_ready" && bags.length > 0 && bags.every((bag) => bag.completed);
 }
 
+function isCompletePackingScan(value) {
+  const code = String(value || "").trim().toUpperCase().replace(/\s+/g, "");
+  return code === "CARRELLO-01" || /^B-[0-9]{5}$/.test(code) || /^PK-[A-F0-9]{12}$/.test(code);
+}
+
 export default function WmsAppPacking() {
   const scannerRef = useRef(null);
   const [station, setStation] = useState(null);
@@ -18,10 +23,8 @@ export default function WmsAppPacking() {
   const [working, setWorking] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraSession, setCameraSession] = useState(0);
-  const [autoCamera, setAutoCamera] = useState(true);
 
   const openCamera = useCallback(() => {
-    setAutoCamera(true);
     setCameraSession((value) => value + 1);
     setCameraOpen(true);
   }, []);
@@ -161,11 +164,6 @@ export default function WmsAppPacking() {
   const phase = station?.phase || "scan_bag";
   const completedLabels = station?.labels?.filter((label) => label.scanned).length || 0;
   const pendingLabels = station?.labels?.filter((label) => !label.scanned).length || 0;
-  useEffect(() => {
-    if (!autoCamera || working || phase === "completed" || cameraOpen) return undefined;
-    const timeout = window.setTimeout(openCamera, 40);
-    return () => window.clearTimeout(timeout);
-  }, [autoCamera, cameraOpen, openCamera, phase, station?.bag_code, completedLabels, working]);
   const prompt = phase === "double_check"
     ? "Riscansiona la stessa bag"
     : phase === "scan_labels"
@@ -178,7 +176,7 @@ export default function WmsAppPacking() {
 
   return <div className="wms-page mx-auto max-w-5xl pb-24" data-testid="wms-packing-station">
     <header className="wms-page-header items-start gap-4">
-      <div><p className="wms-eyebrow">Outbound</p><h1 className="wms-title">Packing station</h1><p className="wms-subtitle">La fotocamera resta attiva e guida ogni passaggio.</p></div>
+      <div><p className="wms-eyebrow">Outbound</p><h1 className="wms-title">Packing station</h1><p className="wms-subtitle">Scanner sempre pronto. La fotocamera si apre solo quando serve.</p></div>
       <button type="button" onClick={printTestLabel} className="flex h-11 shrink-0 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-black text-slate-800 hover:border-teal-600 hover:text-teal-800">
         <Printer className="h-4 w-4" />
         <span className="hidden sm:inline">Etichetta test</span>
@@ -202,7 +200,11 @@ export default function WmsAppPacking() {
         <Input
           ref={scannerRef}
           value={code}
-          onChange={(event) => setCode(event.target.value.toUpperCase())}
+          onChange={(event) => {
+            const nextCode = event.target.value.toUpperCase();
+            setCode(nextCode);
+            if (isCompletePackingScan(nextCode)) window.setTimeout(() => submitScan(nextCode), 0);
+          }}
           placeholder={phase === "scan_labels" ? "Scansiona etichetta corriere" : phase === "cart_ready" ? "B-73846" : "CARRELLO-01 oppure bag"}
           className="h-16 min-w-0 flex-1 border-slate-950 bg-slate-50 text-center font-mono text-xl font-black tracking-wider sm:text-2xl"
           autoComplete="off"
@@ -261,7 +263,6 @@ export default function WmsAppPacking() {
       open={cameraOpen}
       onOpenChange={(nextOpen) => {
         setCameraOpen(nextOpen);
-        if (!nextOpen) setAutoCamera(false);
       }}
       purpose={phase === "scan_labels" ? "carrier_label" : phase === "cart_ready" || phase === "double_check" ? "bag" : "packing"}
       onDetected={(value) => {
