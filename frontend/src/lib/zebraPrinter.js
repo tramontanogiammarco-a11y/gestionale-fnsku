@@ -110,20 +110,19 @@ function locationCellZpl(location, offsetY) {
   const qrData = zplText(location.qrData || location.qr_data || scanCode);
   return [
     `^FO12,${offsetY + 8}^GB788,390,2^FS`,
-    `^FO590,${offsetY + 18}^GB2,370,2^FS`,
-    `^FO30,${offsetY + 25}^A0N,22,22^FDAIMAGO MAGAZZINO^FS`,
-    `^FO430,${offsetY + 25}^A0N,22,22^FD${type}^FS`,
-    `^FO30,${offsetY + 62}^A0N,70,70^FD${displayCode}^FS`,
-    `^FO30,${offsetY + 145}^GB530,2,2^FS`,
-    `^FO42,${offsetY + 174}^BY3,2,102`,
-    `^BCN,102,N,N,N^FD${scanCode}^FS`,
-    `^FO30,${offsetY + 304}^A0N,20,20^FDCODICE SCANNER^FS`,
-    `^FO30,${offsetY + 332}^A0N,27,27^FD${scanCode}^FS`,
+    `^FO585,${offsetY + 18}^GB2,370,2^FS`,
+    `^FO30,${offsetY + 24}^A0N,21,21^FDAIMAGO MAGAZZINO^FS`,
+    `^FO468,${offsetY + 24}^A0N,21,21^FD${type}^FS`,
+    `^FO30,${offsetY + 57}^A0N,62,62^FD${displayCode}^FS`,
+    `^FO30,${offsetY + 126}^GB525,2,2^FS`,
+    `^FO42,${offsetY + 151}^BY2,2,94`,
+    `^BCN,94,N,N,N^FD${scanCode}^FS`,
+    `^FO30,${offsetY + 273}^GB525,2,2^FS`,
+    `^FO30,${offsetY + 292}^A0N,18,18^FDCODICE SCANNER^FS`,
+    `^FO30,${offsetY + 320}^A0N,34,34^FD${scanCode}^FS`,
     ...(qrData ? [
-      `^FO620,${offsetY + 88}^BQN,2,5^FDQA,${qrData}^FS`,
-      `^FO622,${offsetY + 260}^A0N,20,20^FDCODICE^FS`,
-      `^FO622,${offsetY + 288}^A0N,20,20^FDPOSIZIONE^FS`,
-      `^FO622,${offsetY + 338}^A0N,18,18^FDSCANSIONA QR^FS`,
+      `^FO620,${offsetY + 76}^BQN,2,5^FDQA,${qrData}^FS`,
+      `^FO621,${offsetY + 322}^A0N,18,18^FDQR POSIZIONE^FS`,
     ] : []),
   ];
 }
