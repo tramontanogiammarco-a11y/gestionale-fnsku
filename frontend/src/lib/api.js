@@ -5731,7 +5731,7 @@ async function wmsPackingCarrierLabelsPdf(bagCode) {
       copie: 1,
     }));
   if (!items.length) fail("Riscansiona prima la bag per generare le etichette");
-  return ok(generateLabelsPdfBlob({ formato: "100x50", mostra_titolo: true, items }));
+  return ok(generateLabelsPdfBlob({ formato: "100x150", mostra_titolo: true, items }));
 }
 
 async function wmsPackingSnapshot(orderId) {

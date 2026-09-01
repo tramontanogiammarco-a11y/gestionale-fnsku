@@ -56,17 +56,23 @@ function packingLabelZpl(label) {
   const order = zplText(label.order_name || "ORDINE");
   return [
     "^XA",
+    "^MMT",
+    "^MNY",
+    "^LT0",
     "^PW812",
-    "^LL406",
+    "^LL1218",
     "^LH0,0",
-    "^FO35,24^A0N,44,44^FDAIMAGO^FS",
-    `^FO35,82^A0N,25,25^FDORDINE ${order}^FS`,
-    "^FO35,122^GB742,2,2^FS",
-    "^FO70,150^BY3,2,105",
-    `^BCN,105,Y,N,N^FD${code}^FS`,
-    "^FO35,330^A0N,22,22^FDETICHETTA PACKING - SCANSIONARE DOPO LA STAMPA^FS",
+    "^FO35,35^A0N,52,52^FDAIMAGO^FS",
+    `^FO35,112^A0N,28,28^FDORDINE ${order}^FS`,
+    "^FO35,165^GB742,3,3^FS",
+    "^FO70,250^BY3,2,155",
+    `^BCN,155,Y,N,N^FD${code}^FS`,
+    "^FO35,520^GB742,3,3^FS",
+    "^FO35,570^A0N,26,26^FDETICHETTA PACKING^FS",
+    "^FO35,620^A0N,22,22^FDSCANSIONARE IL BARCODE DOPO LA STAMPA^FS",
+    "^PQ1,0,1,N",
     "^XZ",
-  ].join("\n");
+  ].join("");
 }
 
 function zplText(value) {
