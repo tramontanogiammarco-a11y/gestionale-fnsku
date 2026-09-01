@@ -41,6 +41,18 @@ export async function printZebraPackingLabels(labels = []) {
   return printer;
 }
 
+export async function printZebraLocationLabels(locations = []) {
+  if (!locations.length) throw new Error("Nessuna ubicazione da stampare");
+  const printer = await getDefaultZebraPrinter();
+  const data = locations.map(locationLabelZpl).join("");
+  await zebraFetch("/write", {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=UTF-8" },
+    body: JSON.stringify({ device: zebraDevicePayload(printer), data }),
+  });
+  return printer;
+}
+
 function zebraDevicePayload(printer) {
   const payload = ["name", "deviceType", "connection", "uid", "provider", "manufacturer"]
     .reduce((payload, key) => {
@@ -70,6 +82,34 @@ function packingLabelZpl(label) {
     "^FO35,520^GB742,3,3^FS",
     "^FO35,570^A0N,26,26^FDETICHETTA PACKING^FS",
     "^FO35,620^A0N,22,22^FDSCANSIONARE IL BARCODE DOPO LA STAMPA^FS",
+    "^PQ1,0,1,N",
+    "^XZ",
+  ].join("");
+}
+
+function locationLabelZpl(location) {
+  const scanCode = zplText(location.code || location.codice || "POSIZIONE");
+  const displayCode = zplText(location.displayCode || scanCode.replace(/^[SP]/, ""));
+  const type = String(location.type || location.tipo || "slot").toLowerCase() === "pallet" ? "PALLET" : "SLOT";
+  const qrUrl = zplText(location.qrUrl || location.qr_url || "");
+  return [
+    "^XA",
+    "^MMT",
+    "^MNY",
+    "^LT0",
+    "^PW812",
+    "^LL1218",
+    "^LH0,0",
+    "^FO42,38^A0N,48,48^FDAIMAGO MAGAZZINO^FS",
+    `^FO42,108^A0N,28,28^FD${type}^FS`,
+    "^FO42,160^GB728,3,3^FS",
+    "^FO70,245^BY3,2,170",
+    `^BCN,170,N,N,N^FD${scanCode}^FS`,
+    `^FO42,470^A0N,86,86^FD${displayCode}^FS`,
+    "^FO42,590^GB728,3,3^FS",
+    `^FO505,690^BQN,2,5^FDLA,${qrUrl}^FS`,
+    "^FO42,715^A0N,26,26^FDSCANSIONA IL BARCODE^FS",
+    "^FO42,760^A0N,22,22^FDO APRI LA POSIZIONE DAL QR^FS",
     "^PQ1,0,1,N",
     "^XZ",
   ].join("");

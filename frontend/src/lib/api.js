@@ -1582,6 +1582,61 @@ async function createWmsLocation(payload = {}) {
   return ok(data);
 }
 
+async function generateWmsLocations(payload = {}) {
+  await assertWmsStaff();
+  const tipo = String(payload.tipo || "").trim().toLowerCase();
+  const blocco = String(payload.blocco || "").trim();
+  const numeroLivelli = Number(payload.livelli);
+  const ubicazioniPerLivello = Number(payload.ubicazioni_per_livello);
+  if (!['slot', 'pallet'].includes(tipo)) fail("Scegli slot oppure pallet");
+  if (!/^[0-9]{1,5}$/.test(blocco)) fail("Il blocco deve essere un numero, per esempio 101");
+  const availableLevels = tipo === "pallet" ? ["Z", "Y", "X"] : ["A", "B", "C", "D", "E"];
+  if (!Number.isInteger(numeroLivelli) || numeroLivelli < 1 || numeroLivelli > availableLevels.length) {
+    fail(`Puoi creare da 1 a ${availableLevels.length} livelli per questo tipo`);
+  }
+  if (!Number.isInteger(ubicazioniPerLivello) || ubicazioniPerLivello < 1 || ubicazioniPerLivello > 20) {
+    fail("Le ubicazioni per livello devono essere comprese tra 1 e 20");
+  }
+  const prefix = tipo === "pallet" ? "P" : "S";
+  const levels = availableLevels.slice(0, numeroLivelli);
+  const rows = levels.flatMap((livello) => Array.from({ length: ubicazioniPerLivello }, (_, index) => ({
+    codice: `${prefix}${blocco}+${livello}${index + 1}`,
+    zona: `Blocco ${blocco}`,
+    tipo,
+    note: `Blocco ${blocco} · Livello ${livello} · Ubicazione ${index + 1}`,
+  })));
+  if (rows.length > 100) fail("Puoi generare al massimo 100 ubicazioni alla volta");
+
+  const codes = rows.map((row) => row.codice);
+  const { data: existing, error: existingError } = await requireSupabase()
+    .from("wms_locations")
+    .select("id,codice,zona,tipo,note,stato")
+    .in("codice", codes);
+  if (existingError) fail(existingError.message);
+  const existingCodes = new Set((existing || []).map((row) => row.codice));
+  const missingRows = rows.filter((row) => !existingCodes.has(row.codice));
+  if (missingRows.length) {
+    const { error } = await requireSupabase().from("wms_locations").insert(missingRows);
+    if (error) fail(error.message);
+  }
+  const { data: locations, error: readError } = await requireSupabase()
+    .from("wms_locations")
+    .select("id,codice,zona,tipo,note,stato")
+    .in("codice", codes)
+    .order("codice", { ascending: true });
+  if (readError) fail(readError.message);
+  const locationByCode = new Map((locations || []).map((location) => [location.codice, location]));
+  return ok({
+    tipo,
+    blocco,
+    livelli: levels,
+    ubicazioni_per_livello: ubicazioniPerLivello,
+    create: missingRows.length,
+    esistenti: rows.length - missingRows.length,
+    locations: codes.map((code) => locationByCode.get(code)).filter(Boolean),
+  });
+}
+
 async function getWmsWarehouseMap(params = new URLSearchParams()) {
   await assertWmsStaff();
   const [stockResponse, { data: settings, error: settingsError }] = await Promise.all([
@@ -6928,6 +6983,7 @@ export const api = {
     if (path === "/wms/tickets") return createSupportTicket(payload);
     if (path.match(/^\/wms\/tickets\/[^/]+\/messages$/)) return createSupportMessage(path.split("/")[3], payload);
     if (path === "/wms/ubicazioni") return createWmsLocation(payload);
+    if (path === "/wms/ubicazioni/genera") return generateWmsLocations(payload);
     if (path === "/wms/inventario/avvia") return startWmsInventory(payload);
     if (path.match(/^\/wms\/inventario\/[^/]+\/conteggio$/)) return updateWmsInventoryCount(path.split("/")[3], payload);
     if (path.match(/^\/wms\/inventario\/[^/]+\/completa$/)) return completeWmsInventory(path.split("/")[3], payload);

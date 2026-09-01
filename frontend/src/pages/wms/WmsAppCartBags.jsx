@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Grid3X3, Loader2, Minus, Plus, ScanLine, ShoppingBag, ShoppingCart, Trash2 } from "lucide-react";
+import { ArrowLeft, Barcode, Grid3X3, Layers3, Loader2, Minus, Plus, Printer, ScanLine, ShoppingBag, ShoppingCart, Trash2, Warehouse } from "lucide-react";
 import { toast } from "sonner";
 import { api, normalizeScannerCode } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import CameraScanner from "@/components/wms/CameraScanner";
+import { printZebraLocationLabels } from "@/lib/zebraPrinter";
 
 const DEFAULT_CART = "CARRELLO-01";
 
@@ -18,6 +19,9 @@ export default function WmsAppCartBags() {
   const [scanner, setScanner] = useState(null);
   const [working, setWorking] = useState(false);
   const [draftGrid, setDraftGrid] = useState({ righe: 2, colonne: 5 });
+  const [locationDraft, setLocationDraft] = useState({ tipo: "slot", blocco: "101", livelli: 5, ubicazioni: 5 });
+  const [generatedLocations, setGeneratedLocations] = useState([]);
+  const [printingLocations, setPrintingLocations] = useState(false);
 
   const applySnapshot = useCallback((next) => {
     setSnapshot(next);
@@ -97,6 +101,48 @@ export default function WmsAppCartBags() {
   const configured = snapshot?.positions?.length || 0;
   const capacity = Number(snapshot?.capacity || 0);
   const scannerPurpose = scanner === "cart" ? "cart" : "bag";
+  const locationPreview = useMemo(() => buildLocationPreview(locationDraft), [locationDraft]);
+  const updateLocationDraft = (next) => {
+    setLocationDraft((current) => ({ ...current, ...next }));
+    setGeneratedLocations([]);
+  };
+
+  const generateLocations = async () => {
+    setWorking(true);
+    try {
+      const response = await api.post("/wms/ubicazioni/genera", {
+        tipo: locationDraft.tipo,
+        blocco: locationDraft.blocco,
+        livelli: locationDraft.livelli,
+        ubicazioni_per_livello: locationDraft.ubicazioni,
+      });
+      setGeneratedLocations(response.data.locations || []);
+      toast.success(`${response.data.create} posizioni create, ${response.data.esistenti} gia esistenti`);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Posizioni non generate");
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const printLocations = async (locations = generatedLocations) => {
+    if (!locations.length || printingLocations) return;
+    setPrintingLocations(true);
+    try {
+      const labels = locations.map((location) => ({
+        code: location.codice,
+        displayCode: String(location.codice).replace(/^[SP]/, ""),
+        type: location.tipo,
+        qrUrl: `${window.location.origin}/wms-app/ubicazioni?code=${encodeURIComponent(location.codice)}`,
+      }));
+      const printer = await printZebraLocationLabels(labels);
+      toast.success(`${labels.length} etichette stampate su ${printer.name || "Zebra"}`);
+    } catch (error) {
+      toast.error("Zebra non raggiungibile. Avvia Browser Print e riprova.");
+    } finally {
+      setPrintingLocations(false);
+    }
+  };
 
   return <div className="wms-page pb-24" data-testid="wms-cart-bags">
     <header>
@@ -142,9 +188,57 @@ export default function WmsAppCartBags() {
       </section>
     </>}
 
+    <section className="rounded-md border border-slate-200 bg-white p-4" data-testid="wms-location-generator">
+      <div className="flex items-start gap-3">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-slate-950 text-white"><Barcode className="h-5 w-5" /></span>
+        <div><p className="text-xs font-black uppercase text-teal-700">Ubicazioni stampabili</p><h2 className="mt-1 text-xl font-black">Genera slot e pallet</h2><p className="mt-1 text-sm text-slate-500">Crea un blocco completo, salvalo nel WMS e stampa le etichette Zebra.</p></div>
+      </div>
+
+      <div className="mt-5 grid grid-cols-2 gap-2 rounded-md bg-slate-100 p-1">
+        <button type="button" onClick={() => updateLocationDraft({ tipo: "slot", livelli: 5 })} className={`flex h-12 items-center justify-center gap-2 rounded-md text-sm font-black ${locationDraft.tipo === "slot" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`}><Layers3 className="h-5 w-5" /> Slot</button>
+        <button type="button" onClick={() => updateLocationDraft({ tipo: "pallet", livelli: 3 })} className={`flex h-12 items-center justify-center gap-2 rounded-md text-sm font-black ${locationDraft.tipo === "pallet" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`}><Warehouse className="h-5 w-5" /> Pallet</button>
+      </div>
+
+      <label className="mt-4 block"><span className="text-xs font-black uppercase text-slate-500">Numero blocco</span><Input value={locationDraft.blocco} onChange={(event) => updateLocationDraft({ blocco: event.target.value.replace(/\D/g, "").slice(0, 5) })} placeholder="101" inputMode="numeric" className="mt-2 h-12 font-mono text-xl font-black" /></label>
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <GridStepper label="Livelli" value={locationDraft.livelli} onChange={(livelli) => updateLocationDraft({ livelli })} min={1} max={locationDraft.tipo === "pallet" ? 3 : 5} />
+        <GridStepper label="Posti per livello" value={locationDraft.ubicazioni} onChange={(ubicazioni) => updateLocationDraft({ ubicazioni })} min={1} max={20} />
+      </div>
+
+      <div className="mt-4 rounded-md border border-teal-200 bg-teal-50 p-3 text-sm text-teal-950">
+        <strong className="block">{locationDraft.tipo === "pallet" ? "Livelli dall'alto: Z, Y, X" : "Livelli dal basso: A, B, C, D, E"}</strong>
+        <span className="mt-1 block text-xs">Il prefisso {locationDraft.tipo === "pallet" ? "P" : "S"} resta nel barcode per distinguere il tipo, ma non appare nel testo grande dell'etichetta.</span>
+      </div>
+
+      <div className="mt-4 flex items-center justify-between"><h3 className="font-black">Anteprima blocco {locationDraft.blocco || "-"}</h3><span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-black">{locationPreview.length} posizioni</span></div>
+      <div className="mt-3 grid max-h-64 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
+        {locationPreview.map((location) => <div key={location.codice} className="rounded-md border border-slate-200 bg-slate-50 p-3"><span className="block text-[10px] font-black uppercase text-slate-500">Barcode {location.codice}</span><strong className="mt-2 block font-mono text-xl text-slate-950">{location.displayCode}</strong><span className="mt-1 block text-xs text-slate-500">Livello {location.livello} · posto {location.ubicazione}</span></div>)}
+      </div>
+
+      <Button type="button" className="mt-4 h-12 w-full font-black" onClick={generateLocations} disabled={working || !locationDraft.blocco || !locationPreview.length}>{working ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Plus className="mr-2 h-5 w-5" />} Genera e salva {locationPreview.length} posizioni</Button>
+      <Button type="button" variant="outline" className="mt-2 h-12 w-full bg-white font-black" onClick={() => printLocations()} disabled={!generatedLocations.length || printingLocations}>{printingLocations ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Printer className="mr-2 h-5 w-5" />} Stampa {generatedLocations.length || ""} etichette Zebra</Button>
+
+      {generatedLocations.length > 0 && <div className="mt-4 divide-y divide-slate-100 overflow-hidden rounded-md border border-emerald-200 bg-emerald-50">
+        {generatedLocations.map((location) => <div key={location.id} className="flex items-center gap-3 p-3"><span className="min-w-0 flex-1"><strong className="block font-mono">{String(location.codice).replace(/^[SP]/, "")}</strong><span className="block text-xs text-emerald-800">Salvata come {location.codice}</span></span><button type="button" onClick={() => printLocations([location])} disabled={printingLocations} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-emerald-300 bg-white text-emerald-800" aria-label={`Stampa ${location.codice}`}><Printer className="h-4 w-4" /></button></div>)}
+      </div>}
+    </section>
+
     {scanner && <CameraScanner open onOpenChange={(open) => { if (!open) setScanner(null); }} purpose={scannerPurpose} onDetected={(value) => { if (scanner === "cart") scanCart(value); else assignBag(value); }} />}
     {working && <div className="fixed inset-x-0 bottom-24 z-40 flex justify-center"><span className="flex items-center gap-2 rounded-md bg-slate-950 px-4 py-3 text-sm font-bold text-white shadow-xl"><Loader2 className="h-4 w-4 animate-spin" /> Salvataggio</span></div>}
   </div>;
+}
+
+function buildLocationPreview(draft) {
+  const block = String(draft.blocco || "").trim();
+  if (!block) return [];
+  const levels = draft.tipo === "pallet" ? ["Z", "Y", "X"] : ["A", "B", "C", "D", "E"];
+  const prefix = draft.tipo === "pallet" ? "P" : "S";
+  return levels.slice(0, Number(draft.livelli) || 0).flatMap((livello) => Array.from({ length: Number(draft.ubicazioni) || 0 }, (_, index) => ({
+    codice: `${prefix}${block}+${livello}${index + 1}`,
+    displayCode: `${block}+${livello}${index + 1}`,
+    livello,
+    ubicazione: index + 1,
+  })));
 }
 
 function GridStepper({ label, value, onChange, min, max }) {
