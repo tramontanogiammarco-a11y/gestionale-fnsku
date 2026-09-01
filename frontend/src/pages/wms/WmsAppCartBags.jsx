@@ -153,6 +153,7 @@ export default function WmsAppCartBags() {
   const capacity = Number(snapshot?.capacity || 0);
   const scannerPurpose = scanner === "cart" ? "cart" : "bag";
   const locationPreview = useMemo(() => buildLocationPreview(locationDraft), [locationDraft]);
+  const physicalLocationLabels = Math.ceil(generatedLocations.length / 3);
   const updateLocationDraft = (next) => {
     setLocationDraft((current) => ({ ...current, ...next }));
     setGeneratedLocations([]);
@@ -303,7 +304,8 @@ export default function WmsAppCartBags() {
       </div>
 
       <Button type="button" className="mt-4 h-12 w-full font-black" onClick={generateLocations} disabled={working || !locationDraft.blocco || !locationPreview.length}>{working ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Plus className="mr-2 h-5 w-5" />} Genera e salva {locationPreview.length} posizioni</Button>
-      <Button type="button" variant="outline" className="mt-2 h-12 w-full bg-white font-black" onClick={() => printLocations()} disabled={!generatedLocations.length || printingLocations || (pairedStation && !stationOnline)}>{printingLocations ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Printer className="mr-2 h-5 w-5" />} {pairedStation ? `Invia ${generatedLocations.length || ""} etichette alla station` : `Stampa ${generatedLocations.length || ""} etichette Zebra`}</Button>
+      <Button type="button" variant="outline" className="mt-2 h-12 w-full bg-white font-black" onClick={() => printLocations()} disabled={!generatedLocations.length || printingLocations || (pairedStation && !stationOnline)}>{printingLocations ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Printer className="mr-2 h-5 w-5" />} {pairedStation ? `Invia tutto alla station` : `Stampa tutto in blocco`} {generatedLocations.length > 0 ? `· ${generatedLocations.length} posizioni` : ""}</Button>
+      {generatedLocations.length > 0 && <p className="mt-2 text-center text-xs font-semibold text-slate-500">Formato Zebra 10 x 15 cm: 3 posizioni da 10 x 5 cm per etichetta · {physicalLocationLabels} {physicalLocationLabels === 1 ? "etichetta fisica" : "etichette fisiche"}</p>}
 
       {generatedLocations.length > 0 && <div className="mt-4 divide-y divide-slate-100 overflow-hidden rounded-md border border-emerald-200 bg-emerald-50">
         {generatedLocations.map((location) => <div key={location.id} className="flex items-center gap-3 p-3"><span className="min-w-0 flex-1"><strong className="block font-mono">{String(location.codice).replace(/^[SP]/, "")}</strong><span className="block text-xs text-emerald-800">Salvata come {location.codice}</span></span><button type="button" onClick={() => printLocations([location])} disabled={printingLocations || (pairedStation && !stationOnline)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-emerald-300 bg-white text-emerald-800 disabled:opacity-40" aria-label={`Stampa ${location.codice}`}><Printer className="h-4 w-4" /></button></div>)}

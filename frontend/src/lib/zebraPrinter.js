@@ -44,7 +44,8 @@ export async function printZebraPackingLabels(labels = []) {
 export async function printZebraLocationLabels(locations = []) {
   if (!locations.length) throw new Error("Nessuna ubicazione da stampare");
   const printer = await getDefaultZebraPrinter();
-  const data = locations.map(locationLabelZpl).join("");
+  const sheets = chunk(locations, 3);
+  const data = sheets.map(locationSheetZpl).join("");
   await zebraFetch("/write", {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=UTF-8" },
@@ -87,11 +88,8 @@ function packingLabelZpl(label) {
   ].join("");
 }
 
-function locationLabelZpl(location) {
-  const scanCode = zplText(location.code || location.codice || "POSIZIONE");
-  const displayCode = zplText(location.displayCode || scanCode.replace(/^[SP]/, ""));
-  const type = String(location.type || location.tipo || "slot").toLowerCase() === "pallet" ? "PALLET" : "SLOT";
-  const qrUrl = zplText(location.qrUrl || location.qr_url || "");
+function locationSheetZpl(locations) {
+  const cells = locations.flatMap((location, index) => locationCellZpl(location, index * 406));
   return [
     "^XA",
     "^MMT",
@@ -100,19 +98,33 @@ function locationLabelZpl(location) {
     "^PW812",
     "^LL1218",
     "^LH0,0",
-    "^FO42,38^A0N,48,48^FDAIMAGO MAGAZZINO^FS",
-    `^FO42,108^A0N,28,28^FD${type}^FS`,
-    "^FO42,160^GB728,3,3^FS",
-    "^FO70,245^BY3,2,170",
-    `^BCN,170,N,N,N^FD${scanCode}^FS`,
-    `^FO42,470^A0N,86,86^FD${displayCode}^FS`,
-    "^FO42,590^GB728,3,3^FS",
-    `^FO505,690^BQN,2,5^FDLA,${qrUrl}^FS`,
-    "^FO42,715^A0N,26,26^FDSCANSIONA IL BARCODE^FS",
-    "^FO42,760^A0N,22,22^FDO APRI LA POSIZIONE DAL QR^FS",
+    ...cells,
     "^PQ1,0,1,N",
     "^XZ",
   ].join("");
+}
+
+function locationCellZpl(location, offsetY) {
+  const scanCode = zplText(location.code || location.codice || "POSIZIONE");
+  const displayCode = zplText(location.displayCode || scanCode.replace(/^[SP]/, ""));
+  const type = String(location.type || location.tipo || "slot").toLowerCase() === "pallet" ? "PALLET" : "SLOT";
+  const qrUrl = zplText(location.qrUrl || location.qr_url || "");
+  return [
+    `^FO18,${offsetY + 8}^GB776,390,2^FS`,
+    `^FO34,${offsetY + 26}^A0N,24,24^FDAIMAGO  ${type}^FS`,
+    `^FO34,${offsetY + 64}^A0N,62,62^FD${displayCode}^FS`,
+    `^FO34,${offsetY + 148}^BY2,2,112`,
+    `^BCN,112,N,N,N^FD${scanCode}^FS`,
+    `^FO34,${offsetY + 286}^A0N,24,24^FDBARCODE: ${scanCode}^FS`,
+    ...(qrUrl ? [
+      `^FO610,${offsetY + 52}^BQN,2,4^FDLA,${qrUrl}^FS`,
+      `^FO612,${offsetY + 235}^A0N,18,18^FDAPRI POSIZIONE^FS`,
+    ] : []),
+  ];
+}
+
+function chunk(items, size) {
+  return Array.from({ length: Math.ceil(items.length / size) }, (_, index) => items.slice(index * size, (index + 1) * size));
 }
 
 function zplText(value) {
