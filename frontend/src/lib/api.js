@@ -1626,6 +1626,7 @@ async function generateWmsLocations(payload = {}) {
     .order("codice", { ascending: true });
   if (readError) fail(readError.message);
   const locationByCode = new Map((locations || []).map((location) => [location.codice, location]));
+  const requestedByCode = new Map(rows.map((location) => [location.codice, location]));
   return ok({
     tipo,
     blocco,
@@ -1633,7 +1634,7 @@ async function generateWmsLocations(payload = {}) {
     ubicazioni_per_livello: ubicazioniPerLivello,
     create: missingRows.length,
     esistenti: rows.length - missingRows.length,
-    locations: codes.map((code) => locationByCode.get(code)).filter(Boolean),
+    locations: codes.map((code) => locationByCode.get(code) || requestedByCode.get(code)),
   });
 }
 

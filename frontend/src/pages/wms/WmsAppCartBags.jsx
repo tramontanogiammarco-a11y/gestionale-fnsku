@@ -168,8 +168,15 @@ export default function WmsAppCartBags() {
         livelli: locationDraft.livelli,
         ubicazioni_per_livello: locationDraft.ubicazioni,
       });
-      setGeneratedLocations(response.data.locations || []);
-      toast.success(`${response.data.create} posizioni create, ${response.data.esistenti} gia esistenti`);
+      const printableLocations = response.data.locations?.length
+        ? response.data.locations
+        : locationPreview.map((location) => ({ ...location, tipo: locationDraft.tipo }));
+      setGeneratedLocations(printableLocations);
+      if (response.data.create > 0) {
+        toast.success(`${response.data.create} posizioni create, ${response.data.esistenti} già esistenti. Tutte pronte per la stampa.`);
+      } else {
+        toast.success(`${response.data.esistenti} posizioni già esistenti: blocco caricato per la ristampa.`);
+      }
     } catch (error) {
       toast.error(error.response?.data?.detail || "Posizioni non generate");
     } finally {
@@ -308,7 +315,7 @@ export default function WmsAppCartBags() {
       {generatedLocations.length > 0 && <p className="mt-2 text-center text-xs font-semibold text-slate-500">Formato Zebra 10 x 15 cm: 3 posizioni da 10 x 5 cm per etichetta · {physicalLocationLabels} {physicalLocationLabels === 1 ? "etichetta fisica" : "etichette fisiche"}</p>}
 
       {generatedLocations.length > 0 && <div className="mt-4 divide-y divide-slate-100 overflow-hidden rounded-md border border-emerald-200 bg-emerald-50">
-        {generatedLocations.map((location) => <div key={location.id} className="flex items-center gap-3 p-3"><span className="min-w-0 flex-1"><strong className="block font-mono">{String(location.codice).replace(/^[SP]/, "")}</strong><span className="block text-xs text-emerald-800">Salvata come {location.codice}</span></span><button type="button" onClick={() => printLocations([location])} disabled={printingLocations || (pairedStation && !stationOnline)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-emerald-300 bg-white text-emerald-800 disabled:opacity-40" aria-label={`Stampa ${location.codice}`}><Printer className="h-4 w-4" /></button></div>)}
+        {generatedLocations.map((location) => <div key={location.codice} className="flex items-center gap-3 p-3"><span className="min-w-0 flex-1"><strong className="block font-mono">{String(location.codice).replace(/^[SP]/, "")}</strong><span className="block text-xs text-emerald-800">Salvata come {location.codice}</span></span><button type="button" onClick={() => printLocations([location])} disabled={printingLocations || (pairedStation && !stationOnline)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-emerald-300 bg-white text-emerald-800 disabled:opacity-40" aria-label={`Stampa ${location.codice}`}><Printer className="h-4 w-4" /></button></div>)}
       </div>}
     </section>
 
