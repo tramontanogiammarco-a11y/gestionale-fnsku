@@ -194,8 +194,7 @@ export default function WmsAppCartBags() {
         type: location.tipo,
         qrUrl: `${window.location.origin}/wms-app/ubicazioni?code=${encodeURIComponent(location.codice)}`,
       }));
-      if (pairedStation) {
-        if (!stationOnline || !printChannelRef.current) throw new Error("La Packing Station associata non è online");
+      if (pairedStation && stationOnline && printChannelRef.current) {
         const jobId = createPrintJobId();
         pendingPrintJobRef.current = jobId;
         const result = await printChannelRef.current.send({
@@ -214,10 +213,12 @@ export default function WmsAppCartBags() {
         return;
       }
       const printer = await printZebraLocationLabels(labels);
-      toast.success(`${labels.length} etichette stampate su ${printer.name || "Zebra"}`);
+      toast.success(`${labels.length} etichette stampate direttamente su ${printer.name || "Zebra"}`);
     } catch (error) {
       pendingPrintJobRef.current = "";
-      toast.error(error.message || "Zebra non raggiungibile. Avvia Browser Print e riprova.");
+      toast.error(pairedStation && !stationOnline
+        ? "Packing Station offline e Zebra locale non raggiungibile. Apri la Packing Station sul PC oppure avvia Zebra Browser Print qui."
+        : error.message || "Zebra non raggiungibile. Avvia Browser Print e riprova.");
     } finally {
       if (!pendingPrintJobRef.current) setPrintingLocations(false);
     }
@@ -311,11 +312,11 @@ export default function WmsAppCartBags() {
       </div>
 
       <Button type="button" className="mt-4 h-12 w-full font-black" onClick={generateLocations} disabled={working || !locationDraft.blocco || !locationPreview.length}>{working ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Plus className="mr-2 h-5 w-5" />} Genera e salva {locationPreview.length} posizioni</Button>
-      <Button type="button" variant="outline" className="mt-2 h-12 w-full bg-white font-black" onClick={() => printLocations()} disabled={!generatedLocations.length || printingLocations || (pairedStation && !stationOnline)}>{printingLocations ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Printer className="mr-2 h-5 w-5" />} {pairedStation ? `Invia tutto alla station` : `Stampa tutto in blocco`} {generatedLocations.length > 0 ? `· ${generatedLocations.length} posizioni` : ""}</Button>
+      <Button type="button" variant="outline" className="mt-2 h-12 w-full bg-white font-black" onClick={() => printLocations()} disabled={!generatedLocations.length || printingLocations}>{printingLocations ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Printer className="mr-2 h-5 w-5" />} {pairedStation && stationOnline ? "Invia tutto alla station" : pairedStation ? "Stampa direttamente da questo dispositivo" : "Stampa tutto in blocco"} {generatedLocations.length > 0 ? `· ${generatedLocations.length} posizioni` : ""}</Button>
       {generatedLocations.length > 0 && <p className="mt-2 text-center text-xs font-semibold text-slate-500">Formato Zebra 10 x 15 cm: 3 posizioni da 10 x 5 cm per etichetta · {physicalLocationLabels} {physicalLocationLabels === 1 ? "etichetta fisica" : "etichette fisiche"}</p>}
 
       {generatedLocations.length > 0 && <div className="mt-4 divide-y divide-slate-100 overflow-hidden rounded-md border border-emerald-200 bg-emerald-50">
-        {generatedLocations.map((location) => <div key={location.codice} className="flex items-center gap-3 p-3"><span className="min-w-0 flex-1"><strong className="block font-mono">{String(location.codice).replace(/^[SP]/, "")}</strong><span className="block text-xs text-emerald-800">Salvata come {location.codice}</span></span><button type="button" onClick={() => printLocations([location])} disabled={printingLocations || (pairedStation && !stationOnline)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-emerald-300 bg-white text-emerald-800 disabled:opacity-40" aria-label={`Stampa ${location.codice}`}><Printer className="h-4 w-4" /></button></div>)}
+        {generatedLocations.map((location) => <div key={location.codice} className="flex items-center gap-3 p-3"><span className="min-w-0 flex-1"><strong className="block font-mono">{String(location.codice).replace(/^[SP]/, "")}</strong><span className="block text-xs text-emerald-800">Salvata come {location.codice}</span></span><button type="button" onClick={() => printLocations([location])} disabled={printingLocations} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-emerald-300 bg-white text-emerald-800 disabled:opacity-40" aria-label={`Stampa ${location.codice}`}><Printer className="h-4 w-4" /></button></div>)}
       </div>}
     </section>
 
