@@ -121,10 +121,10 @@ function locationCellZpl(location, offsetY) {
     `^FO30,${offsetY + 304}^A0N,20,20^FDCODICE SCANNER^FS`,
     `^FO30,${offsetY + 332}^A0N,27,27^FD${scanCode}^FS`,
     ...(qrData ? [
-      `^FO630,${offsetY + 58}^BQN,2,3^FDLA,${qrData}^FS`,
-      `^FO622,${offsetY + 235}^A0N,20,20^FDCODICE^FS`,
-      `^FO622,${offsetY + 263}^A0N,20,20^FDPOSIZIONE^FS`,
-      `^FO622,${offsetY + 324}^A0N,18,18^FDSCANSIONA QR^FS`,
+      `^FO620,${offsetY + 88}^BQN,2,5^FDQA,${qrData}^FS`,
+      `^FO622,${offsetY + 260}^A0N,20,20^FDCODICE^FS`,
+      `^FO622,${offsetY + 288}^A0N,20,20^FDPOSIZIONE^FS`,
+      `^FO622,${offsetY + 338}^A0N,18,18^FDSCANSIONA QR^FS`,
     ] : []),
   ];
 }
