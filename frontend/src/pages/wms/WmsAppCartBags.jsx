@@ -25,7 +25,7 @@ export default function WmsAppCartBags() {
   const [scanner, setScanner] = useState(null);
   const [working, setWorking] = useState(false);
   const [draftGrid, setDraftGrid] = useState({ righe: 2, colonne: 5 });
-  const [locationDraft, setLocationDraft] = useState({ tipo: "slot", blocco: "101", livelli: 5, ubicazioni: 5 });
+  const [locationDraft, setLocationDraft] = useState({ tipo: "slot", blocco: "101", bloccoFine: "101", livelli: 5, ubicazioni: 5 });
   const [generatedLocations, setGeneratedLocations] = useState([]);
   const [printingLocations, setPrintingLocations] = useState(false);
   const [pairedStation, setPairedStation] = useState(getPairedPrintStationCode);
@@ -165,6 +165,7 @@ export default function WmsAppCartBags() {
       const response = await api.post("/wms/ubicazioni/genera", {
         tipo: locationDraft.tipo,
         blocco: locationDraft.blocco,
+        blocco_fine: locationDraft.bloccoFine,
         livelli: locationDraft.livelli,
         ubicazioni_per_livello: locationDraft.ubicazioni,
       });
@@ -295,7 +296,10 @@ export default function WmsAppCartBags() {
         <button type="button" onClick={() => updateLocationDraft({ tipo: "pallet", livelli: 3 })} className={`flex h-12 items-center justify-center gap-2 rounded-md text-sm font-black ${locationDraft.tipo === "pallet" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`}><Warehouse className="h-5 w-5" /> Pallet</button>
       </div>
 
-      <label className="mt-4 block"><span className="text-xs font-black uppercase text-slate-500">Numero blocco</span><Input value={locationDraft.blocco} onChange={(event) => updateLocationDraft({ blocco: event.target.value.replace(/\D/g, "").slice(0, 5) })} placeholder="101" inputMode="numeric" className="mt-2 h-12 font-mono text-xl font-black" /></label>
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <label className="block"><span className="text-xs font-black uppercase text-slate-500">Blocco iniziale</span><Input value={locationDraft.blocco} onChange={(event) => updateLocationDraft({ blocco: event.target.value.replace(/\D/g, "").slice(0, 5) })} placeholder="101" inputMode="numeric" className="mt-2 h-12 font-mono text-xl font-black" /></label>
+        <label className="block"><span className="text-xs font-black uppercase text-slate-500">Blocco finale</span><Input value={locationDraft.bloccoFine} onChange={(event) => updateLocationDraft({ bloccoFine: event.target.value.replace(/\D/g, "").slice(0, 5) })} placeholder="110" inputMode="numeric" className="mt-2 h-12 font-mono text-xl font-black" /></label>
+      </div>
       <div className="mt-4 grid grid-cols-2 gap-3">
         <GridStepper label="Livelli" value={locationDraft.livelli} onChange={(livelli) => updateLocationDraft({ livelli })} min={1} max={locationDraft.tipo === "pallet" ? 3 : 5} />
         <GridStepper label="Posti per livello" value={locationDraft.ubicazioni} onChange={(ubicazioni) => updateLocationDraft({ ubicazioni })} min={1} max={20} />
@@ -306,16 +310,17 @@ export default function WmsAppCartBags() {
         <span className="mt-1 block text-xs">Il prefisso {locationDraft.tipo === "pallet" ? "P" : "S"} resta nel barcode per distinguere il tipo, ma non appare nel testo grande dell'etichetta.</span>
       </div>
 
-      <div className="mt-4 flex items-center justify-between"><h3 className="font-black">Anteprima blocco {locationDraft.blocco || "-"}</h3><span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-black">{locationPreview.length} posizioni</span></div>
+      <div className="mt-4 flex items-center justify-between"><h3 className="font-black">Anteprima blocchi {locationDraft.blocco || "-"}{locationDraft.bloccoFine !== locationDraft.blocco ? `-${locationDraft.bloccoFine || "-"}` : ""}</h3><span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-black">{locationPreview.length} posizioni</span></div>
       <div className="mt-3 grid max-h-64 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
-        {locationPreview.map((location) => <div key={location.codice} className="rounded-md border border-slate-200 bg-slate-50 p-3"><span className="block text-[10px] font-black uppercase text-slate-500">Barcode {location.codice}</span><strong className="mt-2 block font-mono text-xl text-slate-950">{location.displayCode}</strong><span className="mt-1 block text-xs text-slate-500">Livello {location.livello} · posto {location.ubicazione}</span></div>)}
+        {locationPreview.slice(0, 60).map((location) => <div key={location.codice} className="rounded-md border border-slate-200 bg-slate-50 p-3"><span className="block text-[10px] font-black uppercase text-slate-500">Barcode {location.codice}</span><strong className="mt-2 block font-mono text-xl text-slate-950">{location.displayCode}</strong><span className="mt-1 block text-xs text-slate-500">Livello {location.livello} · posto {location.ubicazione}</span></div>)}
       </div>
+      {locationPreview.length > 60 && <p className="mt-2 text-xs font-semibold text-slate-500">Mostrate le prime 60 posizioni. Verranno comunque generate e stampate tutte le {locationPreview.length} posizioni.</p>}
 
-      <Button type="button" className="mt-4 h-12 w-full font-black" onClick={generateLocations} disabled={working || !locationDraft.blocco || !locationPreview.length}>{working ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Plus className="mr-2 h-5 w-5" />} Genera e salva {locationPreview.length} posizioni</Button>
+      <Button type="button" className="mt-4 h-12 w-full font-black" onClick={generateLocations} disabled={working || !locationDraft.blocco || !locationDraft.bloccoFine || !locationPreview.length}>{working ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Plus className="mr-2 h-5 w-5" />} Genera e salva {locationPreview.length} posizioni</Button>
       <Button type="button" variant="outline" className="mt-2 h-12 w-full bg-white font-black" onClick={() => printLocations()} disabled={!generatedLocations.length || printingLocations}>{printingLocations ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Printer className="mr-2 h-5 w-5" />} {pairedStation && stationOnline ? "Invia tutto alla station" : pairedStation ? "Stampa direttamente da questo dispositivo" : "Stampa tutto in blocco"} {generatedLocations.length > 0 ? `· ${generatedLocations.length} posizioni` : ""}</Button>
       {generatedLocations.length > 0 && <p className="mt-2 text-center text-xs font-semibold text-slate-500">Formato Zebra 10 x 15 cm: 3 posizioni da 10 x 5 cm per etichetta · {physicalLocationLabels} {physicalLocationLabels === 1 ? "etichetta fisica" : "etichette fisiche"}</p>}
 
-      {generatedLocations.length > 0 && <div className="mt-4 divide-y divide-slate-100 overflow-hidden rounded-md border border-emerald-200 bg-emerald-50">
+      {generatedLocations.length > 0 && <div className="mt-4 max-h-96 divide-y divide-slate-100 overflow-y-auto rounded-md border border-emerald-200 bg-emerald-50">
         {generatedLocations.map((location) => <div key={location.codice} className="flex items-center gap-3 p-3"><span className="min-w-0 flex-1"><strong className="block font-mono">{String(location.codice).replace(/^[SP]/, "")}</strong><span className="block text-xs text-emerald-800">Salvata come {location.codice}</span></span><button type="button" onClick={() => printLocations([location])} disabled={printingLocations} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-emerald-300 bg-white text-emerald-800 disabled:opacity-40" aria-label={`Stampa ${location.codice}`}><Printer className="h-4 w-4" /></button></div>)}
       </div>}
     </section>
@@ -326,16 +331,22 @@ export default function WmsAppCartBags() {
 }
 
 function buildLocationPreview(draft) {
-  const block = String(draft.blocco || "").trim();
-  if (!block) return [];
+  const rawStart = String(draft.blocco || "").trim();
+  const rawEnd = String(draft.bloccoFine || "").trim();
+  if (!/^\d{1,5}$/.test(rawStart) || !/^\d{1,5}$/.test(rawEnd)) return [];
+  const blockStart = Number(rawStart);
+  const blockEnd = Number(rawEnd);
+  if (blockEnd < blockStart || blockEnd - blockStart > 99) return [];
   const levels = draft.tipo === "pallet" ? ["Z", "Y", "X"] : ["A", "B", "C", "D", "E"];
   const prefix = draft.tipo === "pallet" ? "P" : "S";
-  return levels.slice(0, Number(draft.livelli) || 0).flatMap((livello) => Array.from({ length: Number(draft.ubicazioni) || 0 }, (_, index) => ({
-    codice: `${prefix}${block}+${livello}${index + 1}`,
-    displayCode: `${block}+${livello}${index + 1}`,
-    livello,
-    ubicazione: index + 1,
-  })));
+  const blocks = Array.from({ length: blockEnd - blockStart + 1 }, (_, index) => String(blockStart + index));
+  const locations = blocks.flatMap((block) => levels.slice(0, Number(draft.livelli) || 0).flatMap((livello) => Array.from({ length: Number(draft.ubicazioni) || 0 }, (_, index) => ({
+      codice: `${prefix}${block}+${livello}${index + 1}`,
+      displayCode: `${block}+${livello}${index + 1}`,
+      livello,
+      ubicazione: index + 1,
+    }))));
+  return locations.length <= 1000 ? locations : [];
 }
 
 function GridStepper({ label, value, onChange, min, max }) {

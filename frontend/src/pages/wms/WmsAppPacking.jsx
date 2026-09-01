@@ -172,7 +172,7 @@ export default function WmsAppPacking() {
       .on("broadcast", { event: "print-location-labels" }, async ({ payload }) => {
         const jobId = String(payload?.jobId || "");
         const locations = Array.isArray(payload?.locations)
-          ? payload.locations.slice(0, 100).filter((location) => /^[SP][0-9]{1,5}\+[A-Z][0-9]{1,2}$/.test(String(location?.code || "")))
+          ? payload.locations.slice(0, 1000).filter((location) => /^[SP][0-9]{1,5}\+[A-Z][0-9]{1,2}$/.test(String(location?.code || "")))
           : [];
         if (!locations.length) {
           await channel.send({ type: "broadcast", event: "print-result", payload: { jobId, ok: false, message: "Nessuna ubicazione valida da stampare" } });

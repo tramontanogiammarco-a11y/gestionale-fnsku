@@ -1586,10 +1586,16 @@ async function generateWmsLocations(payload = {}) {
   await assertWmsStaff();
   const tipo = String(payload.tipo || "").trim().toLowerCase();
   const blocco = String(payload.blocco || "").trim();
+  const bloccoFine = String(payload.blocco_fine ?? payload.blocco ?? "").trim();
   const numeroLivelli = Number(payload.livelli);
   const ubicazioniPerLivello = Number(payload.ubicazioni_per_livello);
   if (!['slot', 'pallet'].includes(tipo)) fail("Scegli slot oppure pallet");
   if (!/^[0-9]{1,5}$/.test(blocco)) fail("Il blocco deve essere un numero, per esempio 101");
+  if (!/^[0-9]{1,5}$/.test(bloccoFine)) fail("Il blocco finale deve essere un numero, per esempio 110");
+  const blockStart = Number(blocco);
+  const blockEnd = Number(bloccoFine);
+  if (blockEnd < blockStart) fail("Il blocco finale non puo essere precedente a quello iniziale");
+  if (blockEnd - blockStart > 99) fail("Puoi generare al massimo 100 blocchi alla volta");
   const availableLevels = tipo === "pallet" ? ["Z", "Y", "X"] : ["A", "B", "C", "D", "E"];
   if (!Number.isInteger(numeroLivelli) || numeroLivelli < 1 || numeroLivelli > availableLevels.length) {
     fail(`Puoi creare da 1 a ${availableLevels.length} livelli per questo tipo`);
@@ -1599,37 +1605,38 @@ async function generateWmsLocations(payload = {}) {
   }
   const prefix = tipo === "pallet" ? "P" : "S";
   const levels = availableLevels.slice(0, numeroLivelli);
-  const rows = levels.flatMap((livello) => Array.from({ length: ubicazioniPerLivello }, (_, index) => ({
-    codice: `${prefix}${blocco}+${livello}${index + 1}`,
-    zona: `Blocco ${blocco}`,
+  const blocks = Array.from({ length: blockEnd - blockStart + 1 }, (_, index) => String(blockStart + index));
+  const rows = blocks.flatMap((block) => levels.flatMap((livello) => Array.from({ length: ubicazioniPerLivello }, (_, index) => ({
+    codice: `${prefix}${block}+${livello}${index + 1}`,
+    zona: `Blocco ${block}`,
     tipo,
-    note: `Blocco ${blocco} · Livello ${livello} · Ubicazione ${index + 1}`,
-  })));
-  if (rows.length > 100) fail("Puoi generare al massimo 100 ubicazioni alla volta");
+    note: `Blocco ${block} · Livello ${livello} · Ubicazione ${index + 1}`,
+  }))));
+  if (rows.length > 1000) fail("Puoi generare al massimo 1.000 ubicazioni alla volta");
 
   const codes = rows.map((row) => row.codice);
-  const { data: existing, error: existingError } = await requireSupabase()
-    .from("wms_locations")
-    .select("id,codice,zona,tipo,note,stato")
-    .in("codice", codes);
-  if (existingError) fail(existingError.message);
-  const existingCodes = new Set((existing || []).map((row) => row.codice));
+  const batches = (items, size = 100) => Array.from({ length: Math.ceil(items.length / size) }, (_, index) => items.slice(index * size, (index + 1) * size));
+  const existing = [];
+  for (const codeBatch of batches(codes)) {
+    const { data, error } = await requireSupabase()
+      .from("wms_locations")
+      .select("id,codice,zona,tipo,note,stato")
+      .in("codice", codeBatch);
+    if (error) fail(error.message);
+    existing.push(...(data || []));
+  }
+  const existingCodes = new Set(existing.map((row) => row.codice));
   const missingRows = rows.filter((row) => !existingCodes.has(row.codice));
-  if (missingRows.length) {
-    const { error } = await requireSupabase().from("wms_locations").insert(missingRows);
+  for (const rowBatch of batches(missingRows)) {
+    const { error } = await requireSupabase().from("wms_locations").insert(rowBatch);
     if (error) fail(error.message);
   }
-  const { data: locations, error: readError } = await requireSupabase()
-    .from("wms_locations")
-    .select("id,codice,zona,tipo,note,stato")
-    .in("codice", codes)
-    .order("codice", { ascending: true });
-  if (readError) fail(readError.message);
-  const locationByCode = new Map((locations || []).map((location) => [location.codice, location]));
+  const locationByCode = new Map(existing.map((location) => [location.codice, location]));
   const requestedByCode = new Map(rows.map((location) => [location.codice, location]));
   return ok({
     tipo,
     blocco,
+    blocco_fine: bloccoFine,
     livelli: levels,
     ubicazioni_per_livello: ubicazioniPerLivello,
     create: missingRows.length,
