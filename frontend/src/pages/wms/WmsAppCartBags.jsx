@@ -192,7 +192,7 @@ export default function WmsAppCartBags() {
         code: location.codice,
         displayCode: String(location.codice).replace(/^[SP]/, ""),
         type: location.tipo,
-        qrUrl: `${window.location.origin}/wms-app/ubicazioni?code=${encodeURIComponent(location.codice)}`,
+        qrData: location.codice,
       }));
       if (pairedStation && stationOnline && printChannelRef.current) {
         const jobId = createPrintJobId();

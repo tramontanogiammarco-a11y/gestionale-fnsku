@@ -108,7 +108,7 @@ function locationCellZpl(location, offsetY) {
   const scanCode = zplText(location.code || location.codice || "POSIZIONE");
   const displayCode = zplText(location.displayCode || scanCode.replace(/^[SP]/, ""));
   const type = String(location.type || location.tipo || "slot").toLowerCase() === "pallet" ? "PALLET" : "SLOT";
-  const qrUrl = zplText(location.qrUrl || location.qr_url || "");
+  const qrData = zplText(location.qrData || location.qr_data || scanCode);
   return [
     `^FO12,${offsetY + 8}^GB788,390,2^FS`,
     `^FO590,${offsetY + 18}^GB2,370,2^FS`,
@@ -120,9 +120,9 @@ function locationCellZpl(location, offsetY) {
     `^BCN,102,N,N,N^FD${scanCode}^FS`,
     `^FO30,${offsetY + 304}^A0N,20,20^FDCODICE SCANNER^FS`,
     `^FO30,${offsetY + 332}^A0N,27,27^FD${scanCode}^FS`,
-    ...(qrUrl ? [
-      `^FO630,${offsetY + 58}^BQN,2,3^FDLA,${qrUrl}^FS`,
-      `^FO622,${offsetY + 235}^A0N,20,20^FDGESTISCI^FS`,
+    ...(qrData ? [
+      `^FO630,${offsetY + 58}^BQN,2,3^FDLA,${qrData}^FS`,
+      `^FO622,${offsetY + 235}^A0N,20,20^FDCODICE^FS`,
       `^FO622,${offsetY + 263}^A0N,20,20^FDPOSIZIONE^FS`,
       `^FO622,${offsetY + 324}^A0N,18,18^FDSCANSIONA QR^FS`,
     ] : []),
