@@ -87,6 +87,8 @@ export default function WmsAppPacking() {
   const scannerRef = useRef(null);
   const activeBagRef = useRef(null);
   const scanInFlightRef = useRef(false);
+  const printRetryInFlightRef = useRef(false);
+  const wakeLockRef = useRef(null);
   const [station, setStation] = useState(null);
   const [cart, setCart] = useState(null);
   const [code, setCode] = useState("");
@@ -97,6 +99,7 @@ export default function WmsAppPacking() {
   const [printStationCode] = useState(getOrCreatePrintStationCode);
   const [pairedDevices, setPairedDevices] = useState(0);
   const [remotePrintStatus, setRemotePrintStatus] = useState("ready");
+  const [pendingCarrierPrint, setPendingCarrierPrint] = useState(null);
   const stationQrUrl = useMemo(() => `${window.location.origin}/wms-app/carrelli-bag?station=${encodeURIComponent(printStationCode)}`, [printStationCode]);
 
   const openCamera = useCallback(() => {
@@ -138,12 +141,44 @@ export default function WmsAppPacking() {
   useEffect(() => {
     focusScanner();
     const keepFocus = () => focusScanner();
+    const keepFocusOnPage = () => {
+      if (!cameraOpen) focusScanner();
+    };
     window.addEventListener("focus", keepFocus);
-    return () => window.removeEventListener("focus", keepFocus);
-  }, [focusScanner]);
+    window.addEventListener("pageshow", keepFocus);
+    document.addEventListener("pointerdown", keepFocusOnPage);
+    const interval = window.setInterval(keepFocusOnPage, 1500);
+    return () => {
+      window.removeEventListener("focus", keepFocus);
+      window.removeEventListener("pageshow", keepFocus);
+      document.removeEventListener("pointerdown", keepFocusOnPage);
+      window.clearInterval(interval);
+    };
+  }, [cameraOpen, focusScanner]);
 
-  const checkZebra = useCallback(async ({ notify = false } = {}) => {
-    setZebra((current) => ({ ...current, status: "checking" }));
+  useEffect(() => {
+    if (!("wakeLock" in navigator)) return undefined;
+    const requestWakeLock = async () => {
+      if (document.visibilityState !== "visible" || wakeLockRef.current) return;
+      try {
+        wakeLockRef.current = await navigator.wakeLock.request("screen");
+        wakeLockRef.current.addEventListener("release", () => { wakeLockRef.current = null; }, { once: true });
+      } catch {
+        wakeLockRef.current = null;
+      }
+    };
+    const onVisibilityChange = () => { if (document.visibilityState === "visible") requestWakeLock(); };
+    requestWakeLock();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      wakeLockRef.current?.release?.().catch(() => {});
+      wakeLockRef.current = null;
+    };
+  }, []);
+
+  const checkZebra = useCallback(async ({ notify = false, background = false } = {}) => {
+    if (!background) setZebra((current) => ({ ...current, status: "checking" }));
     try {
       const printer = await getDefaultZebraPrinter();
       setZebra({ status: "ready", name: printer.name || "Zebra predefinita" });
@@ -157,6 +192,17 @@ export default function WmsAppPacking() {
   }, []);
 
   useEffect(() => { checkZebra(); }, [checkZebra]);
+
+  useEffect(() => {
+    if (zebra.status === "ready" && !pendingCarrierPrint) return undefined;
+    const retry = () => checkZebra({ background: true });
+    const interval = window.setInterval(retry, 4000);
+    window.addEventListener("online", retry);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("online", retry);
+    };
+  }, [checkZebra, pendingCarrierPrint, zebra.status]);
 
   useEffect(() => {
     if (!supabase || !printStationCode) return undefined;
@@ -233,21 +279,37 @@ export default function WmsAppPacking() {
     try {
       const printer = await printZebraPackingLabels(labels);
       setZebra({ status: "ready", name: printer.name || "Zebra predefinita" });
+      setPendingCarrierPrint(null);
       toast.success(`${labels.length} etichette stampate su ${printer.name || "Zebra"}`);
       return true;
     } catch (zebraError) {
       setZebra({ status: "unavailable", name: "" });
-      toast.error("Stampa automatica non riuscita: avvia Zebra Browser Print. Apro la stampa browser di emergenza.");
-    }
-    try {
-      const response = await api.get(`/wms/packing/bag/${bagCode}/etichette`, { responseType: "blob" });
-      printBlobWithBrowserDialog(response.data);
-      return false;
-    } catch (error) {
-      toast.error(error.response?.data?.detail || "Etichette corriere non disponibili");
+      setPendingCarrierPrint({ bagCode, labels });
+      toast.error("Zebra non raggiungibile. La station riprovera automaticamente senza perdere l'etichetta.");
       return false;
     }
   };
+
+  useEffect(() => {
+    if (!pendingCarrierPrint || zebra.status !== "ready" || printRetryInFlightRef.current) return;
+    let cancelled = false;
+    printRetryInFlightRef.current = true;
+    printZebraPackingLabels(pendingCarrierPrint.labels)
+      .then((printer) => {
+        if (cancelled) return;
+        setZebra({ status: "ready", name: printer.name || "Zebra predefinita" });
+        setPendingCarrierPrint(null);
+        toast.success("Zebra ripristinata: etichetta stampata automaticamente");
+      })
+      .catch(() => {
+        if (!cancelled) setZebra({ status: "unavailable", name: "" });
+      })
+      .finally(() => {
+        printRetryInFlightRef.current = false;
+        if (!cancelled) focusScanner();
+      });
+    return () => { cancelled = true; };
+  }, [focusScanner, pendingCarrierPrint, zebra.status]);
 
   const printTestLabel = async () => {
     try {
@@ -313,7 +375,9 @@ export default function WmsAppPacking() {
   const visibleCart = cart?.cart_code ? cart : (station?.phase === "cart_ready" ? cartStateFromSnapshot(station) : null);
   const visibleCartBags = visibleCart?.bags || [];
   const bagsByPosition = new Map(visibleCartBags.map((bag) => [Number(bag.posizione), bag]));
-  const prompt = phase === "double_check"
+  const prompt = pendingCarrierPrint
+    ? "Attendo Zebra: ristampa automatica in corso"
+    : phase === "double_check"
     ? "Riscansiona la stessa bag"
     : phase === "scan_labels"
       ? `Scansiona ${pendingLabels === 1 ? "l'etichetta corriere" : "tutte le etichette corriere"}`
@@ -351,9 +415,9 @@ export default function WmsAppPacking() {
         </div>
       </div>
     </section>
-    {zebra.status === "unavailable" && <div className="mb-4 flex items-start gap-3 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><CircleAlert className="mt-0.5 h-5 w-5 shrink-0" /><div><strong className="block">Stampa automatica Zebra non attiva</strong><span className="mt-1 block text-xs leading-5">Avvia Zebra Browser Print sul PC, collega la stampante e impostala come predefinita, poi premi “Zebra non collegata” per riprovare.</span></div></div>}
+    {zebra.status === "unavailable" && <div className="mb-4 flex items-start gap-3 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><CircleAlert className="mt-0.5 h-5 w-5 shrink-0" /><div><strong className="block">Stampa automatica Zebra non attiva</strong><span className="mt-1 block text-xs leading-5">Controlla che Zebra Browser Print sia aperto e la stampante collegata. La station verifica il collegamento e riprende la stampa automaticamente.</span></div></div>}
 
-    <section className={`rounded-md border-2 bg-white p-5 shadow-sm ${phase === "completed" ? "border-emerald-500" : phase === "scan_labels" ? "border-teal-500" : "border-slate-950"}`}>
+    <section className={`rounded-md border-2 bg-white p-5 shadow-sm ${pendingCarrierPrint ? "border-amber-500" : phase === "completed" ? "border-emerald-500" : phase === "scan_labels" ? "border-teal-500" : "border-slate-950"}`}>
       <div className="flex items-center gap-4">
         <span className={`flex h-14 w-14 items-center justify-center rounded-md ${phase === "completed" ? "bg-emerald-600 text-white" : "bg-slate-950 text-white"}`}>
           {phase === "completed" ? <CheckCircle2 className="h-7 w-7" /> : phase === "scan_labels" ? <Barcode className="h-7 w-7" /> : <ShoppingBag className="h-7 w-7" />}
@@ -379,7 +443,7 @@ export default function WmsAppPacking() {
           className="h-16 min-w-0 flex-1 border-slate-950 bg-slate-50 text-center font-mono text-xl font-black tracking-wider sm:text-2xl"
           autoComplete="off"
           inputMode="none"
-          disabled={working}
+          disabled={working || Boolean(pendingCarrierPrint)}
           aria-label="Scanner packing"
         />
         <button
