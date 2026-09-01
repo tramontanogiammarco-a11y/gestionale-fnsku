@@ -1,17 +1,23 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Barcode, Grid3X3, Layers3, Loader2, Minus, Plus, Printer, ScanLine, ShoppingBag, ShoppingCart, Trash2, Warehouse } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { ArrowLeft, Barcode, Grid3X3, Layers3, Link2, Loader2, Minus, Plus, Printer, ScanLine, ShoppingBag, ShoppingCart, Trash2, Unplug, Warehouse, Wifi } from "lucide-react";
 import { toast } from "sonner";
 import { api, normalizeScannerCode } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import CameraScanner from "@/components/wms/CameraScanner";
+import { supabase } from "@/lib/supabase";
+import { createPrintJobId, getPairedPrintStationCode, normalizePrintStationCode, pairPrintStation, printStationChannelName, unpairPrintStation } from "@/lib/printStation";
 import { printZebraLocationLabels } from "@/lib/zebraPrinter";
 
 const DEFAULT_CART = "CARRELLO-01";
 
 export default function WmsAppCartBags() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const printChannelRef = useRef(null);
+  const pendingPrintJobRef = useRef("");
+  const printTimeoutRef = useRef(null);
   const [snapshot, setSnapshot] = useState(null);
   const [cartCode, setCartCode] = useState("");
   const [bagCode, setBagCode] = useState("");
@@ -22,6 +28,51 @@ export default function WmsAppCartBags() {
   const [locationDraft, setLocationDraft] = useState({ tipo: "slot", blocco: "101", livelli: 5, ubicazioni: 5 });
   const [generatedLocations, setGeneratedLocations] = useState([]);
   const [printingLocations, setPrintingLocations] = useState(false);
+  const [pairedStation, setPairedStation] = useState(getPairedPrintStationCode);
+  const [stationOnline, setStationOnline] = useState(false);
+
+  useEffect(() => {
+    const stationFromQr = normalizePrintStationCode(searchParams.get("station"));
+    if (!stationFromQr || stationFromQr === pairedStation) return;
+    pairPrintStation(stationFromQr);
+    setPairedStation(stationFromQr);
+    toast.success("Packing Station associata. Ora puoi stampare slot e pallet dal telefono.");
+  }, [pairedStation, searchParams]);
+
+  useEffect(() => {
+    if (!supabase || !pairedStation) {
+      setStationOnline(false);
+      printChannelRef.current = null;
+      return undefined;
+    }
+    const channel = supabase.channel(printStationChannelName(pairedStation), {
+      config: { broadcast: { ack: true }, presence: { key: `mobile-${Date.now()}` } },
+    });
+    printChannelRef.current = channel;
+    channel
+      .on("presence", { event: "sync" }, () => {
+        const devices = Object.values(channel.presenceState()).flat();
+        setStationOnline(devices.some((device) => device.role === "station"));
+      })
+      .on("broadcast", { event: "print-result" }, ({ payload }) => {
+        if (!payload?.jobId || payload.jobId !== pendingPrintJobRef.current) return;
+        window.clearTimeout(printTimeoutRef.current);
+        pendingPrintJobRef.current = "";
+        setPrintingLocations(false);
+        if (payload.ok) toast.success(`${payload.count} etichette stampate su ${payload.printer || "Zebra"}`);
+        else toast.error(payload.message || "La Packing Station non ha completato la stampa");
+      })
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") await channel.track({ role: "mobile", pairedAt: new Date().toISOString() });
+        if (["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status)) setStationOnline(false);
+      });
+    return () => {
+      printChannelRef.current = null;
+      supabase.removeChannel(channel);
+    };
+  }, [pairedStation]);
+
+  useEffect(() => () => window.clearTimeout(printTimeoutRef.current), []);
 
   const applySnapshot = useCallback((next) => {
     setSnapshot(next);
@@ -135,13 +186,40 @@ export default function WmsAppCartBags() {
         type: location.tipo,
         qrUrl: `${window.location.origin}/wms-app/ubicazioni?code=${encodeURIComponent(location.codice)}`,
       }));
+      if (pairedStation) {
+        if (!stationOnline || !printChannelRef.current) throw new Error("La Packing Station associata non è online");
+        const jobId = createPrintJobId();
+        pendingPrintJobRef.current = jobId;
+        const result = await printChannelRef.current.send({
+          type: "broadcast",
+          event: "print-location-labels",
+          payload: { jobId, locations: labels },
+        });
+        if (result !== "ok") throw new Error("Invio alla Packing Station non riuscito");
+        toast.message("Etichette inviate alla Packing Station");
+        printTimeoutRef.current = window.setTimeout(() => {
+          if (pendingPrintJobRef.current !== jobId) return;
+          pendingPrintJobRef.current = "";
+          setPrintingLocations(false);
+          toast.error("La Packing Station non ha risposto. Controlla Zebra Browser Print sul PC.");
+        }, 20000);
+        return;
+      }
       const printer = await printZebraLocationLabels(labels);
       toast.success(`${labels.length} etichette stampate su ${printer.name || "Zebra"}`);
     } catch (error) {
-      toast.error("Zebra non raggiungibile. Avvia Browser Print e riprova.");
+      pendingPrintJobRef.current = "";
+      toast.error(error.message || "Zebra non raggiungibile. Avvia Browser Print e riprova.");
     } finally {
-      setPrintingLocations(false);
+      if (!pendingPrintJobRef.current) setPrintingLocations(false);
     }
+  };
+
+  const disconnectPrintStation = () => {
+    unpairPrintStation();
+    setPairedStation("");
+    setStationOnline(false);
+    toast.success("Packing Station scollegata");
   };
 
   return <div className="wms-page pb-24" data-testid="wms-cart-bags">
@@ -194,6 +272,15 @@ export default function WmsAppCartBags() {
         <div><p className="text-xs font-black uppercase text-teal-700">Ubicazioni stampabili</p><h2 className="mt-1 text-xl font-black">Genera slot e pallet</h2><p className="mt-1 text-sm text-slate-500">Crea un blocco completo, salvalo nel WMS e stampa le etichette Zebra.</p></div>
       </div>
 
+      <div className={`mt-4 flex items-center gap-3 rounded-md border p-3 ${pairedStation && stationOnline ? "border-emerald-300 bg-emerald-50" : pairedStation ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-slate-50"}`}>
+        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md ${pairedStation && stationOnline ? "bg-emerald-700 text-white" : "bg-white text-slate-500"}`}>{pairedStation && stationOnline ? <Wifi className="h-5 w-5" /> : <Link2 className="h-5 w-5" />}</span>
+        <div className="min-w-0 flex-1">
+          <strong className="block text-sm">{pairedStation ? stationOnline ? "Packing Station collegata" : "Packing Station non raggiungibile" : "Nessuna Packing Station associata"}</strong>
+          <span className="block truncate font-mono text-[11px] text-slate-600">{pairedStation || "Scansiona il QR mostrato sul PC della station"}</span>
+        </div>
+        {pairedStation && <button type="button" onClick={disconnectPrintStation} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-current/20 bg-white text-slate-600" aria-label="Scollega Packing Station"><Unplug className="h-4 w-4" /></button>}
+      </div>
+
       <div className="mt-5 grid grid-cols-2 gap-2 rounded-md bg-slate-100 p-1">
         <button type="button" onClick={() => updateLocationDraft({ tipo: "slot", livelli: 5 })} className={`flex h-12 items-center justify-center gap-2 rounded-md text-sm font-black ${locationDraft.tipo === "slot" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`}><Layers3 className="h-5 w-5" /> Slot</button>
         <button type="button" onClick={() => updateLocationDraft({ tipo: "pallet", livelli: 3 })} className={`flex h-12 items-center justify-center gap-2 rounded-md text-sm font-black ${locationDraft.tipo === "pallet" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`}><Warehouse className="h-5 w-5" /> Pallet</button>
@@ -216,10 +303,10 @@ export default function WmsAppCartBags() {
       </div>
 
       <Button type="button" className="mt-4 h-12 w-full font-black" onClick={generateLocations} disabled={working || !locationDraft.blocco || !locationPreview.length}>{working ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Plus className="mr-2 h-5 w-5" />} Genera e salva {locationPreview.length} posizioni</Button>
-      <Button type="button" variant="outline" className="mt-2 h-12 w-full bg-white font-black" onClick={() => printLocations()} disabled={!generatedLocations.length || printingLocations}>{printingLocations ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Printer className="mr-2 h-5 w-5" />} Stampa {generatedLocations.length || ""} etichette Zebra</Button>
+      <Button type="button" variant="outline" className="mt-2 h-12 w-full bg-white font-black" onClick={() => printLocations()} disabled={!generatedLocations.length || printingLocations || (pairedStation && !stationOnline)}>{printingLocations ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Printer className="mr-2 h-5 w-5" />} {pairedStation ? `Invia ${generatedLocations.length || ""} etichette alla station` : `Stampa ${generatedLocations.length || ""} etichette Zebra`}</Button>
 
       {generatedLocations.length > 0 && <div className="mt-4 divide-y divide-slate-100 overflow-hidden rounded-md border border-emerald-200 bg-emerald-50">
-        {generatedLocations.map((location) => <div key={location.id} className="flex items-center gap-3 p-3"><span className="min-w-0 flex-1"><strong className="block font-mono">{String(location.codice).replace(/^[SP]/, "")}</strong><span className="block text-xs text-emerald-800">Salvata come {location.codice}</span></span><button type="button" onClick={() => printLocations([location])} disabled={printingLocations} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-emerald-300 bg-white text-emerald-800" aria-label={`Stampa ${location.codice}`}><Printer className="h-4 w-4" /></button></div>)}
+        {generatedLocations.map((location) => <div key={location.id} className="flex items-center gap-3 p-3"><span className="min-w-0 flex-1"><strong className="block font-mono">{String(location.codice).replace(/^[SP]/, "")}</strong><span className="block text-xs text-emerald-800">Salvata come {location.codice}</span></span><button type="button" onClick={() => printLocations([location])} disabled={printingLocations || (pairedStation && !stationOnline)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-emerald-300 bg-white text-emerald-800 disabled:opacity-40" aria-label={`Stampa ${location.codice}`}><Printer className="h-4 w-4" /></button></div>)}
       </div>}
     </section>
 

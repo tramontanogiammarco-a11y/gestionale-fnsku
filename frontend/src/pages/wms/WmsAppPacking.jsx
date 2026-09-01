@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Barcode, Camera, CheckCircle2, CircleAlert, ImageIcon, Loader2, PackageCheck, Printer, ShoppingBag } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Barcode, Camera, CheckCircle2, CircleAlert, ImageIcon, Loader2, PackageCheck, Printer, QrCode, ShoppingBag, Smartphone } from "lucide-react";
 import { toast } from "sonner";
 import { api, fileUrl, normalizeScannerCode } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import CameraScanner from "@/components/wms/CameraScanner";
-import { getDefaultZebraPrinter, printZebraPackingLabels } from "@/lib/zebraPrinter";
+import QrCodeSvg from "@/components/wms/QrCodeSvg";
+import { supabase } from "@/lib/supabase";
+import { getOrCreatePrintStationCode, printStationChannelName } from "@/lib/printStation";
+import { getDefaultZebraPrinter, printZebraLocationLabels, printZebraPackingLabels } from "@/lib/zebraPrinter";
 
 function cartIsComplete(snapshot) {
   const bags = snapshot?.cart_bags || [];
@@ -91,6 +94,10 @@ export default function WmsAppPacking() {
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraSession, setCameraSession] = useState(0);
   const [zebra, setZebra] = useState({ status: "checking", name: "" });
+  const [printStationCode] = useState(getOrCreatePrintStationCode);
+  const [pairedDevices, setPairedDevices] = useState(0);
+  const [remotePrintStatus, setRemotePrintStatus] = useState("ready");
+  const stationQrUrl = useMemo(() => `${window.location.origin}/wms-app/carrelli-bag?station=${encodeURIComponent(printStationCode)}`, [printStationCode]);
 
   const openCamera = useCallback(() => {
     setCameraSession((value) => value + 1);
@@ -150,6 +157,49 @@ export default function WmsAppPacking() {
   }, []);
 
   useEffect(() => { checkZebra(); }, [checkZebra]);
+
+  useEffect(() => {
+    if (!supabase || !printStationCode) return undefined;
+    const channel = supabase.channel(printStationChannelName(printStationCode), {
+      config: { broadcast: { ack: true }, presence: { key: `packing-${printStationCode}` } },
+    });
+
+    channel
+      .on("presence", { event: "sync" }, () => {
+        const devices = Object.values(channel.presenceState()).flat();
+        setPairedDevices(devices.filter((device) => device.role === "mobile").length);
+      })
+      .on("broadcast", { event: "print-location-labels" }, async ({ payload }) => {
+        const jobId = String(payload?.jobId || "");
+        const locations = Array.isArray(payload?.locations)
+          ? payload.locations.slice(0, 100).filter((location) => /^[SP][0-9]{1,5}\+[A-Z][0-9]{1,2}$/.test(String(location?.code || "")))
+          : [];
+        if (!locations.length) {
+          await channel.send({ type: "broadcast", event: "print-result", payload: { jobId, ok: false, message: "Nessuna ubicazione valida da stampare" } });
+          return;
+        }
+        setRemotePrintStatus("printing");
+        try {
+          const printer = await printZebraLocationLabels(locations);
+          setZebra({ status: "ready", name: printer.name || "Zebra predefinita" });
+          await channel.send({ type: "broadcast", event: "print-result", payload: { jobId, ok: true, count: locations.length, printer: printer.name || "Zebra" } });
+          toast.success(`${locations.length} etichette ubicazione stampate dalla station`);
+        } catch (error) {
+          setZebra({ status: "unavailable", name: "" });
+          await channel.send({ type: "broadcast", event: "print-result", payload: { jobId, ok: false, message: "Zebra non raggiungibile sulla Packing Station" } });
+          toast.error("Stampa slot/pallet non riuscita: controlla Zebra Browser Print");
+        } finally {
+          setRemotePrintStatus("ready");
+        }
+      })
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          await channel.track({ role: "station", stationCode: printStationCode, onlineAt: new Date().toISOString() });
+        }
+      });
+
+    return () => { supabase.removeChannel(channel); };
+  }, [printStationCode]);
 
   useEffect(() => {
     if (!station?.bag_code || !["double_check", "scan_labels"].includes(station.phase)) return;
@@ -286,6 +336,21 @@ export default function WmsAppPacking() {
         </button>
       </div>
     </header>
+    <section className="mb-4 grid gap-4 rounded-md border border-teal-200 bg-white p-4 shadow-sm sm:grid-cols-[144px_1fr] sm:items-center">
+      <div className="mx-auto rounded-md border border-slate-200 bg-white p-2 shadow-sm sm:mx-0">
+        <QrCodeSvg value={stationQrUrl} size={124} className="h-[124px] w-[124px]" />
+      </div>
+      <div className="min-w-0 text-center sm:text-left">
+        <div className="flex items-center justify-center gap-2 text-teal-800 sm:justify-start"><QrCode className="h-5 w-5" /><p className="text-xs font-black uppercase">Collega app e stampante</p></div>
+        <h2 className="mt-2 text-xl font-black text-slate-950">Scansiona questo QR dal telefono</h2>
+        <p className="mt-1 text-sm leading-5 text-slate-600">Apre Carrelli / Bag già associato a questo PC. Le etichette di slot e pallet verranno stampate dalla Zebra collegata qui.</p>
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+          <span className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-black ${pairedDevices > 0 ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"}`}><Smartphone className="h-4 w-4" /> {pairedDevices > 0 ? `${pairedDevices} dispositivo collegato` : "In attesa del telefono"}</span>
+          <span className="rounded-md bg-slate-950 px-3 py-2 font-mono text-[11px] font-black text-white">{printStationCode}</span>
+          {remotePrintStatus === "printing" && <span className="inline-flex items-center gap-2 rounded-md bg-amber-100 px-3 py-2 text-xs font-black text-amber-800"><Loader2 className="h-4 w-4 animate-spin" /> Stampa in corso</span>}
+        </div>
+      </div>
+    </section>
     {zebra.status === "unavailable" && <div className="mb-4 flex items-start gap-3 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><CircleAlert className="mt-0.5 h-5 w-5 shrink-0" /><div><strong className="block">Stampa automatica Zebra non attiva</strong><span className="mt-1 block text-xs leading-5">Avvia Zebra Browser Print sul PC, collega la stampante e impostala come predefinita, poi premi “Zebra non collegata” per riprovare.</span></div></div>}
 
     <section className={`rounded-md border-2 bg-white p-5 shadow-sm ${phase === "completed" ? "border-emerald-500" : phase === "scan_labels" ? "border-teal-500" : "border-slate-950"}`}>
