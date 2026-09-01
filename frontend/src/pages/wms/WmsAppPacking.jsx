@@ -48,8 +48,41 @@ function printBlobWithBrowserDialog(blob) {
   document.body.appendChild(frame);
 }
 
+function ActiveBagContents({ station, phase, working, onLabelScan, sectionRef }) {
+  if (!station?.sessions?.length) return null;
+  const needsDoubleCheck = phase === "double_check";
+  const scanningLabels = phase === "scan_labels";
+
+  return <section ref={sectionRef} className={`scroll-mt-3 rounded-md border-2 p-4 shadow-sm sm:p-5 ${needsDoubleCheck ? "border-amber-500 bg-amber-50" : scanningLabels ? "border-teal-500 bg-teal-50" : "border-slate-200 bg-white"}`}>
+    <div className="flex flex-wrap items-center gap-3">
+      <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-md text-white ${needsDoubleCheck ? "bg-amber-600" : "bg-teal-700"}`}><ShoppingBag className="h-6 w-6" /></span>
+      <div className="min-w-0 flex-1">
+        <p className={`text-xs font-black uppercase ${needsDoubleCheck ? "text-amber-800" : "text-teal-800"}`}>Bag attiva</p>
+        <h2 className="font-mono text-3xl font-black leading-none text-slate-950 sm:text-4xl">{station.bag_code}</h2>
+      </div>
+      <div className={`w-full rounded-md px-3 py-2 text-center text-sm font-black sm:w-auto ${needsDoubleCheck ? "bg-amber-600 text-white" : scanningLabels ? "bg-teal-700 text-white" : "bg-slate-100 text-slate-800"}`}>
+        {needsDoubleCheck ? "RISCANSIONA QUESTA BAG" : scanningLabels ? "SCANSIONA ETICHETTA" : `${station.summary.orders} ${station.summary.orders === 1 ? "ordine" : "ordini"}`}
+      </div>
+    </div>
+    <div className="mt-4 flex items-center justify-between gap-3 border-t border-current/10 pt-3">
+      <div><h3 className="text-base font-black">Contenuto della bag</h3><p className="text-xs text-slate-600">Controlla prodotti e quantita prima di chiuderla.</p></div>
+      <span className="shrink-0 rounded-full bg-white px-3 py-1 text-xs font-black shadow-sm">{station.batch ? "Massivo" : "1x1"}</span>
+    </div>
+    <div className="mt-3 grid gap-3 md:grid-cols-2">
+      {station.sessions.map((session, index) => <article key={session.id} className={`rounded-md border bg-white p-3 ${session.stato === "completata" ? "border-emerald-300" : needsDoubleCheck ? "border-amber-300" : "border-teal-200"}`}>
+        <div className="flex items-center gap-3"><span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-black ${session.stato === "completata" ? "bg-emerald-600 text-white" : "bg-slate-950 text-white"}`}>{session.stato === "completata" ? <CheckCircle2 className="h-4 w-4" /> : index + 1}</span><div className="min-w-0 flex-1"><strong className="block truncate text-sm">Ordine {session.order?.order_name}</strong><span className="text-xs text-slate-500">{session.lines.length} referenze</span></div></div>
+        <div className="mt-3 grid grid-cols-3 gap-2">{session.lines.map((line) => <div key={line.id} className="min-w-0 rounded-md bg-slate-50 p-2 text-center">{line.foto_url ? <img src={fileUrl(line.foto_url)} alt="" className="mx-auto h-14 w-full object-contain" /> : <span className="mx-auto flex h-14 items-center justify-center text-slate-300"><ImageIcon className="h-5 w-5" /></span>}<strong className="mt-1 block truncate text-[10px]">{line.titolo}</strong><span className="block text-sm font-black">x{line.quantita_attesa}</span></div>)}</div>
+        {scanningLabels && (session.carrier_label_scanned_at
+          ? <div className="mt-3 rounded-md bg-emerald-100 px-3 py-2 font-mono text-xs font-black text-emerald-800">ETICHETTA ACQUISITA</div>
+          : <button type="button" onClick={() => onLabelScan(session.carrier_label_code)} disabled={working} className="mt-3 w-full rounded-md bg-amber-100 px-3 py-3 text-left font-mono text-xs font-black text-amber-900 hover:bg-amber-200 disabled:opacity-60">{session.carrier_label_code}</button>)}
+      </article>)}
+    </div>
+  </section>;
+}
+
 export default function WmsAppPacking() {
   const scannerRef = useRef(null);
+  const activeBagRef = useRef(null);
   const scanInFlightRef = useRef(false);
   const [station, setStation] = useState(null);
   const [cart, setCart] = useState(null);
@@ -117,6 +150,11 @@ export default function WmsAppPacking() {
   }, []);
 
   useEffect(() => { checkZebra(); }, [checkZebra]);
+
+  useEffect(() => {
+    if (!station?.bag_code || !["double_check", "scan_labels"].includes(station.phase)) return;
+    window.setTimeout(() => activeBagRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+  }, [station?.bag_code, station?.phase]);
 
   useEffect(() => {
     if (!station || station.phase !== "completed") return undefined;
@@ -292,6 +330,8 @@ export default function WmsAppPacking() {
       </form>}
     </section>
 
+    <ActiveBagContents station={station} phase={phase} working={working} onLabelScan={submitScan} sectionRef={activeBagRef} />
+
     {visibleCart && visibleCartBags.length > 0 && <section className="rounded-md border border-slate-200 bg-white p-5">
       <div className="flex items-center justify-between gap-4">
         <div>
@@ -337,19 +377,6 @@ export default function WmsAppPacking() {
             </button>;
           })}
         </div>
-      </div>
-    </section>}
-
-    {station?.sessions?.length > 0 && <section className="rounded-md border border-slate-200 bg-white p-5">
-      <div className="flex items-center justify-between gap-4"><div><h2 className="text-xl font-black">Contenuto bag</h2><p className="mt-1 text-sm text-slate-500">{station.summary.orders} {station.summary.orders === 1 ? "ordine" : "ordini"} da chiudere.</p></div><span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-black">{station.batch ? "Massivo" : "1x1"}</span></div>
-      <div className="mt-4 grid gap-3 md:grid-cols-2">
-        {station.sessions.map((session, index) => <article key={session.id} className={`rounded-md border p-4 ${session.stato === "completata" ? "border-emerald-200 bg-emerald-50" : "border-slate-200"}`}>
-          <div className="flex items-center gap-3"><span className={`flex h-9 w-9 items-center justify-center rounded-full font-black ${session.stato === "completata" ? "bg-emerald-600 text-white" : "bg-slate-950 text-white"}`}>{session.stato === "completata" ? <CheckCircle2 className="h-5 w-5" /> : index + 1}</span><div className="min-w-0 flex-1"><strong className="block truncate">Ordine {session.order?.order_name}</strong><span className="text-xs text-slate-500">{session.lines.length} referenze</span></div></div>
-          <div className="mt-3 grid grid-cols-3 gap-2">{session.lines.map((line) => <div key={line.id} className="min-w-0 rounded-md bg-slate-50 p-2 text-center">{line.foto_url ? <img src={fileUrl(line.foto_url)} alt="" className="mx-auto h-12 w-full object-contain" /> : <span className="mx-auto flex h-12 items-center justify-center text-slate-300"><ImageIcon className="h-5 w-5" /></span>}<strong className="mt-1 block truncate text-[10px]">{line.titolo}</strong><span className="block text-xs font-black">x{line.quantita_attesa}</span></div>)}</div>
-          {phase === "scan_labels" && (session.carrier_label_scanned_at
-            ? <div className="mt-3 rounded-md bg-emerald-100 px-3 py-2 font-mono text-xs font-black text-emerald-800">ETICHETTA ACQUISITA</div>
-            : <button type="button" onClick={() => submitScan(session.carrier_label_code)} disabled={working} className="mt-3 w-full rounded-md bg-amber-100 px-3 py-3 text-left font-mono text-xs font-black text-amber-900 hover:bg-amber-200 disabled:opacity-60">{session.carrier_label_code}</button>)}
-        </article>)}
       </div>
     </section>}
 
