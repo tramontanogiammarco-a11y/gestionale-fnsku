@@ -5307,10 +5307,17 @@ async function wmsCartSnapshotFromCart(cart) {
     : { data: [], error: null };
   if (bagsError) fail(bagsError.message);
   const bagMap = Object.fromEntries((bags || []).map((bag) => [bag.id, bag]));
+  const enrichedPositions = (positions || []).map((position) => ({ ...position, bag: bagMap[position.bag_id] || null }));
+  const occupied = enrichedPositions.filter((position) => position.bag && position.bag.stato !== "disponibile").length;
   return ok({
     cart,
-    positions: (positions || []).map((position) => ({ ...position, bag: bagMap[position.bag_id] || null })),
+    positions: enrichedPositions,
     capacity: Number(cart.righe || 1) * Number(cart.colonne || 1),
+    summary: {
+      configured: enrichedPositions.length,
+      available: enrichedPositions.filter((position) => position.bag?.stato === "disponibile").length,
+      occupied,
+    },
   });
 }
 
@@ -7350,6 +7357,18 @@ async function cancelWmsInventory(sessionId) {
 async function wmsScan(params) {
   const code = optionalText(params.get("code"));
   if (!code) fail("Codice richiesto");
+  await assertWmsStaff();
+  const normalizedScan = normalizedScanCode(code);
+  const { data: cart, error: cartError } = await requireSupabase()
+    .from("wms_carts")
+    .select("*")
+    .eq("codice", normalizedScan)
+    .maybeSingle();
+  if (cartError) fail(cartError.message);
+  if (cart) {
+    const snapshot = await wmsCartSnapshotFromCart(cart);
+    return ok({ kind: "cart", code, ...snapshot.data });
+  }
   const response = await wmsStock(params);
   const stock = response.data;
   const normalizedCode = normalizedText(code).replace(/\s+/g, "");

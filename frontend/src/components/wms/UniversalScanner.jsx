@@ -14,6 +14,8 @@ import {
   PackageSearch,
   Plus,
   Search,
+  ShoppingBag,
+  ShoppingCart,
   Warehouse,
 } from "lucide-react";
 import { api } from "@/lib/api";
@@ -204,7 +206,7 @@ export default function UniversalScanner({ open, onOpenChange, clientId, onViewL
         <SheetContent side="bottom" className="mx-auto max-h-[88dvh] w-full max-w-3xl overflow-y-auto rounded-t-lg border-0 bg-white p-0">
           <SheetHeader className="border-b border-slate-100 px-5 pb-4 pt-6 text-left">
             <SheetTitle className="flex items-center gap-2 text-xl font-black"><Barcode className="h-5 w-5 text-teal-700" /> Scanner universale</SheetTitle>
-            <SheetDescription>Leggi una posizione, un EAN, un FNSKU o un pallet.</SheetDescription>
+            <SheetDescription>Leggi una posizione, un prodotto, un pallet o un carrello.</SheetDescription>
           </SheetHeader>
 
           <div className="space-y-4 p-5 pb-[max(24px,env(safe-area-inset-bottom))]">
@@ -251,6 +253,7 @@ export default function UniversalScanner({ open, onOpenChange, clientId, onViewL
               />
             )}
             {!loading && result?.kind === "product" && <ProductResult products={result.products} onViewLocation={onViewLocation} />}
+            {!loading && result?.kind === "cart" && <CartResult result={result} />}
             {!loading && result?.kind === "unknown" && (
               <div className="rounded-md border border-amber-200 bg-amber-50 p-5 text-center">
                 <Barcode className="mx-auto h-8 w-8 text-amber-700" />
@@ -264,6 +267,50 @@ export default function UniversalScanner({ open, onOpenChange, clientId, onViewL
       <CameraScanner open={cameraOpen} onOpenChange={setCameraOpen} purpose="universal" onDetected={handleDetected} />
     </>
   );
+}
+
+function CartResult({ result }) {
+  const { cart, positions = [], capacity = 0, summary = {} } = result;
+  const positionMap = Object.fromEntries(positions.map((position) => [Number(position.posizione), position]));
+  const columns = Math.max(1, Number(cart.colonne || 1));
+  return (
+    <div className="overflow-hidden rounded-md border border-slate-200 bg-white" data-testid="universal-scanner-cart">
+      <div className="flex items-start gap-3 bg-slate-950 p-4 text-white">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-white/10"><ShoppingCart className="h-6 w-6" /></span>
+        <div className="min-w-0 flex-1"><div className="text-xs font-bold uppercase text-teal-300">Carrello</div><h3 className="mt-1 font-mono text-2xl font-black">{cart.codice}</h3><p className="mt-1 text-xs text-slate-300">Griglia {cart.righe} × {cart.colonne}</p></div>
+        <span className={`rounded-md px-2 py-1 text-[10px] font-black uppercase ${summary.occupied ? "bg-rose-100 text-rose-900" : "bg-emerald-100 text-emerald-900"}`}>{summary.occupied || 0} piene</span>
+      </div>
+
+      <div className="grid grid-cols-3 divide-x divide-slate-100 border-b border-slate-100 text-center">
+        <CartMetric label="Bag configurate" value={`${summary.configured || 0}/${capacity}`} />
+        <CartMetric label="Libere" value={summary.available || 0} tone="text-emerald-700" />
+        <CartMetric label="Piene" value={summary.occupied || 0} tone="text-rose-700" />
+      </div>
+
+      <div className="p-3">
+        <div className="mb-3 flex items-center gap-2"><ShoppingBag className="h-5 w-5 text-teal-700" /><h4 className="font-black">Composizione bag</h4></div>
+        <div className="overflow-x-auto pb-1">
+          <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${columns}, minmax(72px, 1fr))`, minWidth: `${columns * 78}px` }}>
+            {Array.from({ length: capacity }, (_, index) => index + 1).map((position) => {
+              const item = positionMap[position];
+              const occupied = item?.bag && item.bag.stato !== "disponibile";
+              return (
+                <div key={position} className={`min-h-24 rounded-md border p-2 ${occupied ? "border-rose-300 bg-rose-50" : item?.bag ? "border-emerald-200 bg-emerald-50" : "border-dashed border-slate-300 bg-slate-50"}`}>
+                  <span className="block text-[9px] font-black uppercase text-slate-500">Pos. {position}</span>
+                  {item?.bag ? <><strong className="mt-2 block break-all font-mono text-xs text-slate-950">{item.bag.codice || item.bag_code}</strong><span className={`mt-2 block rounded-md px-1 py-1 text-center text-[9px] font-black uppercase ${occupied ? "bg-rose-700 text-white" : "bg-emerald-700 text-white"}`}>{occupied ? "Piena" : "Libera"}</span></> : <span className="mt-3 block text-[10px] font-bold text-slate-400">Nessuna bag</span>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        {summary.occupied > 0 && <p className="mt-3 rounded-md border border-rose-200 bg-rose-50 p-3 text-xs font-bold text-rose-900">Le bag rosse sono già occupate e devono essere liberate completando il packing.</p>}
+      </div>
+    </div>
+  );
+}
+
+function CartMetric({ label, value, tone = "text-slate-950" }) {
+  return <div className="min-w-0 p-3"><strong className={`block text-xl font-black ${tone}`}>{value}</strong><span className="mt-1 block text-[9px] font-black uppercase text-slate-500">{label}</span></div>;
 }
 
 function LocationResult({ location, action, draft, working, canConfirm, onDraftChange, onStartAction, onScanTarget, onCancelAction, onConfirmAction, onView }) {
