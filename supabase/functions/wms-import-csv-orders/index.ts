@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { evaluateWmsOrderGate } from "../_shared/wmsOrderGate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -80,6 +81,7 @@ Deno.serve(async (req) => {
   if (locked.length) return response({ detail: `Picking gia avviato per: ${locked.map((o) => o.order_name).join(", ")}` }, 409);
 
   let imported = 0;
+  const gateResults: any[] = [];
   for (const order of orders as any[]) {
     const existing: any = existingMap.get(identifier(order.order_number));
     const now = new Date().toISOString();
@@ -91,9 +93,15 @@ Deno.serve(async (req) => {
     const itemRows = order.items.map((item: any, index: number) => ({ order_id: savedResult.data.id, shopify_line_item_id: itemIdentifier(item, index), referenza_id: item.reference?.id || null, sku: item.sku || item.reference?.sku || null, ean: item.ean || item.reference?.ean || null, titolo: item.title, quantita: item.quantity, fulfillable_quantity: item.quantity, fulfillment_status: null, raw: { source: "csv", source_row: item.source_row, fnsku: item.fnsku || null }, updated_at: now }));
     const inserted = await admin.from("shopify_order_items").insert(itemRows);
     if (inserted.error) return response({ detail: inserted.error.message }, 400);
+    try {
+      const checked = await evaluateWmsOrderGate(admin, savedResult.data.id, authData.user.id);
+      gateResults.push({ id: checked.id, order_number: checked.order_name, wms_status: checked.wms_status, gate_status: checked.gate_status });
+    } catch (error) {
+      return response({ detail: `Ordine ${order.order_number} importato ma controllo automatico non riuscito: ${error instanceof Error ? error.message : "errore sconosciuto"}` }, 500);
+    }
     imported += 1;
   }
-  return response({ ...preview, imported });
+  return response({ ...preview, imported, gate_results: gateResults });
 });
 
 function key(value: unknown) { return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, ""); }

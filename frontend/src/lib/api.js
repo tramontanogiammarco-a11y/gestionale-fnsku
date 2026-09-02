@@ -4681,29 +4681,17 @@ async function evaluateWmsOrderGate(orderId, options = {}) {
 }
 
 async function recheckWmsOrderExceptions(payload = {}) {
-  await assertWmsStaff();
-  let query = requireSupabase().from("shopify_orders").select("id");
-  query = payload.include_ready
-    ? query.in("wms_status", ["in_verifica", "eccezione", "in_attesa_refill", "da_preparare"])
-    : query.in("gate_status", payload.pending_only
-      ? ["da_verificare", "verifica_indirizzo", "verifica_stock", "attesa_refill"]
-      : ["da_verificare", "verifica_indirizzo", "verifica_stock", "attesa_refill", "eccezione_indirizzo", "eccezione_stock"]);
-  query = query.order("created_at", { ascending: true })
-    .limit(Math.min(500, Math.max(1, Number(payload.limit || 50))));
-  if (optionalText(payload.cliente_id)) query = query.eq("cliente_id", payload.cliente_id);
-  if (optionalText(payload.exception_type)) query = query.eq("exception_type", payload.exception_type);
-  const { data, error } = await query;
-  if (error) fail(error.message);
-
-  const results = [];
-  for (const order of data || []) {
-    try {
-      results.push({ id: order.id, order: await evaluateWmsOrderGate(order.id) });
-    } catch (gateError) {
-      results.push({ id: order.id, error: gateError?.message || "Verifica non riuscita" });
-    }
-  }
-  return ok({ checked: results.length, unblocked: results.filter((row) => row.order?.gate_status === "sbloccato").length, results });
+  const sb = requireSupabase();
+  const { data: sessionData } = await sb.auth.getSession();
+  const token = sessionData.session?.access_token;
+  if (!token) fail("Non autenticato", 401);
+  const { data, error } = await sb.functions.invoke("wms-recheck-order-gate", {
+    body: payload,
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (error) fail(await edgeErrorMessage(error, "Ricontrollo non riuscito"));
+  if (data?.detail) fail(data.detail);
+  return ok(data);
 }
 
 async function listWmsRefillQueue(params = new URLSearchParams()) {

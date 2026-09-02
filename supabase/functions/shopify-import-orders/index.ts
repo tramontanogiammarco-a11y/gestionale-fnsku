@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { evaluateWmsOrderGate } from "../_shared/wmsOrderGate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -161,6 +162,11 @@ Deno.serve(async (req) => {
           .upsert({ ...item, order_id: savedOrder.id }, { onConflict: "order_id,shopify_line_item_id" });
         if (itemError) errors.push(`${order.order_name} / ${item.titolo}: ${itemError.message}`);
         else itemCount += 1;
+      }
+      try {
+        await evaluateWmsOrderGate(adminClient, savedOrder.id, authData.user.id);
+      } catch (gateError) {
+        errors.push(`${order.order_name}: controllo automatico non riuscito (${gateError instanceof Error ? gateError.message : "errore sconosciuto"})`);
       }
     }
 

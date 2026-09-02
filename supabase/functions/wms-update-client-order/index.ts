@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { evaluateWmsOrderGate } from "../_shared/wmsOrderGate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -114,7 +115,12 @@ Deno.serve(async (req) => {
   });
   const { error: insertError } = await admin.from("shopify_order_items").insert(rows);
   if (insertError) return json({ detail: insertError.message }, 400);
-  return json({ ok: true, order_id: order.id, order_name: order.order_name, items: rows.length });
+  try {
+    const checked = await evaluateWmsOrderGate(admin, order.id, authData.user.id);
+    return json({ ok: true, order_id: order.id, order_name: order.order_name, items: rows.length, wms_status: checked.wms_status, gate_status: checked.gate_status });
+  } catch (error) {
+    return json({ detail: `Ordine aggiornato ma controllo automatico non riuscito: ${error instanceof Error ? error.message : "errore sconosciuto"}` }, 500);
+  }
 });
 
 function text(value: unknown) { const normalized = String(value || "").trim(); return normalized || null; }

@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { evaluateWmsOrderGate } from "../_shared/wmsOrderGate.ts";
 
 type ShopifyWebhookOrder = {
   id: number | string;
@@ -122,6 +123,8 @@ Deno.serve(async (req) => {
 
     if (payload.cancelled_at && (!existing || ["in_verifica", "eccezione", "da_preparare"].includes(existing.wms_status))) {
       await admin.from("shopify_orders").update({ wms_status: "annullato", gate_status: "ignorato", updated_at: new Date().toISOString() }).eq("id", savedOrder.id);
+    } else {
+      await evaluateWmsOrderGate(admin, savedOrder.id, null);
     }
     return json({ ok: true, order_id: savedOrder.id });
   } catch (error) {
