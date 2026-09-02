@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useOutletContext, useSearchParams } from "react-router-dom";
+import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
 import {
-  AlertCircle, Boxes, CircleCheck, Layers3,
+  AlertCircle, ArrowLeftRight, Boxes, CircleCheck, Layers3,
   Loader2, MapPin, PackageSearch, RefreshCw, Search, Warehouse,
 } from "lucide-react";
 import { api } from "@/lib/api";
@@ -14,6 +14,7 @@ import { toast } from "sonner";
 const REFRESH_INTERVAL = 15000;
 
 export default function WmsAppLocations() {
+  const navigate = useNavigate();
   const { clientId } = useOutletContext();
   const [searchParams, setSearchParams] = useSearchParams();
   const [stock, setStock] = useState(null);
@@ -113,6 +114,11 @@ export default function WmsAppLocations() {
       <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
         <span className="h-2 w-2 rounded-full bg-emerald-500" /><span className="font-bold">Aggiornamento automatico</span><span className="ml-auto">{formatUpdated(stock?.generated_at)}</span>
       </div>
+
+      <Button type="button" className="h-14 w-full justify-between px-4 text-base font-black" onClick={() => navigate("/wms-app/movimenta-stock")}>
+        <span className="flex items-center gap-3"><ArrowLeftRight className="h-5 w-5" /> Movimenta stock</span>
+        <span className="text-xs font-semibold opacity-75">Scanner</span>
+      </Button>
 
       <section className="space-y-3">
         <div className="grid grid-cols-3 gap-1 rounded-md bg-slate-100 p-1" role="tablist" aria-label="Vista stock">

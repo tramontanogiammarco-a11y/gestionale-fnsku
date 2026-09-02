@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { ArrowLeft, Barcode, CheckCircle2, ChevronRight, Layers3, Loader2, MapPin, PackageCheck, Play, ScanLine, ShoppingBag } from "lucide-react";
 import { toast } from "sonner";
@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import CameraScanner from "@/components/wms/CameraScanner";
 
-const bagPattern = /^B-[0-9]{5}$/;
+const bagPattern = /^B-[A-Z0-9]{5}$/;
 
 export default function WmsAppMassPicking() {
   const { batchId } = useParams();
@@ -56,6 +56,8 @@ function MassMission({ batchId }) {
   const [code, setCode] = useState("");
   const [bagCode, setBagCode] = useState("");
   const [selectedQuantity, setSelectedQuantity] = useState(0);
+  const selectedQuantityRef = useRef(0);
+  const quantitySubmitRef = useRef(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [scannerSession, setScannerSession] = useState(0);
   const load = useCallback(async () => { try { setData((await api.get(`/wms/picking-massivo/${batchId}`)).data); } catch (error) { toast.error(error.response?.data?.detail || "Missione non disponibile"); } }, [batchId]);
@@ -64,7 +66,12 @@ function MassMission({ batchId }) {
   const remaining = current ? Number(current.quantita_attesa || 0) - Number(current.quantita_prelevata || 0) : 0;
   const needsSlot = current && !current.location_confirmed_at;
   const bagConfirmation = data?.batch?.stato === "da_confermare_bag";
-  useEffect(() => { setSelectedQuantity(0); setCode(""); }, [current?.id, current?.location_confirmed_at]);
+  useEffect(() => {
+    setSelectedQuantity(0);
+    selectedQuantityRef.current = 0;
+    quantitySubmitRef.current = false;
+    setCode("");
+  }, [current?.id, current?.location_confirmed_at]);
   const scannerMode = bagConfirmation ? "bag" : needsSlot ? "location" : null;
   const openScanner = useCallback(() => {
     setScannerSession((value) => value + 1);
@@ -83,7 +90,26 @@ function MassMission({ batchId }) {
   };
   const scanSlot = (rawCode) => { const value = String(rawCode || code).trim(); if (value) { setCode(""); send({ codice: value }, "Slot confermato", "Slot errato"); } };
   const confirmBag = (rawCode) => { const value = String(rawCode || bagCode).trim().toUpperCase(); if (bagPattern.test(value)) { setBagCode(""); send({ codice: value }, "Bag confermata e registrata nello storico", "Bag non valida"); } };
-  const addQuantity = (amount) => setSelectedQuantity((value) => { if (value + amount > remaining) { toast.error(`Puoi prelevare al massimo ${remaining} pezzi.`); return value; } return value + amount; });
+  const confirmQuantity = async (quantity = selectedQuantityRef.current) => {
+    if (quantitySubmitRef.current || working || quantity !== remaining) return;
+    quantitySubmitRef.current = true;
+    try {
+      await send({ quantita: quantity }, `${quantity} pezzi prelevati`, "Quantità non registrata");
+    } finally {
+      quantitySubmitRef.current = false;
+    }
+  };
+  const addQuantity = (amount) => {
+    if (working || quantitySubmitRef.current) return;
+    const nextQuantity = selectedQuantityRef.current + amount;
+    if (nextQuantity > remaining) {
+      toast.error(`Puoi prelevare al massimo ${remaining} pezzi.`);
+      return;
+    }
+    selectedQuantityRef.current = nextQuantity;
+    setSelectedQuantity(nextQuantity);
+    if (nextQuantity === remaining) window.setTimeout(() => confirmQuantity(nextQuantity), 0);
+  };
   const complete = ["completata", "in_packing", "completata_packing"].includes(data?.batch?.stato);
   const routeStops = useMemo(() => data?.lines || [], [data?.lines]);
   if (!data) return <Loading />;
@@ -91,7 +117,7 @@ function MassMission({ batchId }) {
   return <div className="wms-page pb-24" data-testid="wms-mass-picking-mission">
     <header><button type="button" onClick={() => navigate("/wms-app/picking-massivo")} className="mb-4 flex h-10 w-10 items-center justify-center rounded-md border border-slate-200 bg-white" aria-label="Torna al Massivo"><ArrowLeft className="h-5 w-5" /></button><div className="flex items-start gap-3"><BagBadge code={data.batch.bag_code || "-"} /><div><p className="text-xs font-black uppercase text-teal-700">Picking Massivo</p><h1 className="mt-1 text-3xl font-black">{data.summary.orders} ordini</h1><p className="mt-1 text-sm text-slate-500">Preleva {data.summary.orders} pezzi per ogni referenza. La bag viene scelta e scansionata solo alla fine.</p></div></div></header>
     <section className="rounded-md border border-slate-200 bg-white p-4"><div className="flex items-end justify-between"><div><div className="text-xs font-black uppercase text-slate-500">Avanzamento</div><div className="mt-1 text-3xl font-black">{data.summary.picked}<span className="text-lg text-slate-400">/{data.summary.expected}</span></div></div><strong className="text-teal-700">{data.summary.progress}%</strong></div><Progress value={data.summary.progress} className="mt-3 h-2" /></section>
-    {complete ? <section className="rounded-md border border-emerald-200 bg-emerald-50 p-6 text-center"><CheckCircle2 className="mx-auto h-12 w-12 text-emerald-700" /><h2 className="mt-4 text-2xl font-black">Bag registrata</h2><p className="mt-2 text-sm text-emerald-800">La bag {data.batch.bag_code} e stata consegnata al flusso packing. Da qui puoi solo consultarla nello storico.</p><Button className="mt-5 h-14 w-full text-base font-black" onClick={() => navigate("/wms-app/bag-storico")}><CheckCircle2 className="mr-2 h-5 w-5" /> Apri storico bag</Button></section> : bagConfirmation ? <section className="border-2 border-slate-950 bg-white p-5"><p className="text-xs font-black uppercase text-teal-700">Prelievo completato</p><h2 className="mt-1 text-2xl font-black">Scansiona una bag libera</h2><p className="mt-2 text-sm text-slate-500">Hai preso {data.summary.expected} pezzi. Mettili in una bag libera e scansionala ora: sarà occupata solo per questo packing.</p><Button type="button" className="mt-5 h-14 w-full text-base font-black" onClick={openScanner} disabled={working}><ScanLine className="mr-2 h-5 w-5" /> Scansiona bag</Button><form onSubmit={(event) => { event.preventDefault(); confirmBag(); }} className="mt-3 flex gap-2"><Input value={bagCode} onChange={(event) => setBagCode(event.target.value.toUpperCase().replace(/[^B0-9-]/g, "").slice(0, 7))} placeholder="B-73846" className="h-14 flex-1 font-mono text-xl tracking-widest" /><Button type="submit" className="h-14 px-5" disabled={!bagPattern.test(bagCode) || working}><Barcode className="h-5 w-5" /></Button></form></section> : current && (needsSlot ? <section className="border-2 border-teal-500 bg-white p-5"><div className="flex items-center gap-3"><span className="flex h-12 w-12 items-center justify-center rounded-md bg-teal-50 text-teal-800"><MapPin className="h-6 w-6" /></span><div><p className="text-xs font-black uppercase text-teal-700">Prossimo slot</p><h2 className="text-3xl font-black">{current.location?.codice}</h2></div></div>{current.foto_url && <div className="mt-4 overflow-hidden rounded-md border border-slate-200 bg-white p-2"><img src={fileUrl(current.foto_url)} alt={current.titolo} className="h-44 w-full object-contain" /></div>}<Button className="mt-5 h-16 w-full text-base font-black" onClick={openScanner}><ScanLine className="mr-2 h-6 w-6" /> Scansiona barcode slot</Button><form onSubmit={(event) => { event.preventDefault(); scanSlot(); }} className="mt-3 flex gap-2"><Input value={code} onChange={(event) => setCode(event.target.value)} placeholder={current.location?.codice} className="h-12 flex-1 font-mono" /><Button type="submit" size="icon" variant="outline" className="h-12 w-12"><Barcode className="h-5 w-5" /></Button></form></section> : <section className="border-2 border-teal-500 bg-white p-5"><p className="text-xs font-black uppercase text-teal-700">Preleva da {current.location?.codice}</p><h2 className="mt-1 text-xl font-black">{current.titolo}</h2><p className="mt-1 font-mono text-xs text-slate-500">{current.fnsku || current.ean || current.sku}</p>{current.foto_url && <div className="mt-4 overflow-hidden rounded-md border border-slate-200 bg-white p-2"><img src={fileUrl(current.foto_url)} alt={current.titolo} className="h-44 w-full object-contain" /></div>}<div className="mt-5 rounded-md bg-slate-950 p-5 text-center text-white"><div className="text-xs font-black uppercase text-slate-400">Selezionati</div><div className="mt-1 text-5xl font-black">{selectedQuantity}<span className="text-xl text-slate-400">/{remaining}</span></div></div><div className="mt-3 grid grid-cols-3 gap-2">{[1, 5, 10].map((amount) => <Button key={amount} variant="outline" className="h-16 text-xl font-black" onClick={() => addQuantity(amount)} disabled={selectedQuantity >= remaining}>+{amount}</Button>)}</div><div className="mt-3 grid grid-cols-[1fr_2fr] gap-2"><Button variant="ghost" className="h-14" onClick={() => setSelectedQuantity(0)}>Azzera</Button><Button className="h-14 text-base font-black" onClick={() => send({ quantita: selectedQuantity }, `${selectedQuantity} pezzi prelevati`, "Quantità non registrata")} disabled={!selectedQuantity || working}>Conferma {selectedQuantity || ""}</Button></div></section>)}
+    {complete ? <section className="rounded-md border border-emerald-200 bg-emerald-50 p-6 text-center"><CheckCircle2 className="mx-auto h-12 w-12 text-emerald-700" /><h2 className="mt-4 text-2xl font-black">Bag registrata</h2><p className="mt-2 text-sm text-emerald-800">La bag {data.batch.bag_code} e stata consegnata al flusso packing. Da qui puoi solo consultarla nello storico.</p><Button className="mt-5 h-14 w-full text-base font-black" onClick={() => navigate("/wms-app/bag-storico")}><CheckCircle2 className="mr-2 h-5 w-5" /> Apri storico bag</Button></section> : bagConfirmation ? <section className="border-2 border-slate-950 bg-white p-5"><p className="text-xs font-black uppercase text-teal-700">Prelievo completato</p><h2 className="mt-1 text-2xl font-black">Scansiona una bag libera</h2><p className="mt-2 text-sm text-slate-500">Hai preso {data.summary.expected} pezzi. Mettili in una bag libera e scansionala ora: sarà occupata solo per questo packing.</p><Button type="button" className="mt-5 h-14 w-full text-base font-black" onClick={openScanner} disabled={working}><ScanLine className="mr-2 h-5 w-5" /> Scansiona bag</Button><form onSubmit={(event) => { event.preventDefault(); confirmBag(); }} className="mt-3 flex gap-2"><Input value={bagCode} onChange={(event) => setBagCode(event.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 7))} placeholder="B-7K2Q9" className="h-14 flex-1 font-mono text-xl tracking-widest" /><Button type="submit" className="h-14 px-5" disabled={!bagPattern.test(bagCode) || working}><Barcode className="h-5 w-5" /></Button></form></section> : current && (needsSlot ? <section className="border-2 border-teal-500 bg-white p-5"><div className="flex items-center gap-3"><span className="flex h-12 w-12 items-center justify-center rounded-md bg-teal-50 text-teal-800"><MapPin className="h-6 w-6" /></span><div><p className="text-xs font-black uppercase text-teal-700">Prossimo slot</p><h2 className="text-3xl font-black">{current.location?.codice}</h2></div></div>{current.foto_url && <div className="mt-4 overflow-hidden rounded-md border border-slate-200 bg-white p-2"><img src={fileUrl(current.foto_url)} alt={current.titolo} className="h-44 w-full object-contain" /></div>}<Button className="mt-5 h-16 w-full text-base font-black" onClick={openScanner}><ScanLine className="mr-2 h-6 w-6" /> Scansiona barcode slot</Button><form onSubmit={(event) => { event.preventDefault(); scanSlot(); }} className="mt-3 flex gap-2"><Input value={code} onChange={(event) => setCode(event.target.value)} placeholder={current.location?.codice} className="h-12 flex-1 font-mono" /><Button type="submit" size="icon" variant="outline" className="h-12 w-12"><Barcode className="h-5 w-5" /></Button></form></section> : <section className="border-2 border-teal-500 bg-white p-5"><p className="text-xs font-black uppercase text-teal-700">Preleva da {current.location?.codice}</p><h2 className="mt-1 text-xl font-black">{current.titolo}</h2><p className="mt-1 font-mono text-xs text-slate-500">{current.fnsku || current.ean || current.sku}</p>{current.foto_url && <div className="mt-4 overflow-hidden rounded-md border border-slate-200 bg-white p-2"><img src={fileUrl(current.foto_url)} alt={current.titolo} className="h-44 w-full object-contain" /></div>}<div className="mt-5 rounded-md bg-slate-950 p-5 text-center text-white"><div className="text-xs font-black uppercase text-slate-400">Selezionati</div><div className="mt-1 text-5xl font-black">{selectedQuantity}<span className="text-xl text-slate-400">/{remaining}</span></div></div><div className="mt-3 grid grid-cols-3 gap-2">{[1, 5, 10].map((amount) => <Button key={amount} variant="outline" className="h-16 text-xl font-black" onClick={() => addQuantity(amount)} disabled={selectedQuantity >= remaining}>+{amount}</Button>)}</div><div className="mt-3 grid grid-cols-[1fr_2fr] gap-2"><Button variant="ghost" className="h-14" onClick={() => { selectedQuantityRef.current = 0; setSelectedQuantity(0); }}>Azzera</Button><Button className="h-14 text-base font-black" onClick={() => confirmQuantity(selectedQuantity)} disabled={!selectedQuantity || selectedQuantity !== remaining || working}>Conferma {selectedQuantity || ""}</Button></div></section>)}
     <section><h2 className="mb-3 text-xl font-black">Percorso</h2><div className="space-y-2">{routeStops.map((line, index) => { const done = Number(line.quantita_prelevata) >= Number(line.quantita_attesa); return <div key={line.id} className={`flex items-center gap-3 rounded-md border p-3 ${line.id === current?.id ? "border-teal-500 bg-teal-50" : done ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-white"}`}><span className={`flex h-9 w-9 items-center justify-center rounded-full font-black ${done ? "bg-emerald-600 text-white" : "bg-slate-100"}`}>{done ? <CheckCircle2 className="h-5 w-5" /> : index + 1}</span><span className="min-w-0 flex-1"><strong className="block">{line.location?.codice} · {line.titolo}</strong><span className="text-xs text-slate-500">{line.quantita_prelevata}/{line.quantita_attesa} pezzi</span></span></div>; })}</div></section>
     {cameraOpen && <CameraScanner key={`mass-${scannerSession}`} open onOpenChange={setCameraOpen} purpose={bagConfirmation ? "bag" : "location"} context={scannerContext} onDetected={(value) => { setCameraOpen(false); if (bagConfirmation) confirmBag(value); else scanSlot(value); }} />}
   </div>;

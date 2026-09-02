@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
-  Archive, ChevronRight, DatabaseZap, MapPinned, PackageSearch, Printer,
+  Archive, ArrowLeftRight, ChevronRight, DatabaseZap, MapPinned, PackageSearch, Printer,
   QrCode, ScanLine, ShoppingBag, ShoppingCart, SlidersHorizontal,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -15,8 +15,9 @@ export default function WmsAppTools() {
   const showStockReset = new URLSearchParams(location.search).get("stock") === "home";
   const showBagEmpty = new URLSearchParams(location.search).get("bags") === "empty";
   const tools = [
+    { icon: ArrowLeftRight, title: "Movimenta stock", subtitle: "Sposta quantita, rifornisci slot o svuota una posizione", action: () => navigate("/wms-app/movimenta-stock") },
     { icon: ShoppingCart, title: "Carrelli / Bag", subtitle: "Scansiona un carrello e configura la griglia delle bag", action: () => navigate("/wms-app/carrelli-bag") },
-    { icon: Printer, title: "Codici stampabili", subtitle: "Etichette e codici di magazzino", action: () => toast.info("Stampe: prossimo collegamento operativo") },
+    { icon: Printer, title: "Barcode imballaggi", subtitle: "Stampa scatola piccola, media, grande e busta corriere", action: () => navigate("/wms-app/barcode-imballaggi") },
     { icon: MapPinned, title: "Ubicazioni magazzino", subtitle: "Pallet e slot censiti", action: () => navigate("/wms-app/ubicazioni") },
     { icon: Archive, title: "Inventario", subtitle: "Conta e rettifica una posizione", action: () => navigate("/wms-app/inventario") },
     { icon: QrCode, title: "Crea codice posizione", subtitle: "Genera un barcode per una posizione", action: () => toast.info("Generazione barcode: prossimo collegamento operativo") },

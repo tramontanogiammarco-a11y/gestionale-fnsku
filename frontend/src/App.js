@@ -34,6 +34,9 @@ import ControlShipments from "@/pages/control/ControlShipments";
 import ControlReturns from "@/pages/control/ControlReturns";
 import ControlBilling from "@/pages/control/ControlBilling";
 import ControlTickets from "@/pages/control/ControlTickets";
+import WmsControlRoom from "@/pages/control/WmsControlRoom";
+import WmsOperators from "@/pages/wms/WmsOperators";
+import WmsPricing from "@/pages/admin/WmsPricing";
 
 import ClientDashboard from "@/pages/client/Dashboard";
 import ClientReferenze from "@/pages/client/Referenze";
@@ -61,6 +64,9 @@ import WmsAppProductSearch from "@/pages/wms/WmsAppProductSearch";
 import WmsAppTools from "@/pages/wms/WmsAppTools";
 import WmsAppSettings from "@/pages/wms/WmsAppSettings";
 import WmsAppCartBags from "@/pages/wms/WmsAppCartBags";
+import WmsAppStockMovement from "@/pages/wms/WmsAppStockMovement";
+import WmsAppPackagingLabels from "@/pages/wms/WmsAppPackagingLabels";
+import WmsAppRefill from "@/pages/wms/WmsAppRefill";
 
 const AdminWmsWarehouseMap = lazy(() => import("@/pages/admin/WmsWarehouseMap"));
 
@@ -76,7 +82,7 @@ function RootRedirect() {
       </div>
     );
   if (!user) return <Navigate to="/login" replace state={wmsOnly ? { from: "/wms" } : undefined} />;
-  return <Navigate to="/wms" replace />;
+  return <Navigate to={user.is_operator ? "/wms-app" : "/wms"} replace />;
 }
 
 function LegacyWmsInboundRedirect() {
@@ -116,6 +122,9 @@ function App() {
               <Route path="billing" element={<ControlBilling />} />
               <Route path="tickets" element={<ControlTickets />} />
               <Route path="integrations" element={<WmsIntegrationsRoute />} />
+              <Route path="control-room" element={<ProtectedRoute roles={["admin", "staff"]}><WmsControlRoom /></ProtectedRoute>} />
+              <Route path="operatori" element={<ProtectedRoute roles={["admin"]}><WmsOperators /></ProtectedRoute>} />
+              <Route path="prezzari" element={<ProtectedRoute roles={["admin", "staff"]}><WmsPricing /></ProtectedRoute>} />
               <Route path="mappa" element={<ProtectedRoute roles={["admin", "staff"]}><Suspense fallback={<div className="flex min-h-[70vh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>}><AdminWmsWarehouseMap /></Suspense></ProtectedRoute>} />
               <Route path="inbound/:id" element={<ProtectedRoute roles={["admin", "staff"]}><AdminWmsInbound /></ProtectedRoute>} />
               <Route path="ordini" element={<Navigate to="/wms/orders" replace />} />
@@ -145,6 +154,8 @@ function App() {
               <Route path="inventario" element={<WmsAppInventory />} />
               <Route path="inventario/:id" element={<WmsAppInventoryCount />} />
               <Route path="ubicazioni" element={<WmsAppLocations />} />
+              <Route path="movimenta-stock" element={<WmsAppStockMovement />} />
+              <Route path="refill" element={<WmsAppRefill />} />
               <Route path="ordini" element={<WmsAppOrders />} />
               <Route path="picking/:orderId" element={<WmsAppPicking />} />
               <Route path="picking-massivo" element={<WmsAppMassPicking />} />
@@ -158,6 +169,7 @@ function App() {
               <Route path="cerca-prodotto" element={<WmsAppProductSearch />} />
               <Route path="strumenti" element={<WmsAppTools />} />
               <Route path="carrelli-bag" element={<WmsAppCartBags />} />
+              <Route path="barcode-imballaggi" element={<WmsAppPackagingLabels />} />
               <Route path="configurazione" element={<WmsAppSettings />} />
             </Route>
 

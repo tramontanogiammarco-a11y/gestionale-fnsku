@@ -20,6 +20,7 @@ export default function ClientReferenze() {
   const [titoloEdit, setTitoloEdit] = useState({});
   const [eanEdit, setEanEdit] = useState({});
   const [fnskuEdit, setFnskuEdit] = useState({});
+  const [misureEdit, setMisureEdit] = useState({});
   const [savingAll, setSavingAll] = useState(false);
 
   const load = () =>
@@ -28,14 +29,22 @@ export default function ClientReferenze() {
       const te = {};
       const ee = {};
       const fe = {};
+      const me = {};
       r.data.forEach((x) => {
         te[x.id] = x.titolo || "";
         ee[x.id] = x.ean || "";
         fe[x.id] = x.fnsku || "";
+        me[x.id] = {
+          peso_kg: x.peso_kg ?? 0.5,
+          lunghezza_cm: x.lunghezza_cm ?? 20,
+          larghezza_cm: x.larghezza_cm ?? 15,
+          altezza_cm: x.altezza_cm ?? 10,
+        };
       });
       setTitoloEdit(te);
       setEanEdit(ee);
       setFnskuEdit(fe);
+      setMisureEdit(me);
     }).catch((e) => {
       toast.error(formatApiError(e.response?.data?.detail) || "Impossibile caricare le referenze");
       setReferenze([]);
@@ -49,11 +58,17 @@ export default function ClientReferenze() {
       toast.error("Ogni referenza deve avere un titolo");
       return;
     }
+    const misureNonValide = referenze.find((r) => Object.values(misureEdit[r.id] || {}).some((value) => !Number.isFinite(Number(value)) || Number(value) <= 0));
+    if (misureNonValide) {
+      toast.error("Peso e dimensioni devono essere maggiori di zero per ogni referenza");
+      return;
+    }
 
     const modificate = referenze.filter((r) => (
       optionalText(titoloEdit[r.id]) !== optionalText(r.titolo)
       || optionalText(eanEdit[r.id]) !== optionalText(r.ean)
       || optionalText(fnskuEdit[r.id]) !== optionalText(r.fnsku)
+      || ["peso_kg", "lunghezza_cm", "larghezza_cm", "altezza_cm"].some((key) => Number(misureEdit[r.id]?.[key]) !== Number(r[key]))
     ));
 
     if (!modificate.length) {
@@ -68,6 +83,8 @@ export default function ClientReferenze() {
         ean: optionalText(eanEdit[r.id]) || r._pseudo_ean || null,
         _pseudo_ean: r._pseudo_ean,
         fnsku: optionalText(fnskuEdit[r.id]),
+        ...misureEdit[r.id],
+        misure_confermate: true,
       })));
       toast.success(`${modificate.length} referenze salvate`);
       load();
@@ -102,7 +119,7 @@ export default function ClientReferenze() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-heading text-2xl font-bold tracking-tight">Le mie referenze</h1>
-          <p className="text-muted-foreground text-sm mt-1">Prodotti da inviare al prep center.</p>
+          <p className="text-muted-foreground text-sm mt-1">Prodotti da inviare al prep center. Peso e dimensioni alimentano il preventivo GLS/BRT.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button onClick={salvaTutte} disabled={!referenze?.length || savingAll} data-testid="cref-save-all">
@@ -123,13 +140,15 @@ export default function ClientReferenze() {
                 <TableHead className="w-16">Foto</TableHead>
                 <TableHead>Titolo</TableHead>
                 <TableHead>EAN</TableHead>
+                <TableHead>Peso kg</TableHead>
+                <TableHead>Dimensioni cm</TableHead>
                 <TableHead>FNSKU</TableHead>
                 <TableHead className="text-right">Azioni</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {referenze.length === 0 && (
-                <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-10">Nessuna referenza. Aggiungine una o importa un file.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-10">Nessuna referenza. Aggiungine una o importa un file.</TableCell></TableRow>
               )}
               {referenze.map((r) => (
                 <TableRow key={r.id} data-testid={`cref-row-${r.id}`}>
@@ -165,6 +184,15 @@ export default function ClientReferenze() {
                       placeholder="da aggiungere"
                       className="h-8 w-40 font-mono text-xs"
                     />
+                  </TableCell>
+                  <TableCell>
+                    <Input type="number" min="0.01" step="0.01" value={misureEdit[r.id]?.peso_kg ?? ""} onChange={(e) => setMisureEdit((current) => ({ ...current, [r.id]: { ...current[r.id], peso_kg: e.target.value } }))} className="h-8 w-24 font-mono text-xs" />
+                    {!r.misure_confermate && <span className="mt-1 block text-[10px] font-bold text-amber-700">STIMA</span>}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1">
+                      {["lunghezza_cm", "larghezza_cm", "altezza_cm"].map((key, index) => <div key={key} className="flex items-center gap-1"><Input type="number" min="0.1" step="0.1" aria-label={key} value={misureEdit[r.id]?.[key] ?? ""} onChange={(e) => setMisureEdit((current) => ({ ...current, [r.id]: { ...current[r.id], [key]: e.target.value } }))} className="h-8 w-20 font-mono text-xs" />{index < 2 && <span className="text-xs text-slate-400">×</span>}</div>)}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <Input
@@ -216,7 +244,7 @@ function FotoCell({ ref_id, url, onUpload }) {
 
 function AddDialog({ onDone, referenze }) {
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ ean: "", titolo: "", fnsku: "" });
+  const [form, setForm] = useState({ ean: "", titolo: "", fnsku: "", peso_kg: "0.5", lunghezza_cm: "20", larghezza_cm: "15", altezza_cm: "10" });
   const [file, setFile] = useState(null);
   const [saving, setSaving] = useState(false);
   const [isBundle, setIsBundle] = useState(false);
@@ -226,7 +254,7 @@ function AddDialog({ onDone, referenze }) {
   const prodotti = (referenze || []).filter((r) => !r.is_bundle && r.ean);
 
   const reset = () => {
-    setForm({ ean: "", titolo: "", fnsku: "" });
+    setForm({ ean: "", titolo: "", fnsku: "", peso_kg: "0.5", lunghezza_cm: "20", larghezza_cm: "15", altezza_cm: "10" });
     setFile(null); setIsBundle(false); setComponenti([{ ean: "", quantita: "1" }]);
   };
 
@@ -236,6 +264,7 @@ function AddDialog({ onDone, referenze }) {
 
   const salva = async () => {
     if (!form.titolo.trim()) { toast.error("Il titolo è obbligatorio"); return; }
+    if ([form.peso_kg, form.lunghezza_cm, form.larghezza_cm, form.altezza_cm].some((value) => !Number.isFinite(Number(value)) || Number(value) <= 0)) { toast.error("Inserisci peso e dimensioni validi"); return; }
     let comps = [];
     if (isBundle) {
       comps = componenti
@@ -251,6 +280,11 @@ function AddDialog({ onDone, referenze }) {
         fnsku: optionalText(form.fnsku),
         is_bundle: isBundle,
         componenti: comps,
+        peso_kg: Number(form.peso_kg),
+        lunghezza_cm: Number(form.lunghezza_cm),
+        larghezza_cm: Number(form.larghezza_cm),
+        altezza_cm: Number(form.altezza_cm),
+        misure_confermate: true,
       });
       if (file) {
         const fd = new FormData(); fd.append("file", file);
@@ -281,6 +315,16 @@ function AddDialog({ onDone, referenze }) {
           <div><Label>EAN opzionale</Label><Input data-testid="add-ean" value={form.ean} onChange={(e) => setForm({ ...form, ean: e.target.value })} className="mt-1 font-mono" placeholder="puoi aggiungerlo dopo" /></div>
           <div><Label>Titolo *</Label><Input data-testid="add-titolo" value={form.titolo} onChange={(e) => setForm({ ...form, titolo: e.target.value })} className="mt-1" /></div>
           <div><Label>FNSKU</Label><Input data-testid="add-fnsku" value={form.fnsku} onChange={(e) => setForm({ ...form, fnsku: e.target.value })} className="mt-1 font-mono" placeholder="opzionale, aggiungibile dopo" /></div>
+          <div className="rounded-md border border-border p-3">
+            <Label className="text-sm font-semibold">Peso e dimensioni obbligatorie</Label>
+            <p className="mt-1 text-xs text-muted-foreground">Servono per calcolare peso reale e volumetrico della spedizione.</p>
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <MeasureField label="Peso kg" value={form.peso_kg} onChange={(value) => setForm({ ...form, peso_kg: value })} step="0.01" />
+              <MeasureField label="Lunghezza cm" value={form.lunghezza_cm} onChange={(value) => setForm({ ...form, lunghezza_cm: value })} />
+              <MeasureField label="Larghezza cm" value={form.larghezza_cm} onChange={(value) => setForm({ ...form, larghezza_cm: value })} />
+              <MeasureField label="Altezza cm" value={form.altezza_cm} onChange={(value) => setForm({ ...form, altezza_cm: value })} />
+            </div>
+          </div>
 
           {isBundle && (
             <div className="rounded-md border border-border p-3 space-y-2" data-testid="bundle-componenti">
@@ -321,6 +365,10 @@ function AddDialog({ onDone, referenze }) {
   );
 }
 
+function MeasureField({ label, value, onChange, step = "0.1" }) {
+  return <div><Label className="text-xs">{label}</Label><Input type="number" min={step} step={step} value={value} onChange={(event) => onChange(event.target.value)} className="mt-1" /></div>;
+}
+
 function ImportDialog({ onDone }) {
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState(null);
@@ -348,7 +396,7 @@ function ImportDialog({ onDone }) {
         <DialogHeader><DialogTitle>Importa referenze (CSV / Excel)</DialogTitle></DialogHeader>
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Colonne riconosciute automaticamente: <b>EAN</b>, Titolo e <b>FNSKU</b>. Se l'EAN esiste già, il FNSKU viene aggiunto alla referenza senza duplicarla.
+            Colonne riconosciute automaticamente: <b>EAN</b>, Titolo, <b>FNSKU</b>, Peso kg, Lunghezza cm, Larghezza cm e Altezza cm. Se le misure mancano viene applicata una stima da confermare.
           </p>
           <Input data-testid="import-file" type="file" accept=".csv,.xlsx,.xls" onChange={(e) => setFile(e.target.files[0])} />
           {result && (

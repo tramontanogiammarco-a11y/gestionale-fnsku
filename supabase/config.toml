@@ -17,3 +17,6 @@ enabled = true
 
 [functions.create-client]
 verify_jwt = true
+
+[functions.manage-operator]
+verify_jwt = true

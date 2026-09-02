@@ -3,9 +3,9 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
 import {
-  Archive, Barcode, ChevronRight, CircleHelp, History, Home, PackageCheck,
+  Archive, ArrowLeftRight, Barcode, ChevronRight, CircleHelp, History, Home, PackageCheck,
   LogOut, Menu, PackageOpen, Search, Settings, ShoppingCart,
-  SlidersHorizontal, UserRound, Warehouse,
+  SlidersHorizontal, UserRound, Warehouse, RefreshCcw,
 } from "lucide-react";
 import {
   Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle,
@@ -67,7 +67,7 @@ export default function WmsAppLayout() {
     : (entries || []).filter((entry) => entry.cliente_id === clientId);
 
   const focusScanner = () => {
-    if (location.pathname.includes("/wms-app/inbound/") || location.pathname.includes("/wms-app/picking/") || location.pathname.includes("/wms-app/picking-massivo/") || location.pathname.includes("/wms-app/picking-galluse/") || location.pathname.includes("/wms-app/packing/") || /^\/wms-app\/inventario\/[^/]+$/.test(location.pathname)) {
+    if (location.pathname.includes("/wms-app/inbound/") || location.pathname.includes("/wms-app/picking/") || location.pathname.includes("/wms-app/picking-massivo/") || location.pathname.includes("/wms-app/picking-galluse/") || location.pathname.includes("/wms-app/packing/") || location.pathname.includes("/wms-app/movimenta-stock") || /^\/wms-app\/inventario\/[^/]+$/.test(location.pathname)) {
       window.dispatchEvent(new Event("wms-focus-scanner"));
       return;
     }
@@ -139,6 +139,8 @@ export default function WmsAppLayout() {
             </div>
           </SheetHeader>
           <nav className="flex-1 space-y-1 px-4 py-5">
+            <MenuLink icon={ArrowLeftRight} label="Movimenta stock" active={location.pathname.includes("/movimenta-stock")} onClick={() => { setMenuOpen(false); navigate("/wms-app/movimenta-stock"); }} />
+            <MenuLink icon={RefreshCcw} label="Refill" active={location.pathname.includes("/refill")} onClick={() => { setMenuOpen(false); navigate("/wms-app/refill"); }} />
             <MenuLink icon={Archive} label="Inventario" active={location.pathname.includes("/inventario")} onClick={() => { setMenuOpen(false); navigate("/wms-app/inventario"); }} />
             <MenuLink icon={Search} label="Cerca prodotto" active={location.pathname.includes("/cerca-prodotto")} onClick={() => { setMenuOpen(false); navigate("/wms-app/cerca-prodotto"); }} />
             <MenuLink icon={History} label="Storico bag" active={location.pathname.includes("/bag-storico")} onClick={() => { setMenuOpen(false); navigate("/wms-app/bag-storico"); }} />
@@ -173,7 +175,7 @@ function BottomNavigation() {
     { label: "Home", icon: Home, active: location.pathname === "/wms-app", action: () => navigate("/wms-app") },
     { label: "Arrivi", icon: PackageOpen, active: location.pathname.includes("/arrivi") || location.pathname.includes("/inbound/"), action: () => navigate("/wms-app/arrivi") },
     { label: "Ordini", icon: ShoppingCart, active: location.pathname.includes("/ordini") || location.pathname.includes("/picking"), action: () => navigate("/wms-app/ordini") },
-    { label: "Stock", icon: Warehouse, active: location.pathname.includes("/ubicazioni") || location.pathname.includes("/cerca-prodotto"), action: () => navigate("/wms-app/ubicazioni") },
+    { label: "Stock", icon: Warehouse, active: location.pathname.includes("/ubicazioni") || location.pathname.includes("/cerca-prodotto") || location.pathname.includes("/movimenta-stock") || location.pathname.includes("/refill"), action: () => navigate("/wms-app/ubicazioni") },
     { label: "Packing", icon: PackageCheck, active: location.pathname.includes("/packing"), action: () => navigate("/packing-station") },
   ];
   return (

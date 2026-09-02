@@ -14,7 +14,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Loader2, Receipt, Download, Calculator, Boxes, ClipboardList, PackageOpen, Warehouse } from "lucide-react";
+import { Loader2, Receipt, Download, Calculator, Boxes, ClipboardList, PackageOpen, Warehouse, Truck, PackageCheck, CircleDollarSign } from "lucide-react";
 import { STATI_PREP } from "@/lib/statuses";
 
 const MESI = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno",
@@ -157,6 +157,7 @@ export default function AdminFatturazione({ clientMode = false, forcedClienteId 
               </Card>
             ))}
           </div>
+          <OrdiniImballatiFatturazione dettaglio={fattura.dettaglio?.ordini_imballati} />
           <Card className="p-5">
             <h2 className="font-heading text-lg font-semibold mb-3">Costo per voce</h2>
             <div className="h-64">
@@ -212,6 +213,83 @@ export default function AdminFatturazione({ clientMode = false, forcedClienteId 
         </div>
       )}
     </div>
+  );
+}
+
+function OrdiniImballatiFatturazione({ dettaglio }) {
+  const ultimoImballato = dettaglio?.ultimo_imballato_at;
+  const cards = [
+    {
+      label: "Spedizioni",
+      value: eur(dettaglio?.spedizioni?.importo),
+      note: `${dettaglio?.spedizioni?.quantita || 0} etichette corriere`,
+      icon: Truck,
+      tone: "bg-sky-50 text-sky-700",
+    },
+    {
+      label: "Gestione ordini",
+      value: eur(dettaglio?.gestione_ordini?.importo),
+      note: `${dettaglio?.gestione_ordini?.quantita || 0} ordini imballati`,
+      icon: ClipboardList,
+      tone: "bg-indigo-50 text-indigo-700",
+    },
+    {
+      label: "Pezzi extra",
+      value: eur(dettaglio?.pezzi_extra?.importo),
+      note: `${dettaglio?.pezzi_extra?.quantita || 0} oltre il primo pezzo`,
+      icon: PackageCheck,
+      tone: "bg-amber-50 text-amber-700",
+    },
+    {
+      label: "Imballaggi",
+      value: eur(dettaglio?.imballaggi?.importo),
+      note: `${dettaglio?.imballaggi?.quantita || 0} materiali utilizzati`,
+      icon: Boxes,
+      tone: "bg-emerald-50 text-emerald-700",
+    },
+  ];
+
+  return (
+    <Card className="overflow-hidden" data-testid="fatt-ordini-imballati">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-5">
+        <div>
+          <h2 className="font-heading text-lg font-semibold">Costi ordini imballati</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {ultimoImballato
+              ? `Conteggio aggiornato fino all'ultimo packing del ${formatDateTime(ultimoImballato)}.`
+              : "Nessun ordine imballato nel periodo selezionato."}
+          </p>
+        </div>
+        <div className="flex items-center gap-3 rounded-md bg-slate-950 px-4 py-3 text-white">
+          <CircleDollarSign className="h-5 w-5 text-teal-300" />
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Totale outbound</div>
+            <div className="font-heading text-xl font-black">{eur(dettaglio?.totale)}</div>
+          </div>
+        </div>
+      </div>
+      <div className="grid divide-y divide-slate-200 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
+        {cards.map((item) => (
+          <div key={item.label} className="p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">{item.label}</div>
+                <div className="mt-2 font-heading text-2xl font-black">{item.value}</div>
+                <div className="mt-1 text-xs text-muted-foreground">{item.note}</div>
+              </div>
+              <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${item.tone}`}>
+                <item.icon className="h-4 w-4" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {(dettaglio?.spedizioni?.senza_costo || 0) > 0 && (
+        <div className="border-t border-amber-200 bg-amber-50 px-5 py-3 text-xs font-medium text-amber-800">
+          {dettaglio.spedizioni.senza_costo} {dettaglio.spedizioni.senza_costo === 1 ? "ordine imballato non ha" : "ordini imballati non hanno"} ancora un costo corriere registrato.
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -383,4 +461,15 @@ function eur(value) {
 function formatDate(value) {
   if (!value) return "-";
   return new Intl.DateTimeFormat("it-IT", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(value));
+}
+
+function formatDateTime(value) {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("it-IT", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 }

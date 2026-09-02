@@ -12,6 +12,8 @@ function toAppUser(sessionUser, profile) {
     name: profile.name,
     role: profile.role,
     cliente_id: profile.cliente_id,
+    is_operator: Boolean(profile.is_operator),
+    operator_active: profile.operator_active !== false,
   };
 }
 
@@ -45,10 +47,15 @@ export function AuthProvider({ children }) {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("email,name,role,cliente_id")
+        .select("email,name,role,cliente_id,is_operator,operator_active")
         .eq("id", sessionUser.id)
         .single();
 
+      if (profile?.is_operator && profile?.operator_active === false) {
+        await supabase.auth.signOut();
+        if (mounted) setUser(false);
+        return;
+      }
       if (mounted) setUser(toAppUser(sessionUser, profile));
     }
 
@@ -82,7 +89,7 @@ export function AuthProvider({ children }) {
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("email,name,role,cliente_id")
+      .select("email,name,role,cliente_id,is_operator,operator_active")
       .eq("id", data.user.id)
       .single();
 
@@ -92,6 +99,11 @@ export function AuthProvider({ children }) {
         ok: false,
         error: "Utente creato in Auth ma profilo mancante. Completa il profilo nella tabella profiles.",
       };
+    }
+
+    if (profile.is_operator && profile.operator_active === false) {
+      await supabase.auth.signOut();
+      return { ok: false, error: "Account operatore disattivato. Contatta un amministratore." };
     }
 
     const appUser = toAppUser(data.user, profile);

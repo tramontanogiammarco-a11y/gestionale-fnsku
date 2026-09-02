@@ -18,7 +18,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
 } from "@/components/ui/dialog";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Loader2, Plus, FileText, Trash2, Boxes as BoxesIcon, ClipboardList, Copy, Pencil, Truck, ChevronDown, PackageCheck, Archive } from "lucide-react";
+import { AlertTriangle, Loader2, Plus, FileText, Trash2, Boxes as BoxesIcon, ClipboardList, Copy, Pencil, Truck, ChevronDown, PackageCheck, Archive } from "lucide-react";
 
 function azioneErrore(e) {
   if (e?.response?.status === 403)
@@ -151,6 +151,10 @@ export default function AdminComposizioneBox() {
   const [bulkSaving, setBulkSaving] = useState(false);
   const [openGroupKeys, setOpenGroupKeys] = useState(new Set());
   const [boxFolder, setBoxFolder] = useState("da_gestire");
+  const [shortageRow, setShortageRow] = useState(null);
+  const [effectiveQuantity, setEffectiveQuantity] = useState("");
+  const [shortageReason, setShortageReason] = useState("Quantita fisica inferiore durante la preparazione");
+  const [savingShortage, setSavingShortage] = useState(false);
 
   useEffect(() => { api.get("/clienti").then((r) => setClienti(r.data)); }, []);
 
@@ -205,6 +209,42 @@ export default function AdminComposizioneBox() {
       toast.success("Box eliminato");
       load(clienteId);
     } catch (e) { toast.error(azioneErrore(e)); }
+  };
+
+  const openShortage = (row) => {
+    setShortageRow(row);
+    setEffectiveQuantity(String(Number(row.in_box || 0)));
+    setShortageReason("Quantita fisica inferiore durante la preparazione");
+  };
+
+  const saveShortage = async () => {
+    const quantity = Math.floor(Number(effectiveQuantity));
+    if (!shortageRow || !Number.isFinite(quantity) || quantity < 1) {
+      toast.error("Indica la quantita effettivamente trovata");
+      return;
+    }
+    if (quantity < Number(shortageRow.in_box || 0)) {
+      toast.error(`Hai gia inserito ${shortageRow.in_box} pezzi nei box: non puoi dichiararne meno`);
+      return;
+    }
+    if (quantity >= Number(shortageRow.richiesto || 0)) {
+      toast.error("La quantita effettiva deve essere inferiore a quella richiesta");
+      return;
+    }
+    setSavingShortage(true);
+    try {
+      await api.post(`/preparazioni-righe/${shortageRow.riga_id}/mancanza`, {
+        quantita_effettiva: quantity,
+        motivo: shortageReason,
+      });
+      toast.success(`Mancanza registrata: ${Number(shortageRow.richiesto) - quantity} pezzi. Preparazione aggiornata.`);
+      setShortageRow(null);
+      load(clienteId);
+    } catch (e) {
+      toast.error(azioneErrore(e));
+    } finally {
+      setSavingShortage(false);
+    }
   };
 
   const imballabili = preparato.filter((m) => m.imballabile !== false && m.disponibile > 0);
@@ -312,11 +352,12 @@ export default function AdminComposizioneBox() {
                   <TableHead className="text-right">Richiesto</TableHead>
                   <TableHead className="text-right">In box</TableHead>
                   <TableHead className="text-right">Da imballare</TableHead>
+                  <TableHead className="w-40 text-right">Rettifica</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {imballabili.length === 0 && (
-                  <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-10">
+                  <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-10">
                     Nessuna merce da imballare. Il cliente deve prima mettere una preparazione in pronto oppure la merce risulta gia boxata.
                   </TableCell></TableRow>
                 )}
@@ -333,11 +374,47 @@ export default function AdminComposizioneBox() {
                     <TableCell className="text-right">{m.richiesto}</TableCell>
                     <TableCell className="text-right text-orange-600">{m.in_box}</TableCell>
                     <TableCell className={`text-right font-bold ${m.disponibile > 0 ? "text-emerald-700" : "text-slate-500"}`}>{m.disponibile}</TableCell>
+                    <TableCell className="text-right">
+                      <Button type="button" variant="outline" size="sm" onClick={() => openShortage(m)}>
+                        <AlertTriangle className="mr-2 h-4 w-4 text-amber-600" /> Dichiara mancanza
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </Card>
+
+          <Dialog open={Boolean(shortageRow)} onOpenChange={(open) => !open && setShortageRow(null)}>
+            <DialogContent className="sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-amber-600" /> Dichiara pezzi mancanti</DialogTitle>
+              </DialogHeader>
+              {shortageRow && (
+                <div className="space-y-4">
+                  <div className="border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+                    <p className="font-semibold">{shortageRow.titolo || shortageRow.ean}</p>
+                    <p className="mt-1">Richiesti {shortageRow.richiesto} · gia nei box {shortageRow.in_box} · residui {shortageRow.disponibile}</p>
+                  </div>
+                  <div>
+                    <Label htmlFor="effective-prep-quantity">Quantita effettivamente trovata</Label>
+                    <Input id="effective-prep-quantity" className="mt-1" type="number" min={Math.max(1, Number(shortageRow.in_box || 0))} max={Math.max(1, Number(shortageRow.richiesto || 1) - 1)} value={effectiveQuantity} onChange={(event) => setEffectiveQuantity(event.target.value)} />
+                    <p className="mt-1 text-xs text-muted-foreground">Per questo caso inserisci {shortageRow.in_box}. I {Number(shortageRow.richiesto) - Number(shortageRow.in_box)} pezzi residui saranno registrati come mancanti.</p>
+                  </div>
+                  <div>
+                    <Label htmlFor="shortage-reason">Motivazione</Label>
+                    <Input id="shortage-reason" className="mt-1" value={shortageReason} onChange={(event) => setShortageReason(event.target.value)} />
+                  </div>
+                </div>
+              )}
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setShortageRow(null)}>Annulla</Button>
+                <Button type="button" onClick={saveShortage} disabled={savingShortage}>
+                  {savingShortage && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Conferma rettifica
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           {nonImballabili.length > 0 && (
             <Card className="p-5 border-amber-200 bg-amber-50/40" data-testid="comp-non-imballabili">

@@ -77,7 +77,7 @@ Deno.serve(async (req) => {
   const { data: existingOrders, error: existingError } = await admin.from("shopify_orders").select("id,shopify_order_id,wms_status,order_name").eq("cliente_id", clienteId).eq("shop_domain", "csv-import").in("shopify_order_id", identifiers);
   if (existingError) return response({ detail: existingError.message }, 400);
   const existingMap = new Map((existingOrders || []).map((order) => [order.shopify_order_id, order]));
-  const locked = (existingOrders || []).filter((order) => !["da_preparare", "in_verifica", "eccezione"].includes(order.wms_status));
+  const locked = (existingOrders || []).filter((order) => !["da_preparare", "in_attesa_refill", "in_verifica", "eccezione"].includes(order.wms_status));
   if (locked.length) return response({ detail: `Picking gia avviato per: ${locked.map((o) => o.order_name).join(", ")}` }, 409);
 
   let imported = 0;
@@ -85,7 +85,7 @@ Deno.serve(async (req) => {
     const existing: any = existingMap.get(identifier(order.order_number));
     const now = new Date().toISOString();
     const gate = await gateImportedOrder(order, stockByReferenceId);
-    const row = { cliente_id: clienteId, shop_domain: "csv-import", shopify_order_id: identifier(order.order_number), order_name: order.order_number, financial_status: "csv", fulfillment_status: "unfulfilled", wms_status: gate.wms_status, gate_status: gate.gate_status, exception_type: gate.exception_type, exception_reasons: gate.exception_reasons, address_validation: gate.address_validation, stock_shortages: gate.stock_shortages, gate_checked_at: now, unblocked_at: gate.gate_status === "sbloccato" ? now : null, processed_at: dateOrNow(order.processed_at), note: order.note || null, customer_email: order.email || null, customer_phone: order.phone || null, ship_name: order.recipient || null, ship_company: order.company || null, ship_address1: order.address1 || null, ship_address2: order.address2 || null, ship_zip: order.zip || null, ship_city: order.city || null, ship_province: order.province || null, ship_country: order.country || null, ship_country_code: order.country_code || null, raw: { source: "csv", imported_at: now }, updated_at: now };
+    const row = { cliente_id: clienteId, shop_domain: "csv-import", shopify_order_id: identifier(order.order_number), order_name: order.order_number, financial_status: "csv", fulfillment_status: "unfulfilled", wms_status: gate.wms_status, gate_status: gate.gate_status, exception_type: gate.exception_type, exception_reasons: gate.exception_reasons, address_validation: gate.addressValidation || gate.address_validation, stock_shortages: gate.stock_shortages, refill_requirements: gate.refill_requirements || [], gate_checked_at: now, unblocked_at: gate.gate_status === "sbloccato" ? now : null, processed_at: dateOrNow(order.processed_at), note: order.note || null, customer_email: order.email || null, customer_phone: order.phone || null, ship_name: order.recipient || null, ship_company: order.company || null, ship_address1: order.address1 || null, ship_address2: order.address2 || null, ship_zip: order.zip || null, ship_city: order.city || null, ship_province: order.province || null, ship_country: order.country || null, ship_country_code: order.country_code || null, raw: { source: "csv", imported_at: now }, updated_at: now };
     const savedResult = existing ? await admin.from("shopify_orders").update(row).eq("id", existing.id).select().single() : await admin.from("shopify_orders").insert(row).select().single();
     if (savedResult.error) return response({ detail: savedResult.error.message }, 400);
     if (existing) { const deleted = await admin.from("shopify_order_items").delete().eq("order_id", existing.id); if (deleted.error) return response({ detail: deleted.error.message }, 400); }
@@ -119,29 +119,67 @@ function normalizeOrders(rows: Record<string, unknown>[]) {
 }
 
 async function availableStockByReference(admin: any, clienteId: string, references: any[]) {
-  const empty = new Map<string, number>();
+  const empty = new Map<string, { total: number; slot: number; pallet: number }>();
   const { data: entries, error: entriesError } = await admin.from("entrate").select("id").eq("cliente_id", clienteId);
   if (entriesError || !(entries || []).length) return empty;
   const entryIds = entries.map((entry: any) => entry.id);
   const { data: entryRows, error: rowsError } = await admin.from("entrate_righe").select("id,ean,fnsku").in("entrata_id", entryIds);
   if (rowsError || !(entryRows || []).length) return empty;
   const rowIds = entryRows.map((row: any) => row.id);
-  const { data: movements, error: movementsError } = await admin.from("wms_inbound_movements").select("entrata_riga_id,quantita").eq("disposizione", "disponibile").in("entrata_riga_id", rowIds);
+  const { data: movements, error: movementsError } = await admin.from("wms_inbound_movements").select("entrata_riga_id,location_id,quantita").eq("disposizione", "disponibile").in("entrata_riga_id", rowIds);
   if (movementsError) return empty;
+  const [{ data: locations }, { data: transfers }, { data: outbound }] = await Promise.all([
+    admin.from("wms_locations").select("id,tipo"),
+    admin.from("wms_stock_transfers").select("product_key,source_location_id,target_location_id,quantita").eq("cliente_id", clienteId).order("created_at", { ascending: true }),
+    admin.from("wms_outbound_movements").select("product_key,location_id,quantita").eq("cliente_id", clienteId),
+  ]);
   const referenceByEan = new Map(references.filter((reference: any) => norm(reference.ean)).map((reference: any) => [norm(reference.ean), reference]));
   const referenceByFnsku = new Map(references.filter((reference: any) => norm(reference.fnsku)).map((reference: any) => [norm(reference.fnsku), reference]));
   const rowById = new Map((entryRows || []).map((row: any) => [row.id, row]));
-  const totals = new Map<string, number>();
+  const referenceByProductKey = new Map<string, any>();
+  references.forEach((reference: any) => {
+    if (norm(reference.fnsku)) referenceByProductKey.set(`fnsku:${norm(reference.fnsku)}`, reference);
+    else if (norm(reference.ean)) referenceByProductKey.set(`ean:${norm(reference.ean)}`, reference);
+    else if (norm(reference.sku)) referenceByProductKey.set(`sku:${norm(reference.sku)}`, reference);
+  });
+  const quantities = new Map<string, Map<string, number>>();
   for (const movement of movements || []) {
     const source = rowById.get(movement.entrata_riga_id);
     const reference = source && (referenceByFnsku.get(norm(source.fnsku)) || referenceByEan.get(norm(source.ean)));
     if (!reference?.id) continue;
-    totals.set(reference.id, Number(totals.get(reference.id) || 0) + Number(movement.quantita || 0));
+    if (!movement.location_id) continue;
+    if (!quantities.has(reference.id)) quantities.set(reference.id, new Map());
+    const byLocation = quantities.get(reference.id)!;
+    byLocation.set(movement.location_id, Number(byLocation.get(movement.location_id) || 0) + Number(movement.quantita || 0));
   }
+  for (const transfer of transfers || []) {
+    const reference = referenceByProductKey.get(norm(transfer.product_key));
+    const byLocation = reference && quantities.get(reference.id);
+    if (!byLocation) continue;
+    const moved = Math.min(Number(byLocation.get(transfer.source_location_id) || 0), Number(transfer.quantita || 0));
+    byLocation.set(transfer.source_location_id, Math.max(0, Number(byLocation.get(transfer.source_location_id) || 0) - moved));
+    byLocation.set(transfer.target_location_id, Number(byLocation.get(transfer.target_location_id) || 0) + moved);
+  }
+  for (const movement of outbound || []) {
+    const reference = referenceByProductKey.get(norm(movement.product_key));
+    const byLocation = reference && quantities.get(reference.id);
+    if (!byLocation) continue;
+    byLocation.set(movement.location_id, Math.max(0, Number(byLocation.get(movement.location_id) || 0) - Number(movement.quantita || 0)));
+  }
+  const locationTypes = new Map((locations || []).map((location: any) => [location.id, location.tipo]));
+  const totals = new Map<string, { total: number; slot: number; pallet: number }>();
+  references.forEach((reference: any) => {
+    let slot = 0; let pallet = 0;
+    for (const [locationId, quantity] of quantities.get(reference.id) || []) {
+      if (locationTypes.get(locationId) === "slot") slot += Number(quantity || 0);
+      if (locationTypes.get(locationId) === "pallet") pallet += Number(quantity || 0);
+    }
+    totals.set(reference.id, { total: slot + pallet, slot, pallet });
+  });
   return totals;
 }
 
-async function gateImportedOrder(order: any, stockByReferenceId: Map<string, number>) {
+async function gateImportedOrder(order: any, stockByReferenceId: Map<string, { total: number; slot: number; pallet: number }>) {
   const address = String(order.address1 || "").trim();
   const zip = String(order.zip || "").trim();
   const city = String(order.city || "").trim();
@@ -160,8 +198,18 @@ async function gateImportedOrder(order: any, stockByReferenceId: Map<string, num
   ];
   const addressValidation = { valid: addressReasons.length === 0, confidence: addressReasons.length ? 0 : 0.92, source: "controllo_locale", reasons: addressReasons, normalized: { recipient, address, zip, city, province, country_code: countryCode }, verified_at: new Date().toISOString() };
   if (addressReasons.length) return { wms_status: "eccezione", gate_status: "eccezione_indirizzo", exception_type: "indirizzo", exception_reasons: addressReasons, address_validation: addressValidation, stock_shortages: [] };
-  const stockShortages = order.items.filter((item: any) => !item.reference || Number(stockByReferenceId.get(item.reference.id) || 0) < Number(item.quantity || 0)).map((item: any) => ({ referenza_id: item.reference?.id || null, titolo: item.title, required: Number(item.quantity || 0), available: Number(stockByReferenceId.get(item.reference?.id) || 0), missing: Math.max(0, Number(item.quantity || 0) - Number(stockByReferenceId.get(item.reference?.id) || 0)) }));
+  const stockShortages = order.items.filter((item: any) => !item.reference || Number(stockByReferenceId.get(item.reference.id)?.total || 0) < Number(item.quantity || 0)).map((item: any) => ({ referenza_id: item.reference?.id || null, titolo: item.title, required: Number(item.quantity || 0), available: Number(stockByReferenceId.get(item.reference?.id)?.total || 0), missing: Math.max(0, Number(item.quantity || 0) - Number(stockByReferenceId.get(item.reference?.id)?.total || 0)) }));
   if (stockShortages.length) return { wms_status: "eccezione", gate_status: "eccezione_stock", exception_type: "stock", exception_reasons: stockShortages.map((item: any) => item.titolo), address_validation: addressValidation, stock_shortages: stockShortages };
+  const refill = order.items.map((item: any) => ({
+    ...item,
+    refill_quantity: Math.max(0, Number(item.quantity || 0) - Number(stockByReferenceId.get(item.reference.id)?.slot || 0)),
+  })).filter((item: any) => item.refill_quantity > 0);
+  for (const item of order.items) {
+    const stock = stockByReferenceId.get(item.reference.id)!;
+    stock.total -= Number(item.quantity || 0);
+    stock.slot = Math.max(0, stock.slot - Number(item.quantity || 0));
+  }
+  if (refill.length) return { wms_status: "in_attesa_refill", gate_status: "attesa_refill", exception_type: null, exception_reasons: [], address_validation: { ...addressValidation, requires_replenishment: true }, stock_shortages: [], refill_requirements: refill.map((item: any) => ({ referenza_id: item.reference.id, titolo: item.title, quantita: item.refill_quantity })) };
   return { wms_status: "da_preparare", gate_status: "sbloccato", exception_type: null, exception_reasons: [], address_validation: addressValidation, stock_shortages: [] };
 }
 function response(body: unknown, status = 200) { return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } }); }

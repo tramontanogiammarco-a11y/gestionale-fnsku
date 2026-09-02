@@ -7,7 +7,7 @@ import CameraScanner from "@/components/wms/CameraScanner";
 import QrCodeSvg from "@/components/wms/QrCodeSvg";
 import { supabase } from "@/lib/supabase";
 import { getOrCreatePrintStationCode, printStationChannelName } from "@/lib/printStation";
-import { getDefaultZebraPrinter, printZebraLocationLabels, printZebraPackingLabels } from "@/lib/zebraPrinter";
+import { getDefaultZebraPrinter, printZebraBagLabels, printZebraLocationLabels, printZebraPackagingLabels, printZebraPackingLabels } from "@/lib/zebraPrinter";
 
 function cartIsComplete(snapshot) {
   const bags = snapshot?.cart_bags || [];
@@ -16,7 +16,10 @@ function cartIsComplete(snapshot) {
 
 function isCompletePackingScan(value) {
   const code = normalizeScannerCode(value);
-  return /^CARRELLO-[0-9]{2}$/.test(code) || /^B-[0-9]{5}$/.test(code) || /^PK-[A-F0-9]{12}$/.test(code);
+  return /^CARRELLO-[0-9]{2}$/.test(code)
+    || /^B-[A-Z0-9]{5}$/.test(code)
+    || /^PK-[A-F0-9]{12}$/.test(code)
+    || /^(SCATOLA-(PICCOLA|MEDIA|GRANDE)|BUSTA-CORRIERE)$/.test(code);
 }
 
 function cartStateFromSnapshot(snapshot, previous = null) {
@@ -54,9 +57,10 @@ function printBlobWithBrowserDialog(blob) {
 function ActiveBagContents({ station, phase, working, onLabelScan, sectionRef }) {
   if (!station?.sessions?.length) return null;
   const needsDoubleCheck = phase === "double_check";
+  const scanningPackaging = phase === "scan_packaging";
   const scanningLabels = phase === "scan_labels";
 
-  return <section ref={sectionRef} className={`scroll-mt-3 rounded-md border-2 p-4 shadow-sm sm:p-5 ${needsDoubleCheck ? "border-amber-500 bg-amber-50" : scanningLabels ? "border-teal-500 bg-teal-50" : "border-slate-200 bg-white"}`}>
+  return <section ref={sectionRef} className={`scroll-mt-3 rounded-md border-2 p-4 shadow-sm sm:p-5 ${needsDoubleCheck ? "border-amber-500 bg-amber-50" : scanningPackaging ? "border-sky-500 bg-sky-50" : scanningLabels ? "border-teal-500 bg-teal-50" : "border-slate-200 bg-white"}`}>
     <div className="flex flex-wrap items-center gap-3">
       <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-md text-white ${needsDoubleCheck ? "bg-amber-600" : "bg-teal-700"}`}><ShoppingBag className="h-6 w-6" /></span>
       <div className="min-w-0 flex-1">
@@ -64,9 +68,10 @@ function ActiveBagContents({ station, phase, working, onLabelScan, sectionRef })
         <h2 className="font-mono text-3xl font-black leading-none text-slate-950 sm:text-4xl">{station.bag_code}</h2>
       </div>
       <div className={`w-full rounded-md px-3 py-2 text-center text-sm font-black sm:w-auto ${needsDoubleCheck ? "bg-amber-600 text-white" : scanningLabels ? "bg-teal-700 text-white" : "bg-slate-100 text-slate-800"}`}>
-        {needsDoubleCheck ? "RISCANSIONA QUESTA BAG" : scanningLabels ? "SCANSIONA ETICHETTA" : `${station.summary.orders} ${station.summary.orders === 1 ? "ordine" : "ordini"}`}
+        {needsDoubleCheck ? "RISCANSIONA QUESTA BAG" : scanningPackaging ? "SCANSIONA IMBALLAGGIO" : scanningLabels ? "SCANSIONA ETICHETTA" : `${station.summary.orders} ${station.summary.orders === 1 ? "ordine" : "ordini"}`}
       </div>
     </div>
+    {scanningPackaging && <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">{(station.packaging_options || []).map((item) => <div key={item.code} className={`rounded-md border bg-white p-3 ${Number(item.stock_quantity) > 0 ? "border-sky-200" : "border-rose-300"}`}><strong className="block text-xs">{item.name}</strong><code className="mt-1 block text-[10px] font-black text-slate-600">{item.barcode}</code><span className={`mt-2 block text-xs font-bold ${Number(item.stock_quantity) > 0 ? "text-teal-700" : "text-rose-700"}`}>{item.stock_quantity} disponibili</span></div>)}</div>}
     <div className="mt-4 flex items-center justify-between gap-3 border-t border-current/10 pt-3">
       <div><h3 className="text-base font-black">Contenuto della bag</h3><p className="text-xs text-slate-600">Controlla prodotti e quantita prima di chiuderla.</p></div>
       <span className="shrink-0 rounded-full bg-white px-3 py-1 text-xs font-black shadow-sm">{station.batch ? "Massivo" : "1x1"}</span>
@@ -100,7 +105,7 @@ export default function WmsAppPacking() {
   const [pairedDevices, setPairedDevices] = useState(0);
   const [remotePrintStatus, setRemotePrintStatus] = useState("ready");
   const [pendingCarrierPrint, setPendingCarrierPrint] = useState(null);
-  const stationQrUrl = useMemo(() => `${window.location.origin}/wms-app/carrelli-bag?station=${encodeURIComponent(printStationCode)}`, [printStationCode]);
+  const stationQrUrl = useMemo(() => `${window.location.origin}/wms-app/barcode-imballaggi?station=${encodeURIComponent(printStationCode)}`, [printStationCode]);
 
   const openCamera = useCallback(() => {
     setCameraSession((value) => value + 1);
@@ -218,7 +223,11 @@ export default function WmsAppPacking() {
       .on("broadcast", { event: "print-location-labels" }, async ({ payload }) => {
         const jobId = String(payload?.jobId || "");
         const locations = Array.isArray(payload?.locations)
-          ? payload.locations.slice(0, 1000).filter((location) => /^[SP][0-9]{1,5}\+[A-Z][0-9]{1,2}$/.test(String(location?.code || "")))
+          ? payload.locations.slice(0, 1000).filter((location) => {
+            const code = String(location?.code || "");
+            return /^[SP][0-9]{1,5}\+[A-Z][0-9]{1,2}$/.test(code)
+              || (String(location?.type || "").toLowerCase() === "bag" && /^B-[A-Z0-9]{5}$/.test(code));
+          })
           : [];
         if (!locations.length) {
           await channel.send({ type: "broadcast", event: "print-result", payload: { jobId, ok: false, message: "Nessuna ubicazione valida da stampare" } });
@@ -238,9 +247,61 @@ export default function WmsAppPacking() {
           setRemotePrintStatus("ready");
         }
       })
+      .on("broadcast", { event: "print-packaging-labels" }, async ({ payload }) => {
+        const jobId = String(payload?.jobId || "");
+        const allowedCodes = new Set(["SCATOLA-PICCOLA", "SCATOLA-MEDIA", "SCATOLA-GRANDE", "BUSTA-CORRIERE"]);
+        const labels = Array.isArray(payload?.labels)
+          ? payload.labels.slice(0, 120).filter((label) => allowedCodes.has(String(label?.code || "")))
+          : [];
+        if (!labels.length) {
+          await channel.send({ type: "broadcast", event: "print-result", payload: { jobId, ok: false, message: "Nessun barcode imballaggio valido" } });
+          return;
+        }
+        setRemotePrintStatus("printing");
+        try {
+          const printer = await printZebraPackagingLabels(labels);
+          setZebra({ status: "ready", name: printer.name || "Zebra predefinita" });
+          await channel.send({ type: "broadcast", event: "print-result", payload: { jobId, ok: true, count: labels.length, printer: printer.name || "Zebra" } });
+          toast.success(`${labels.length} barcode imballaggio stampati dalla station`);
+        } catch (error) {
+          setZebra({ status: "unavailable", name: "" });
+          await channel.send({ type: "broadcast", event: "print-result", payload: { jobId, ok: false, message: "Zebra non raggiungibile sulla Packing Station" } });
+          toast.error("Stampa imballaggi non riuscita: controlla Zebra Browser Print");
+        } finally {
+          setRemotePrintStatus("ready");
+        }
+      })
+      .on("broadcast", { event: "print-bag-labels" }, async ({ payload }) => {
+        const jobId = String(payload?.jobId || "");
+        const bags = Array.isArray(payload?.bags)
+          ? payload.bags.slice(0, 500).filter((bag) => /^B-[A-Z0-9]{5}$/.test(String(bag?.code || bag?.codice || "")))
+          : [];
+        if (!bags.length) {
+          await channel.send({ type: "broadcast", event: "print-result", payload: { jobId, ok: false, message: "Nessuna bag valida da stampare" } });
+          return;
+        }
+        setRemotePrintStatus("printing");
+        try {
+          const printer = await printZebraBagLabels(bags);
+          setZebra({ status: "ready", name: printer.name || "Zebra predefinita" });
+          await channel.send({ type: "broadcast", event: "print-result", payload: { jobId, ok: true, count: bags.length, printer: printer.name || "Zebra" } });
+          toast.success(`${bags.length} etichette bag stampate dalla station`);
+        } catch (error) {
+          setZebra({ status: "unavailable", name: "" });
+          await channel.send({ type: "broadcast", event: "print-result", payload: { jobId, ok: false, message: "Zebra non raggiungibile sulla Packing Station" } });
+          toast.error("Stampa bag non riuscita: controlla Zebra Browser Print");
+        } finally {
+          setRemotePrintStatus("ready");
+        }
+      })
       .subscribe(async (status) => {
         if (status === "SUBSCRIBED") {
-          await channel.track({ role: "station", stationCode: printStationCode, onlineAt: new Date().toISOString() });
+          await channel.track({
+            role: "station",
+            stationCode: printStationCode,
+            capabilities: ["location-labels", "packaging-labels", "bag-labels"],
+            onlineAt: new Date().toISOString(),
+          });
         }
       });
 
@@ -248,7 +309,7 @@ export default function WmsAppPacking() {
   }, [printStationCode]);
 
   useEffect(() => {
-    if (!station?.bag_code || !["double_check", "scan_labels"].includes(station.phase)) return;
+    if (!station?.bag_code || !["double_check", "scan_packaging", "scan_labels"].includes(station.phase)) return;
     window.setTimeout(() => activeBagRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
   }, [station?.bag_code, station?.phase]);
 
@@ -311,18 +372,31 @@ export default function WmsAppPacking() {
     return () => { cancelled = true; };
   }, [focusScanner, pendingCarrierPrint, zebra.status]);
 
-  const printTestLabel = async () => {
+  const printTestLabel = async (carrier = "gls") => {
+    const carrierName = carrier.toUpperCase();
+    const testLabel = {
+      code: `PK-${carrierName}-TEST-001`,
+      order_name: `${carrierName}-TEST-001`,
+      carrier,
+      recipient_name: "Mario Rossi",
+      address1: "Via delle Prove 25",
+      zip: "20100",
+      city: "Milano",
+      province: "MI",
+      country: "Italia",
+      weight: 1,
+    };
     try {
-      const printer = await printZebraPackingLabels([{ code: "PK-000000000001", order_name: "TEST STAMPANTE" }]);
+      const printer = await printZebraPackingLabels([testLabel]);
       setZebra({ status: "ready", name: printer.name || "Zebra predefinita" });
-      toast.success(`Etichetta test stampata su ${printer.name || "Zebra"}`);
+      toast.success(`Etichetta ${carrierName} stampata su ${printer.name || "Zebra"}`);
       return;
     } catch {
       setZebra({ status: "unavailable", name: "" });
       toast.error("Zebra non raggiungibile: uso la stampa browser di emergenza");
     }
     try {
-      const response = await api.get("/wms/packing/etichetta-test", { responseType: "blob" });
+      const response = await api.get(`/wms/packing/etichetta-test?carrier=${carrier}`, { responseType: "blob" });
       printBlobWithBrowserDialog(response.data);
     } catch (error) {
       toast.error(error.response?.data?.detail || "Impossibile creare l'etichetta di prova");
@@ -355,8 +429,10 @@ export default function WmsAppPacking() {
       if (navigator.vibrate) navigator.vibrate([55, 35, 55]);
       if (next.phase === "cart_ready") toast.success("Carrello riconosciuto: ora scansiona una bag");
       if (next.phase === "double_check") toast.success("Bag riconosciuta: riscansionala per il doppio controllo");
-      if (next.phase === "scan_labels" && station?.phase === "double_check") {
+      if (next.phase === "scan_packaging") toast.success("Bag confermata: scansiona scatola o busta corriere");
+      if (next.phase === "scan_labels" && station?.phase === "scan_packaging") {
         await printCarrierLabels(next.bag_code, next.labels);
+        toast.success("Imballaggio associato e scalato: scansiona l'etichetta corriere");
       }
       if (next.phase === "completed") toast.success("Packing completato. Bag liberata.");
     } catch (error) {
@@ -379,6 +455,8 @@ export default function WmsAppPacking() {
     ? "Attendo Zebra: ristampa automatica in corso"
     : phase === "double_check"
     ? "Riscansiona la stessa bag"
+    : phase === "scan_packaging"
+      ? "Scansiona scatola o busta corriere"
     : phase === "scan_labels"
       ? `Scansiona ${pendingLabels === 1 ? "l'etichetta corriere" : "tutte le etichette corriere"}`
       : phase === "completed"
@@ -395,9 +473,14 @@ export default function WmsAppPacking() {
           {zebra.status === "checking" ? <Loader2 className="h-4 w-4 animate-spin" /> : zebra.status === "ready" ? <Printer className="h-4 w-4" /> : <CircleAlert className="h-4 w-4" />}
           <span>{zebra.status === "ready" ? zebra.name : zebra.status === "checking" ? "Cerco Zebra" : "Zebra non collegata"}</span>
         </button>
-        <button type="button" onClick={printTestLabel} className="flex h-10 shrink-0 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-xs font-black text-slate-800 hover:border-teal-600 hover:text-teal-800">
-          <Printer className="h-4 w-4" /> Etichetta test
-        </button>
+        <div className="flex gap-2">
+          <button type="button" onClick={() => printTestLabel("brt")} className="flex h-10 shrink-0 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-xs font-black text-slate-800 hover:border-red-600 hover:text-red-700">
+            <Printer className="h-4 w-4" /> Test BRT
+          </button>
+          <button type="button" onClick={() => printTestLabel("gls")} className="flex h-10 shrink-0 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-xs font-black text-slate-800 hover:border-amber-500 hover:text-amber-700">
+            <Printer className="h-4 w-4" /> Test GLS
+          </button>
+        </div>
       </div>
     </header>
     <section className="mb-4 grid gap-4 rounded-md border border-teal-200 bg-white p-4 shadow-sm sm:grid-cols-[144px_1fr] sm:items-center">
@@ -407,7 +490,7 @@ export default function WmsAppPacking() {
       <div className="min-w-0 text-center sm:text-left">
         <div className="flex items-center justify-center gap-2 text-teal-800 sm:justify-start"><QrCode className="h-5 w-5" /><p className="text-xs font-black uppercase">Collega app e stampante</p></div>
         <h2 className="mt-2 text-xl font-black text-slate-950">Scansiona questo QR dal telefono</h2>
-        <p className="mt-1 text-sm leading-5 text-slate-600">Apre Carrelli / Bag già associato a questo PC. Le etichette di slot e pallet verranno stampate dalla Zebra collegata qui.</p>
+        <p className="mt-1 text-sm leading-5 text-slate-600">Apre direttamente Barcode imballaggi e associa questo PC. Da lì puoi stampare sulla Zebra collegata alla station.</p>
         <div className="mt-3 flex flex-wrap items-center justify-center gap-2 sm:justify-start">
           <span className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-black ${pairedDevices > 0 ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"}`}><Smartphone className="h-4 w-4" /> {pairedDevices > 0 ? `${pairedDevices} dispositivo collegato` : "In attesa del telefono"}</span>
           <span className="rounded-md bg-slate-950 px-3 py-2 font-mono text-[11px] font-black text-white">{printStationCode}</span>
@@ -417,10 +500,10 @@ export default function WmsAppPacking() {
     </section>
     {zebra.status === "unavailable" && <div className="mb-4 flex items-start gap-3 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><CircleAlert className="mt-0.5 h-5 w-5 shrink-0" /><div><strong className="block">Stampa automatica Zebra non attiva</strong><span className="mt-1 block text-xs leading-5">Controlla che Zebra Browser Print sia aperto e la stampante collegata. La station verifica il collegamento e riprende la stampa automaticamente.</span></div></div>}
 
-    <section className={`rounded-md border-2 bg-white p-5 shadow-sm ${pendingCarrierPrint ? "border-amber-500" : phase === "completed" ? "border-emerald-500" : phase === "scan_labels" ? "border-teal-500" : "border-slate-950"}`}>
+    <section className={`rounded-md border-2 bg-white p-5 shadow-sm ${pendingCarrierPrint ? "border-amber-500" : phase === "completed" ? "border-emerald-500" : phase === "scan_packaging" ? "border-sky-500" : phase === "scan_labels" ? "border-teal-500" : "border-slate-950"}`}>
       <div className="flex items-center gap-4">
         <span className={`flex h-14 w-14 items-center justify-center rounded-md ${phase === "completed" ? "bg-emerald-600 text-white" : "bg-slate-950 text-white"}`}>
-          {phase === "completed" ? <CheckCircle2 className="h-7 w-7" /> : phase === "scan_labels" ? <Barcode className="h-7 w-7" /> : <ShoppingBag className="h-7 w-7" />}
+          {phase === "completed" ? <CheckCircle2 className="h-7 w-7" /> : phase === "scan_labels" ? <Barcode className="h-7 w-7" /> : phase === "scan_packaging" ? <PackageCheck className="h-7 w-7" /> : <ShoppingBag className="h-7 w-7" />}
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-xs font-black uppercase text-teal-700">Scanner pronto</p>
@@ -439,7 +522,7 @@ export default function WmsAppPacking() {
             setCode(nextCode);
             if (isCompletePackingScan(nextCode)) window.setTimeout(() => submitScan(nextCode), 0);
           }}
-          placeholder={phase === "scan_labels" ? "Scansiona etichetta corriere" : phase === "cart_ready" ? "Scansiona una bag" : "CARRELLO-01 oppure bag"}
+          placeholder={phase === "scan_labels" ? "Scansiona etichetta corriere" : phase === "scan_packaging" ? "SCATOLA-PICCOLA, MEDIA, GRANDE o BUSTA-CORRIERE" : phase === "cart_ready" ? "Scansiona una bag" : "CARRELLO-01 oppure bag"}
           className="h-16 min-w-0 flex-1 border-slate-950 bg-slate-50 text-center font-mono text-xl font-black tracking-wider sm:text-2xl"
           autoComplete="off"
           inputMode="none"

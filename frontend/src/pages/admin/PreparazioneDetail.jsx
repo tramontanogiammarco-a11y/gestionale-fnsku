@@ -418,7 +418,10 @@ export default function AdminPreparazioneDetail() {
                     className="h-8 w-36 font-mono text-xs"
                   />
                 </TableCell>
-                <TableCell>{rg.quantita}</TableCell>
+                <TableCell>
+                  <div className="font-semibold">{rg.quantita}</div>
+                  {Number(rg.quantita_mancante || 0) > 0 && <div className="mt-1 text-xs font-semibold text-amber-700">-{rg.quantita_mancante} mancanti</div>}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>

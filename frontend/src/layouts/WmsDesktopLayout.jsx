@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import {
   AlertTriangle, Boxes, LayoutDashboard, LogOut, MapPinned, MessageSquareText,
   PackageSearch, Receipt, RotateCcw, ShoppingCart, Smartphone, Truck, Users, Warehouse,
-  PlugZap,
+  PlugZap, UserCog, BadgeEuro, RadioTower,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -25,7 +25,10 @@ const CORE_NAV = [
 ];
 
 const ADMIN_NAV = [
+  { to: "/wms/control-room", label: "Control Room", icon: RadioTower },
   { to: "/admin/clienti", label: "Clienti", icon: Users },
+  { to: "/wms/prezzari", label: "Prezzari", icon: BadgeEuro },
+  { to: "/wms/operatori", label: "Operatori", icon: UserCog },
   { to: "/wms/mappa", label: "Magazzino 3D", icon: MapPinned },
   { to: "/admin", label: "Amazon Prep", icon: PackageSearch },
   { to: "/wms-app", label: "App operativa", icon: Smartphone },

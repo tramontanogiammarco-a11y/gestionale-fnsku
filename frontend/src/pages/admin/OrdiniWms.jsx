@@ -20,6 +20,7 @@ import { Download, FileCheck2, FileSpreadsheet, Loader2, MapPin, PackageCheck, P
 const WMS_STATI = [
   { key: "tutti", label: "Tutti" },
   { key: "da_preparare", label: "Da preparare" },
+  { key: "hold", label: "HOLD cliente" },
   { key: "in_preparazione", label: "In preparazione" },
   { key: "pronto", label: "Pronto" },
   { key: "spedito", label: "Spedito" },
@@ -27,6 +28,7 @@ const WMS_STATI = [
 
 const statusLabel = {
   da_preparare: "Da preparare",
+  hold: "HOLD cliente",
   in_preparazione: "In preparazione",
   pronto: "Pronto",
   spedito: "Spedito",

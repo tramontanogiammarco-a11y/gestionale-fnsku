@@ -5,7 +5,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, x-supabase-api-version, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
-const editableStatuses = new Set(["in_verifica", "eccezione", "da_preparare"]);
+const editableStatuses = new Set(["in_verifica", "eccezione", "in_attesa_refill", "da_preparare"]);
+const holdableStatuses = new Set(["in_verifica", "eccezione", "in_attesa_refill", "da_preparare"]);
+const resumableStatuses = new Set(["in_verifica", "eccezione", "in_attesa_refill", "da_preparare"]);
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return json({ ok: true });
@@ -28,12 +30,46 @@ Deno.serve(async (req) => {
   const items = Array.isArray(payload.items) ? payload.items : [];
   if (!orderId) return json({ detail: "Ordine non indicato" }, 400);
   const admin = createClient(url, service);
-  const { data: order, error: orderError } = await admin.from("shopify_orders").select("id,cliente_id,wms_status,order_name").eq("id", orderId).single();
+  const { data: order, error: orderError } = await admin.from("shopify_orders").select("id,cliente_id,wms_status,gate_status,order_name,hold_previous_status,hold_previous_gate_status").eq("id", orderId).single();
   if (orderError || !order) return json({ detail: "Ordine non trovato" }, 404);
   if (profile.role === "cliente" && order.cliente_id !== profile.cliente_id) return json({ detail: "Ordine non appartenente al cliente" }, 403);
 
+  if (action === "hold") {
+    if (!holdableStatuses.has(order.wms_status)) return json({ detail: "Puoi mettere in HOLD l'ordine soltanto prima dell'inizio del picking" }, 409);
+    const now = new Date().toISOString();
+    const { error: holdError } = await admin.from("shopify_orders").update({
+      wms_status: "hold",
+      gate_status: "hold_cliente",
+      hold_previous_status: order.wms_status,
+      hold_previous_gate_status: order.gate_status,
+      held_at: now,
+      held_by: authData.user.id,
+      updated_at: now,
+    }).eq("id", order.id);
+    if (holdError) return json({ detail: holdError.message }, 400);
+    return json({ ok: true, order_id: order.id, order_name: order.order_name, wms_status: "hold" });
+  }
+
+  if (action === "release_hold") {
+    if (order.wms_status !== "hold") return json({ detail: "Questo ordine non è in HOLD" }, 409);
+    const previousStatus = resumableStatuses.has(order.hold_previous_status) ? order.hold_previous_status : "in_verifica";
+    const previousGateStatus = order.hold_previous_gate_status || (previousStatus === "da_preparare" ? "sbloccato" : "da_verificare");
+    const now = new Date().toISOString();
+    const { error: releaseError } = await admin.from("shopify_orders").update({
+      wms_status: previousStatus,
+      gate_status: previousGateStatus,
+      hold_previous_status: null,
+      hold_previous_gate_status: null,
+      held_at: null,
+      held_by: null,
+      updated_at: now,
+    }).eq("id", order.id);
+    if (releaseError) return json({ detail: releaseError.message }, 400);
+    return json({ ok: true, order_id: order.id, order_name: order.order_name, wms_status: previousStatus });
+  }
+
   if (action === "cancel") {
-    if (order.wms_status !== "da_preparare") return json({ detail: "Puoi annullare soltanto un ordine nello stato Nuovo" }, 409);
+    if (![...editableStatuses, "hold"].includes(order.wms_status)) return json({ detail: "Puoi annullare l'ordine soltanto prima dell'inizio del picking" }, 409);
     const now = new Date().toISOString();
     const { error: cancelError } = await admin.from("shopify_orders").update({
       wms_status: "annullato",
@@ -41,6 +77,7 @@ Deno.serve(async (req) => {
       exception_type: null,
       exception_reasons: [],
       stock_shortages: [],
+      refill_requirements: [],
       updated_at: now,
     }).eq("id", order.id);
     if (cancelError) return json({ detail: cancelError.message }, 400);

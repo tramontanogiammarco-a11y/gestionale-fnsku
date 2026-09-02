@@ -37,7 +37,9 @@ export async function loadControlData({ clientId, clients, includeStock = true }
 export const ORDER_STATUS = {
   in_verifica: { label: "In verifica", tone: "sky" },
   eccezione: { label: "Eccezione", tone: "rose" },
+  in_attesa_refill: { label: "In attesa refill", tone: "amber" },
   da_preparare: { label: "Nuovo", tone: "amber" },
+  hold: { label: "HOLD cliente", tone: "rose" },
   in_preparazione: { label: "In preparazione", tone: "sky" },
   in_attesa_packing: { label: "Pronto da imballare", tone: "violet" },
   in_packing: { label: "In imballaggio", tone: "sky" },

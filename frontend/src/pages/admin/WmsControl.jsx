@@ -27,6 +27,7 @@ const VIEWS = [
 ];
 
 const ORDER_STATUS = {
+  hold: { label: "HOLD cliente", cls: "bg-rose-50 text-rose-700 border-rose-200" },
   da_preparare: { label: "Da prelevare", cls: "bg-amber-50 text-amber-700 border-amber-200" },
   in_preparazione: { label: "Picking", cls: "bg-sky-50 text-sky-700 border-sky-200" },
   pronto: { label: "Packing", cls: "bg-violet-50 text-violet-700 border-violet-200" },

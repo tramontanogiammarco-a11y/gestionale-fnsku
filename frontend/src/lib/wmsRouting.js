@@ -184,118 +184,151 @@ function linearRackSweepOrder(locations = [], map = {}) {
 }
 
 function gridRoute(locations, map) {
-  const cellSize = Number(map.grid_size || 0.5);
-  const width = Number(map.width || 34);
-  const depth = Number(map.depth || 24);
-  const cols = Math.max(1, Math.floor(width / cellSize));
-  const rows = Math.max(1, Math.floor(depth / cellSize));
+  const cellSize = Math.max(0.05, Number(map.grid_size || 0.1));
+  const width = Number(map.width || 18);
+  const depth = Number(map.depth || 60);
+  const cols = Math.max(1, Math.round(width / cellSize));
+  const rows = Math.max(1, Math.round(depth / cellSize));
+  const totalCells = cols * rows;
   const minX = -width / 2;
   const minZ = -depth / 2;
-  const key = (col, row) => `${col}:${row}`;
+  const indexOf = (col, row) => row * cols + col;
+  const cellOf = (index) => ({ col: index % cols, row: Math.floor(index / cols) });
   const cellPoint = (col, row) => ({ x: minX + (col + 0.5) * cellSize, z: minZ + (row + 0.5) * cellSize });
   const pointCell = (value) => ({
-    col: Math.max(0, Math.min(cols - 1, Math.floor((value.x - minX) / cellSize))),
-    row: Math.max(0, Math.min(rows - 1, Math.floor((value.z - minZ) / cellSize))),
+    col: Math.max(0, Math.min(cols - 1, Math.floor((Number(value.x || 0) - minX) / cellSize))),
+    row: Math.max(0, Math.min(rows - 1, Math.floor((Number(value.z || 0) - minZ) / cellSize))),
   });
-  const blocked = new Set();
+  const blocked = new Uint8Array(totalCells);
+
   for (const obstacle of map.obstacles || []) {
     if (!["pallet", "slot", "terra", "quarantena", "outbound", "packing"].includes(obstacle.tipo)) continue;
     const center = { x: Number(obstacle.map_x || 0), z: Number(obstacle.map_z || 0) };
     const radians = -Number(obstacle.map_rotation || 0) * Math.PI / 180;
     const cos = Math.cos(radians);
     const sin = Math.sin(radians);
-    const halfWidth = Number(obstacle.map_width || 1) / 2 + 0.08;
-    const halfDepth = Number(obstacle.map_depth || 1) / 2 + 0.08;
-    for (let col = 0; col < cols; col += 1) {
-      for (let row = 0; row < rows; row += 1) {
+    const halfWidth = Number(obstacle.map_width || 1) / 2;
+    const halfDepth = Number(obstacle.map_depth || 1) / 2;
+    const extentX = Math.abs(cos) * halfWidth + Math.abs(sin) * halfDepth;
+    const extentZ = Math.abs(sin) * halfWidth + Math.abs(cos) * halfDepth;
+    const minCol = Math.max(0, Math.floor((center.x - extentX - minX) / cellSize));
+    const maxCol = Math.min(cols - 1, Math.floor((center.x + extentX - minX) / cellSize));
+    const minRow = Math.max(0, Math.floor((center.z - extentZ - minZ) / cellSize));
+    const maxRow = Math.min(rows - 1, Math.floor((center.z + extentZ - minZ) / cellSize));
+    for (let col = minCol; col <= maxCol; col += 1) {
+      for (let row = minRow; row <= maxRow; row += 1) {
         const current = cellPoint(col, row);
         const dx = current.x - center.x;
         const dz = current.z - center.z;
         const localX = dx * cos - dz * sin;
         const localZ = dx * sin + dz * cos;
-        if (Math.abs(localX) <= halfWidth && Math.abs(localZ) <= halfDepth) blocked.add(key(col, row));
+        if (Math.abs(localX) < halfWidth && Math.abs(localZ) < halfDepth) blocked[indexOf(col, row)] = 1;
       }
     }
   }
 
   const nearestFree = (value) => {
     const origin = pointCell(value);
-    if (!blocked.has(key(origin.col, origin.row))) return origin;
+    if (!blocked[indexOf(origin.col, origin.row)]) return indexOf(origin.col, origin.row);
     for (let radius = 1; radius < Math.max(cols, rows); radius += 1) {
-      const candidates = [];
+      let best = null;
       for (let dx = -radius; dx <= radius; dx += 1) {
-        candidates.push({ col: origin.col + dx, row: origin.row - radius }, { col: origin.col + dx, row: origin.row + radius });
+        for (const row of [origin.row - radius, origin.row + radius]) {
+          const col = origin.col + dx;
+          if (col < 0 || col >= cols || row < 0 || row >= rows || blocked[indexOf(col, row)]) continue;
+          const candidate = { index: indexOf(col, row), distance: distance(cellPoint(col, row), value) };
+          if (!best || candidate.distance < best.distance) best = candidate;
+        }
       }
       for (let dz = -radius + 1; dz < radius; dz += 1) {
-        candidates.push({ col: origin.col - radius, row: origin.row + dz }, { col: origin.col + radius, row: origin.row + dz });
+        for (const col of [origin.col - radius, origin.col + radius]) {
+          const row = origin.row + dz;
+          if (col < 0 || col >= cols || row < 0 || row >= rows || blocked[indexOf(col, row)]) continue;
+          const candidate = { index: indexOf(col, row), distance: distance(cellPoint(col, row), value) };
+          if (!best || candidate.distance < best.distance) best = candidate;
+        }
       }
-      const valid = candidates.filter((cell) => cell.col >= 0 && cell.col < cols && cell.row >= 0 && cell.row < rows && !blocked.has(key(cell.col, cell.row)));
-      if (valid.length) return valid.sort((a, b) => distance(cellPoint(a.col, a.row), value) - distance(cellPoint(b.col, b.row), value))[0];
+      if (best) return best.index;
     }
     return null;
   };
 
-  const findPath = (start, target) => {
-    if (!start || !target) return null;
-    const startKey = key(start.col, start.row);
-    const targetKey = key(target.col, target.row);
-    const open = new Set([startKey]);
-    const cells = new Map([[startKey, start], [targetKey, target]]);
-    const cameFrom = new Map();
-    const scores = new Map([[startKey, 0]]);
-    const estimates = new Map([[startKey, Math.abs(start.col - target.col) + Math.abs(start.row - target.row)]]);
-    while (open.size) {
-      let currentKey = null;
-      let best = Infinity;
-      open.forEach((candidate) => {
-        const score = estimates.get(candidate) ?? Infinity;
-        if (score < best) { best = score; currentKey = candidate; }
-      });
-      if (currentKey === targetKey) {
-        const path = [];
-        let cursor = currentKey;
-        while (cursor) {
-          const cell = cells.get(cursor);
-          path.unshift(cellPoint(cell.col, cell.row));
-          cursor = cameFrom.get(cursor);
-        }
-        return { path, distance: Math.max(0, path.length - 1) * cellSize };
-      }
-      open.delete(currentKey);
-      const current = cells.get(currentKey);
-      for (const next of [
-        { col: current.col + 1, row: current.row }, { col: current.col - 1, row: current.row },
-        { col: current.col, row: current.row + 1 }, { col: current.col, row: current.row - 1 },
-      ]) {
-        if (next.col < 0 || next.col >= cols || next.row < 0 || next.row >= rows) continue;
-        const nextKey = key(next.col, next.row);
-        if (blocked.has(nextKey)) continue;
-        cells.set(nextKey, next);
-        const tentative = Number(scores.get(currentKey) || 0) + 1;
-        if (tentative >= (scores.get(nextKey) ?? Infinity)) continue;
-        cameFrom.set(nextKey, currentKey);
-        scores.set(nextKey, tentative);
-        estimates.set(nextKey, tentative + Math.abs(next.col - target.col) + Math.abs(next.row - target.row));
-        open.add(nextKey);
+  const neighbours = (index) => {
+    const current = cellOf(index);
+    const result = [];
+    if (current.col + 1 < cols) result.push(index + 1);
+    if (current.col > 0) result.push(index - 1);
+    if (current.row + 1 < rows) result.push(index + cols);
+    if (current.row > 0) result.push(index - cols);
+    return result;
+  };
+
+  // One distance field per stop makes both stop ordering and drawn legs use
+  // the real shortest walkable distance, without repeatedly running A*.
+  const distanceFields = new Map();
+  const distanceField = (start) => {
+    if (start == null) return null;
+    if (distanceFields.has(start)) return distanceFields.get(start);
+    const field = new Int32Array(totalCells);
+    field.fill(-1);
+    const queue = new Int32Array(totalCells);
+    let head = 0;
+    let tail = 0;
+    field[start] = 0;
+    queue[tail++] = start;
+    while (head < tail) {
+      const current = queue[head++];
+      for (const next of neighbours(current)) {
+        if (blocked[next] || field[next] >= 0) continue;
+        field[next] = field[current] + 1;
+        queue[tail++] = next;
       }
     }
-    return null;
+    distanceFields.set(start, field);
+    return field;
+  };
+
+  const findPath = (start, target) => {
+    if (start == null || target == null) return null;
+    const field = distanceField(start);
+    if (!field || field[target] < 0) return null;
+    const reversed = [target];
+    let cursor = target;
+    while (cursor !== start) {
+      const previous = neighbours(cursor).find((candidate) => field[candidate] === field[cursor] - 1);
+      if (previous == null) return null;
+      reversed.push(previous);
+      cursor = previous;
+    }
+    const path = reversed.reverse().map((index) => {
+      const cell = cellOf(index);
+      return cellPoint(cell.col, cell.row);
+    });
+    return { path, distance: field[target] * cellSize };
   };
 
   const entrance = nearestFree({ x: Number(map.entrance_x || 0), z: Number(map.entrance_z || 0) });
   const endpoints = new Map([["__entrance__", entrance]]);
   locations.forEach((location) => endpoints.set(String(location.id), nearestFree(locationAccessPoint(location))));
+  const walkDistance = (fromId, toId) => {
+    const start = endpoints.get(fromId);
+    const target = endpoints.get(toId);
+    if (start == null || target == null) return Infinity;
+    const steps = distanceField(start)?.[target] ?? -1;
+    return steps < 0 ? Infinity : steps * cellSize;
+  };
   const paths = new Map();
   const routeBetween = (fromId, toId) => {
-    const key = `${fromId}:${toId}`;
-    if (!paths.has(key)) paths.set(key, findPath(endpoints.get(fromId), endpoints.get(toId)));
-    return paths.get(key);
+    const pathKey = `${fromId}:${toId}`;
+    if (!paths.has(pathKey)) paths.set(pathKey, findPath(endpoints.get(fromId), endpoints.get(toId)));
+    return paths.get(pathKey);
   };
-  const reachable = locations.filter((location) => routeBetween("__entrance__", String(location.id)));
-  const unreachable = locations.filter((location) => !routeBetween("__entrance__", String(location.id)));
-  const planned = linearRackSweepOrder(reachable, map) || optimizedVisitOrder(reachable, (fromId, toId) => routeBetween(fromId, toId)?.distance);
+  const reachable = locations.filter((location) => Number.isFinite(walkDistance("__entrance__", String(location.id))));
+  const unreachable = locations.filter((location) => !Number.isFinite(walkDistance("__entrance__", String(location.id))));
+  const planned = optimizedVisitOrder(reachable, walkDistance);
   const ordered = [];
-  const pathPoints = entrance ? [cellPoint(entrance.col, entrance.row)] : [];
+  const entranceCell = entrance == null ? null : cellOf(entrance);
+  const pathPoints = entranceCell ? [cellPoint(entranceCell.col, entranceCell.row)] : [];
   let total = 0;
   let currentId = "__entrance__";
   for (const next of planned) {
@@ -360,7 +393,7 @@ function buildGraph(aisles, attachments) {
 }
 
 export function calculateWarehouseRoute(locations = [], map = {}) {
-  if (Array.isArray(map.obstacles) && map.obstacles.length) return gridRoute(locations, map);
+  if (Array.isArray(map.obstacles)) return gridRoute(locations, map);
   const allLocations = [...locations];
   const pending = [...allLocations];
   const entrance = { x: Number(map.entrance_x || 0), z: Number(map.entrance_z || 0) };

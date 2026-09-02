@@ -36,7 +36,7 @@ export default function ControlOverview() {
 
 function deriveMetrics(data) {
   const stock = data.stock.reduce((sum, row) => sum + Number(row.disponibile || 0), 0);
-  const activeOrders = data.orders.filter((o) => !["spedito", "annullato"].includes(o.wms_status));
+  const activeOrders = data.orders.filter((o) => !["spedito", "annullato", "hold"].includes(o.wms_status));
   const productMap = new Map();
   data.orders.forEach((order) => (order.items || []).forEach((item) => { const name = item.titolo || item.sku || item.ean || "Prodotto"; productMap.set(name, (productMap.get(name) || 0) + Number(item.quantita || 0)); }));
   const topProducts = [...productMap].map(([name, pezzi]) => ({ name: name.length > 22 ? `${name.slice(0,21)}…` : name, pezzi })).sort((a,b) => b.pezzi-a.pezzi).slice(0,7);

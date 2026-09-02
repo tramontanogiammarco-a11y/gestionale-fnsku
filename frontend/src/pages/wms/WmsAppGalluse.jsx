@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useOutletContext, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Barcode, CheckCircle2, ChevronRight, Layers3, Loader2, MapPin, PackageCheck, Play, ScanLine, ShoppingBag, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -80,7 +80,7 @@ function GalluseQueue() {
       <button type="button" onClick={() => navigate("/wms-app/ordini")} className="mb-4 flex h-10 w-10 items-center justify-center rounded-md border border-slate-200 bg-white" aria-label="Torna agli ordini"><ArrowLeft className="h-5 w-5" /></button>
       <p className="text-xs font-black uppercase text-teal-700">Prepara ordini</p>
       <h1 className="mt-1 text-3xl font-black">Metodo Galluse</h1>
-      <p className="mt-2 text-sm text-slate-500">Un carrello fisso da 10 bag. La coda viene divisa automaticamente in compiti da 10 ordini.</p>
+      <p className="mt-2 text-sm text-slate-500">Un carrello fisso da 10 posti. Ogni missione usa da 1 a 10 bag in base agli ordini disponibili.</p>
     </header>
     <section className="grid grid-cols-3 gap-2">
       <Metric label="Ordini in coda" value={round?.totale_ordini || 0} />
@@ -114,6 +114,8 @@ function GalluseMission({ batchId }) {
   const [working, setWorking] = useState(false);
   const [code, setCode] = useState("");
   const [quantity, setQuantity] = useState(0);
+  const quantityRef = useRef(0);
+  const quantitySubmitRef = useRef(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [scannerSession, setScannerSession] = useState(0);
   const load = useCallback(async () => {
@@ -144,7 +146,12 @@ function GalluseMission({ batchId }) {
     const timer = window.setTimeout(openScanner, 35);
     return () => window.clearTimeout(timer);
   }, [scannerMode, current?.id, completed, hasCurrent, openScanner]);
-  useEffect(() => { setCode(""); setQuantity(0); }, [current?.id, current?.location_confirmed_at]);
+  useEffect(() => {
+    setCode("");
+    setQuantity(0);
+    quantityRef.current = 0;
+    quantitySubmitRef.current = false;
+  }, [current?.id, current?.location_confirmed_at]);
 
   const scanCart = async (rawCode) => {
     const value = normalizeScannerCode(rawCode || code);
@@ -188,28 +195,41 @@ function GalluseMission({ batchId }) {
       setCode("");
     }
   };
-  const confirmPick = async () => {
+  const confirmPick = async (selectedQuantity = quantityRef.current) => {
+    if (typeof selectedQuantity !== "number") selectedQuantity = quantityRef.current;
+    if (quantitySubmitRef.current || working || selectedQuantity !== remaining) return;
+    quantitySubmitRef.current = true;
     setWorking(true);
     try {
-      setData((await api.post(`/wms/picking-galluse/${batchId}/scan`, { quantita: quantity })).data);
+      setData((await api.post(`/wms/picking-galluse/${batchId}/scan`, { quantita: selectedQuantity })).data);
       setCameraOpen(false);
-      toast.success(`${quantity} pezzi ripartiti, vai al prossimo slot`);
+      toast.success(`${selectedQuantity} pezzi ripartiti, vai al prossimo slot`);
       if (navigator.vibrate) navigator.vibrate([60, 35, 60]);
     } catch (error) {
       toast.error(error.response?.data?.detail || "Quantita non registrata");
       if (navigator.vibrate) navigator.vibrate(180);
-    } finally { setWorking(false); }
+    } finally {
+      quantitySubmitRef.current = false;
+      setWorking(false);
+    }
   };
-  const addQuantity = (amount) => setQuantity((value) => {
-    if (value + amount > remaining) { toast.error(`Puoi prelevare al massimo ${remaining} pezzi.`); return value; }
-    return value + amount;
-  });
+  const addQuantity = (amount) => {
+    if (working || quantitySubmitRef.current) return;
+    const nextQuantity = quantityRef.current + amount;
+    if (nextQuantity > remaining) {
+      toast.error(`Puoi prelevare al massimo ${remaining} pezzi.`);
+      return;
+    }
+    quantityRef.current = nextQuantity;
+    setQuantity(nextQuantity);
+    if (nextQuantity === remaining) window.setTimeout(() => confirmPick(nextQuantity), 0);
+  };
 
   if (!data) return <Loading />;
   const scannerContext = awaitingCartScan
     ? { location: CART_MASTER_CODE, title: "Carrello fisso: bag B-73846 - B-73855", requested: data.summary.orders, completedLines: 0, totalLines: data.summary.orders, picked: 0, expected: data.summary.expected }
     : current
-      ? { location: current.location?.codice, title: current.titolo, imageUrl: current.foto_url ? fileUrl(current.foto_url) : null, requested: remaining, locationConfirmed: !needsSlot, quantityControls: { value: quantity, remaining, working, onAdd: addQuantity, onConfirm: confirmPick }, bagAllocations, completedLines: (data.lines || []).filter((line) => Number(line.quantita_prelevata) >= Number(line.quantita_attesa)).length, totalLines: data.summary.stops, picked: data.summary.picked, expected: data.summary.expected }
+      ? { location: current.location?.codice, title: current.titolo, imageUrl: current.foto_url ? fileUrl(current.foto_url) : null, requested: remaining, locationConfirmed: !needsSlot, quantityControls: { value: quantity, remaining, working, onAdd: addQuantity, onConfirm: () => confirmPick(quantityRef.current) }, bagAllocations, completedLines: (data.lines || []).filter((line) => Number(line.quantita_prelevata) >= Number(line.quantita_attesa)).length, totalLines: data.summary.stops, picked: data.summary.picked, expected: data.summary.expected }
       : null;
   return <div className="wms-page pb-24" data-testid="wms-galluse-mission">
     <header><button type="button" onClick={() => navigate("/wms-app/picking-galluse")} className="mb-4 flex h-10 w-10 items-center justify-center rounded-md border border-slate-200 bg-white" aria-label="Torna ai carrelli"><ArrowLeft className="h-5 w-5" /></button><div className="flex items-start gap-3"><span className="flex h-12 w-12 items-center justify-center rounded-md bg-slate-950 text-white"><ShoppingBag className="h-6 w-6" /></span><div><p className="text-xs font-black uppercase text-teal-700">Metodo Galluse</p><h1 className="mt-1 text-3xl font-black">Compito Galluse · {data.summary.orders} ordini</h1><p className="mt-1 text-sm text-slate-500">Ogni bag contiene un ordine. Il giro e aggregato per slot.</p></div></div></header>
@@ -234,4 +254,4 @@ function mergeBagAllocations(allocations = []) {
   return [...merged.values()].sort((left, right) => Number(left.posizione_bag || 0) - Number(right.posizione_bag || 0));
 }
 function Loading() { return <div className="flex min-h-[65dvh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-teal-700" /></div>; }
-function Empty() { return <div className="rounded-md border border-dashed border-slate-300 bg-white py-14 text-center"><Layers3 className="mx-auto h-9 w-9 text-slate-300" /><h3 className="mt-3 font-black">Servono almeno 10 ordini 1x1</h3><p className="mt-1 text-sm text-slate-500">Gli ordini identici restano nel flusso Massivo.</p></div>; }
+function Empty() { return <div className="rounded-md border border-dashed border-slate-300 bg-white py-14 text-center"><Layers3 className="mx-auto h-9 w-9 text-slate-300" /><h3 className="mt-3 font-black">Nessun ordine disponibile</h3><p className="mt-1 text-sm text-slate-500">Gli ordini identici restano nel flusso Massivo.</p></div>; }

@@ -17,6 +17,10 @@ export function ProtectedRoute({ children, roles }) {
 
   if (!user) return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}` }} />;
 
+  if (user.is_operator && !location.pathname.startsWith("/wms-app") && location.pathname !== "/packing-station") {
+    return <Navigate to="/wms-app" replace />;
+  }
+
   if (roles && !roles.includes(user.role)) {
     // reindirizza all'area corretta in base al ruolo
     const home = user.role === "cliente" ? "/app" : "/admin";

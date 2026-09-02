@@ -18,6 +18,7 @@ coverage/
 .vercel/
 **/.vercel/
 supabase/.temp/
+tmp/pdfs/carrier-labels/
 
 # OS / editor
 .DS_Store

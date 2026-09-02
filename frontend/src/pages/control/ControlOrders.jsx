@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Papa from "papaparse";
 import { useNavigate, useOutletContext } from "react-router-dom";
-import { Ban, Download, FileCheck2, FileSpreadsheet, Loader2, MessageSquarePlus, PackageOpen, Pencil, Plus, Save, Search, ShoppingCart, Trash2, Upload } from "lucide-react";
+import { Ban, Check, Download, Eye, FileCheck2, FileSpreadsheet, Loader2, MessageSquarePlus, PackageOpen, PauseCircle, Pencil, PlayCircle, Plus, ReceiptText, RefreshCw, Save, Search, ShoppingCart, Trash2, Truck, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -20,20 +20,100 @@ export default function ControlOrders() {
   const [csvOpen,setCsvOpen] = useState(false);
   const [editingOrder,setEditingOrder] = useState(null);
   const [cancellingOrder,setCancellingOrder] = useState(null);
+  const [shippingOrder,setShippingOrder] = useState(null);
+  const [detailOrder,setDetailOrder] = useState(null);
+  const [rechecking,setRechecking] = useState(false);
+  const [holdUpdating,setHoldUpdating] = useState(null);
   const loadOrders = useCallback(() => { setOrders(null); return api.get(`/shopify/orders${queryForClient(context.clientId)}`).then((r) => setOrders(r.data || [])); }, [context.clientId]);
+  const recheckOrders = useCallback(async () => {
+    setRechecking(true);
+    try {
+      const { data } = await api.post("/wms/order-gate/recheck", { pending_only: false, limit: 500, cliente_id: context.clientId || null });
+      await loadOrders();
+      toast.success(`${data.checked || 0} ordini ricontrollati · ${data.unblocked || 0} sbloccati`);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || error.message || "Ricontrollo non riuscito");
+    } finally {
+      setRechecking(false);
+    }
+  }, [context.clientId, loadOrders]);
   useEffect(() => { loadOrders(); }, [loadOrders]);
+  const toggleHold = async (order) => {
+    setHoldUpdating(order.id);
+    const releasing = order.wms_status === "hold";
+    try {
+      await api.put(`/shopify/orders/${order.id}`, { action: releasing ? "release_hold" : "hold" });
+      toast.success(releasing ? `Ordine ${order.order_name} riattivato` : `Ordine ${order.order_name} messo in HOLD`);
+      await loadOrders();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || error.message || "Stato HOLD non aggiornato");
+    } finally {
+      setHoldUpdating(null);
+    }
+  };
   const visible = useMemo(() => (orders || []).filter((o) => (filter === "all" || o.wms_status === filter) && [o.order_name,o.customer_email,o.ship_name,o.cliente_ragione_sociale].join(" ").toLowerCase().includes(search.toLowerCase())), [orders,filter,search]);
   if (!orders) return <PageLoader />;
   const requestAction = (order, action) => navigate(`/wms/tickets?order_id=${order.id}&category=ordine&action=${action}`);
-  const active = orders.filter((o) => !["spedito","annullato"].includes(o.wms_status));
-  return <div><PageIntro eyebrow="Flusso outbound" title="Ordini" description="Segui ogni ordine dal suo ingresso fino alla spedizione. Le richieste di modifica vengono registrate come ticket tracciabili." action={<Button onClick={()=>setCsvOpen(true)} disabled={context.isStaff && !context.clientId}><Upload className="mr-2 h-4 w-4"/>Importa ordini CSV</Button>} />
+  const active = orders.filter((o) => !["spedito","annullato","hold"].includes(o.wms_status));
+  return <div><PageIntro eyebrow="Flusso outbound" title="Ordini" description="Segui ogni ordine dal suo ingresso fino alla spedizione. Le richieste di modifica vengono registrate come ticket tracciabili." action={<div className="flex flex-wrap gap-2"><Button variant="outline" onClick={recheckOrders} disabled={rechecking}>{rechecking?<Loader2 className="mr-2 h-4 w-4 animate-spin"/>:<RefreshCw className="mr-2 h-4 w-4"/>}Ricontrolla e sblocca</Button><Button onClick={()=>setCsvOpen(true)} disabled={context.isStaff && !context.clientId}><Upload className="mr-2 h-4 w-4"/>Importa ordini CSV</Button></div>} />
     <div className="grid gap-3 sm:grid-cols-3"><Metric label="Ordini visibili" value={orders.length} icon={ShoppingCart}/><Metric label="Aperti" value={active.length} hint={`${active.reduce((s,o) => s + orderPieces(o),0)} pezzi`} icon={PackageOpen} tone="amber"/><Metric label="Spediti" value={orders.filter((o) => o.wms_status === "spedito").length} icon={PackageOpen} tone="emerald"/></div>
     <Panel className="mt-4" title="Elenco ordini" description={`${visible.length} risultati`} action={<div className="relative w-60"><Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400"/><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cerca ordine" className="h-9 pl-9"/></div>}>
       <div className="flex gap-2 overflow-x-auto border-b border-slate-100 px-5 py-3">{FILTERS.map(([key,label]) => <button key={key} onClick={() => setFilter(key)} className={`shrink-0 rounded-md px-3 py-2 text-xs font-extrabold ${filter === key ? "bg-slate-950 text-white" : "bg-slate-100 text-slate-600"}`}>{label}</button>)}</div>
-      {visible.length ? <div className="divide-y divide-slate-100">{visible.map((order) => { const status=ORDER_STATUS[order.wms_status] || {label:order.wms_status,tone:"slate"}; const editable=["in_verifica","eccezione","da_preparare"].includes(order.wms_status); const cancellable=order.wms_status === "da_preparare"; const guidance=order.wms_status === "eccezione" || order.exception_type ? exceptionGuidance(order) : null; return <div key={order.id} className="grid gap-4 px-5 py-5 xl:grid-cols-[1.1fr_0.7fr_0.55fr_auto] xl:items-center"><div><div className="flex flex-wrap items-center gap-2"><p className="font-extrabold">{order.order_name || "Ordine"}</p><StatusPill tone={status.tone}>{status.label}</StatusPill></div><p className="mt-1 text-xs text-slate-500">{order.ship_name || order.customer_email || "Destinatario non indicato"}</p>{guidance && <div className="mt-3 border-l-2 border-rose-400 pl-3"><p className="text-xs font-extrabold text-rose-700">{guidance.reason}</p><p className="mt-1 text-xs leading-5 text-slate-600">{guidance.action}</p></div>}{context.isStaff && <p className="mt-1 text-xs font-bold text-teal-700">{order.cliente_ragione_sociale}</p>}</div><div><p className="text-[10px] font-extrabold uppercase text-slate-400">Contenuto</p><p className="mt-1 text-sm font-bold">{(order.items || []).length} SKU · {orderPieces(order)} pezzi</p></div><div><p className="text-[10px] font-extrabold uppercase text-slate-400">Ricevuto</p><p className="mt-1 text-sm font-bold">{formatDate(order.processed_at || order.created_at)}</p></div><div className="flex flex-wrap justify-end gap-2"><Button variant="outline" size="sm" onClick={()=>setEditingOrder(order)} disabled={!editable} title={editable?"Modifica ordine":"Picking già iniziato"}><Pencil className="mr-2 h-4 w-4"/>Modifica</Button>{cancellable && <Button variant="outline" size="sm" className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800" onClick={()=>setCancellingOrder(order)}><Ban className="mr-2 h-4 w-4"/>Annulla</Button>}<Button size="sm" onClick={()=>requestAction(order,"assistenza")}><MessageSquarePlus className="mr-2 h-4 w-4"/>Apri ticket</Button></div></div>; })}</div> : <EmptyState title="Nessun ordine" description="Non ci sono ordini compatibili con il filtro selezionato."/>}
-    </Panel><CsvImportDialog open={csvOpen} onOpenChange={setCsvOpen} clientId={context.clientId} onImported={loadOrders}/><EditOrderDialog order={editingOrder} onOpenChange={(open)=>!open&&setEditingOrder(null)} onSaved={loadOrders}/><CancelOrderDialog order={cancellingOrder} onOpenChange={(open)=>!open&&setCancellingOrder(null)} onCancelled={loadOrders}/>
+      {visible.length ? <div className="divide-y divide-slate-100">{visible.map((order) => {
+        const status=ORDER_STATUS[order.wms_status] || {label:order.wms_status,tone:"slate"};
+        const paused=order.wms_status === "hold";
+        const editable=["in_verifica","eccezione","in_attesa_refill","da_preparare"].includes(order.wms_status);
+        const holdable=["in_verifica","eccezione","in_attesa_refill","da_preparare"].includes(order.wms_status);
+        const cancellable=["da_preparare","hold"].includes(order.wms_status);
+        const guidance=order.wms_status === "eccezione" || order.exception_type ? exceptionGuidance(order) : null;
+        return <div key={order.id} className="grid gap-4 px-5 py-5 xl:grid-cols-[1.05fr_0.65fr_0.55fr_auto] xl:items-center"><button type="button" className="text-left" onClick={()=>setDetailOrder(order)}><div className="flex flex-wrap items-center gap-2"><p className="font-extrabold hover:text-teal-700">{order.order_name || "Ordine"}</p><StatusPill tone={status.tone}>{status.label}</StatusPill></div><p className="mt-1 text-xs text-slate-500">{order.ship_name || order.customer_email || "Destinatario non indicato"}</p>{guidance && <div className="mt-3 border-l-2 border-rose-400 pl-3"><p className="text-xs font-extrabold text-rose-700">{guidance.reason}</p><p className="mt-1 text-xs leading-5 text-slate-600">{guidance.action}</p></div>}{context.isStaff && <p className="mt-1 text-xs font-bold text-teal-700">{order.cliente_ragione_sociale}</p>}</button><div><p className="text-[10px] font-extrabold uppercase text-slate-400">Contenuto</p><p className="mt-1 text-sm font-bold">{(order.items || []).length} SKU · {orderPieces(order)} pezzi</p><p className="mt-1 text-xs font-extrabold text-teal-700">{order.cost_summary?.total == null ? "Costo da calcolare" : `Totale stimato € ${Number(order.cost_summary.total).toFixed(2)}`}</p></div><div><p className="text-[10px] font-extrabold uppercase text-slate-400">Ricevuto</p><p className="mt-1 text-sm font-bold">{formatDate(order.processed_at || order.created_at)}</p></div><div className="flex flex-wrap justify-end gap-2"><Button variant="outline" size="sm" onClick={()=>setDetailOrder(order)}><Eye className="mr-2 h-4 w-4"/>Dettaglio</Button><Button variant="outline" size="sm" onClick={()=>setShippingOrder(order)}><Truck className="mr-2 h-4 w-4"/>Corriere{order.selected_carrier ? ` · ${order.selected_carrier.toUpperCase()}` : ""}</Button><Button variant="outline" size="sm" onClick={()=>setEditingOrder(order)} disabled={!editable} title={editable?"Modifica ordine":paused?"Riattiva l'ordine prima di modificarlo":"Picking già iniziato"}><Pencil className="mr-2 h-4 w-4"/>Modifica</Button>{(holdable || paused) && <Button variant="outline" size="sm" className={paused?"border-emerald-200 text-emerald-700 hover:bg-emerald-50":"border-amber-200 text-amber-800 hover:bg-amber-50"} onClick={()=>toggleHold(order)} disabled={holdUpdating===order.id}>{holdUpdating===order.id?<Loader2 className="mr-2 h-4 w-4 animate-spin"/>:paused?<PlayCircle className="mr-2 h-4 w-4"/>:<PauseCircle className="mr-2 h-4 w-4"/>}{paused?"Riattiva":"HOLD"}</Button>}{cancellable && <Button variant="outline" size="sm" className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800" onClick={()=>setCancellingOrder(order)}><Ban className="mr-2 h-4 w-4"/>Annulla</Button>}<Button size="sm" onClick={()=>requestAction(order,"assistenza")}><MessageSquarePlus className="mr-2 h-4 w-4"/>Apri ticket</Button></div></div>;
+      })}</div> : <EmptyState title="Nessun ordine" description="Non ci sono ordini compatibili con il filtro selezionato."/>}
+    </Panel><CsvImportDialog open={csvOpen} onOpenChange={setCsvOpen} clientId={context.clientId} onImported={recheckOrders}/><OrderDetailDialog order={detailOrder} onOpenChange={(open)=>!open&&setDetailOrder(null)} onCarrier={()=>{setShippingOrder(detailOrder);setDetailOrder(null);}} onLoaded={loadOrders}/><ShippingQuoteDialog order={shippingOrder} onOpenChange={(open)=>!open&&setShippingOrder(null)} onSaved={loadOrders}/><EditOrderDialog order={editingOrder} onOpenChange={(open)=>!open&&setEditingOrder(null)} onSaved={recheckOrders}/><CancelOrderDialog order={cancellingOrder} onOpenChange={(open)=>!open&&setCancellingOrder(null)} onCancelled={loadOrders}/>
   </div>;
 }
+
+function OrderDetailDialog({ order, onOpenChange, onCarrier, onLoaded }) {
+  const [detail,setDetail]=useState(null); const [error,setError]=useState("");
+  useEffect(()=>{
+    if(!order)return;
+    setDetail(null); setError("");
+    api.get(`/wms/orders/${order.id}/cost-detail`)
+      .then(({data})=>setDetail(data))
+      .catch((requestError)=>setError(requestError.response?.data?.detail||requestError.message||"Dettaglio non disponibile"));
+  },[order]);
+  const close=(open)=>{onOpenChange(open);if(!open&&detail?.quote?.automatic_choice)onLoaded();};
+  const money=(value)=>value==null?"Da calcolare":`€ ${Number(value).toFixed(2)}`;
+  const selectedCarrier=detail?.quote?.selected_carrier||detail?.quote?.recommended||order?.selected_carrier;
+  return <Dialog open={Boolean(order)} onOpenChange={close}><DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-4xl"><DialogHeader><DialogTitle>Ordine {order?.order_name}</DialogTitle><DialogDescription>Contenuto, imballaggio e costo completo dell’ordine.</DialogDescription></DialogHeader>
+    {error?<div className="border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-800">{error}</div>:!detail?<div className="flex min-h-56 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-teal-700"/></div>:<div className="space-y-5">
+      <div className="grid gap-3 bg-slate-950 p-4 text-white sm:grid-cols-[1fr_auto]"><div><p className="text-xs font-extrabold uppercase text-teal-300">Destinatario</p><p className="mt-1 text-lg font-black">{detail.order.ship_name||"Non indicato"}</p><p className="mt-1 text-sm text-slate-300">{[detail.order.ship_address1,detail.order.ship_address2,detail.order.ship_zip,detail.order.ship_city,detail.order.ship_province].filter(Boolean).join(" · ")}</p></div><div className="sm:text-right"><p className="text-xs font-extrabold uppercase text-teal-300">Totale stimato</p><p className="mt-1 text-3xl font-black">{money(detail.costs.total)}</p></div></div>
+      <section><h3 className="mb-2 text-sm font-extrabold">Prodotti nell’ordine</h3><div className="divide-y divide-slate-100 border border-slate-200">{detail.order.items.map((item)=><div key={item.id} className="grid gap-2 px-4 py-3 sm:grid-cols-[1fr_auto] sm:items-center"><div><p className="font-bold">{item.titolo||"Prodotto"}</p><p className="mt-1 text-xs text-slate-500">{[item.sku&&`SKU ${item.sku}`,item.ean&&`EAN ${item.ean}`,item.fnsku&&`FNSKU ${item.fnsku}`].filter(Boolean).join(" · ")||"Codice non indicato"}</p></div><p className="text-lg font-black">x{Number(item.quantita||0)}</p></div>)}</div></section>
+      <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr]"><section className="border border-slate-200 p-4"><p className="text-xs font-extrabold uppercase text-slate-400">Imballaggio associato</p>{detail.packaging?<><p className="mt-2 text-lg font-black">{detail.packaging.name}</p><p className="mt-1 font-mono text-xs text-slate-500">{detail.packaging.packaging_code}</p><p className="mt-4 text-sm font-bold">Costo {money(detail.packaging.total)}</p></>:<><p className="mt-2 font-bold text-slate-700">Da definire durante il packing</p><p className="mt-1 text-xs leading-5 text-slate-500">Il costo verrà aggiunto appena l’operatore scansiona scatola o busta.</p></>}</section>
+        <section className="border border-slate-200"><div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3"><ReceiptText className="h-5 w-5 text-teal-700"/><h3 className="font-extrabold">Dettaglio costi</h3></div><div className="divide-y divide-slate-100 text-sm"><CostRow label={`Spedizione ${selectedCarrier?selectedCarrier.toUpperCase():""}`} hint={detail.quote?`${detail.quote.billable_weight_kg} kg tassabili · ${detail.quote.zone.label}`:detail.quote_error} value={money(detail.costs.shipping)}/><CostRow label="Gestione ordine · primo pezzo" hint="Tariffa base prevista dal listino" value={money(detail.costs.base_fee)}/><CostRow label={`${detail.costs.extra_pieces} pezzi aggiuntivi`} hint={`${money(detail.costs.extra_unit_fee)} per pezzo extra`} value={money(detail.costs.extra_total)}/><CostRow label="Imballaggio" hint={detail.packaging?.name||"Sarà definito durante il packing"} value={money(detail.costs.packaging)}/><div className="flex items-center justify-between bg-teal-50 px-4 py-4"><span className="font-black text-teal-950">Totale ordine</span><span className="text-xl font-black text-teal-950">{money(detail.costs.total)}</span></div></div></section></div>
+      {detail.quote_error&&<div className="border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900">Spedizione non calcolata: {detail.quote_error}</div>}
+    </div>}
+    <DialogFooter className="gap-2"><Button variant="outline" onClick={()=>close(false)}>Chiudi</Button><Button onClick={onCarrier} disabled={!detail}><Truck className="mr-2 h-4 w-4"/>Cambia corriere</Button></DialogFooter>
+  </DialogContent></Dialog>;
+}
+
+function CostRow({label,hint,value}) { return <div className="flex items-center justify-between gap-4 px-4 py-3"><div><p className="font-bold">{label}</p>{hint&&<p className="mt-0.5 text-xs text-slate-500">{hint}</p>}</div><p className="shrink-0 font-black">{value}</p></div>; }
+
+function ShippingQuoteDialog({ order, onOpenChange, onSaved }) {
+  const [quote,setQuote]=useState(null); const [selected,setSelected]=useState(""); const [busy,setBusy]=useState(false); const [error,setError]=useState("");
+  useEffect(()=>{ if(!order)return; setQuote(null);setError("");api.get(`/wms/orders/${order.id}/shipping-quote`).then(({data})=>{setQuote(data);setSelected(data.selected_carrier||data.recommended);}).catch((requestError)=>setError(requestError.response?.data?.detail||requestError.message||"Preventivo non disponibile")); },[order]);
+  const confirm=async()=>{if(!selected)return;setBusy(true);try{await api.post(`/wms/orders/${order.id}/shipping-choice`,{carrier:selected});toast.success(`${selected.toUpperCase()} confermato per ${order.order_name}`);onOpenChange(false);await onSaved();}catch(requestError){toast.error(requestError.response?.data?.detail||requestError.message);}finally{setBusy(false);}};
+  return <Dialog open={Boolean(order)} onOpenChange={onOpenChange}><DialogContent className="sm:max-w-2xl"><DialogHeader><DialogTitle>Spedizione {order?.order_name}</DialogTitle><DialogDescription>Preventivo simulato sul listino del cliente. Il sistema propone automaticamente il corriere più conveniente.</DialogDescription></DialogHeader>
+    {error ? <div className="rounded-md border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-800">{error}</div> : !quote ? <div className="flex min-h-48 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-teal-700"/></div> : <div className="space-y-4">
+      <div className="grid grid-cols-3 divide-x divide-slate-200 rounded-md border border-slate-200 bg-slate-50"><QuoteMetric label="Zona" value={quote.zone.label}/><QuoteMetric label="Peso reale" value={`${quote.actual_weight_kg} kg`}/><QuoteMetric label="Peso tassabile" value={`${quote.billable_weight_kg} kg`}/></div>
+      {quote.estimated_references > 0 && <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900"><b>{quote.estimated_references} referenze con misure stimate.</b> Il preventivo funziona, ma peso e dimensioni vanno confermati nella sezione Stock/Referenze.</div>}
+      <div className="grid gap-3 sm:grid-cols-2">{quote.carriers.map((carrier)=><button type="button" key={carrier.carrier} onClick={()=>!quote.locked&&setSelected(carrier.carrier)} className={`relative border p-4 text-left transition ${selected===carrier.carrier?"border-teal-600 bg-teal-50 ring-1 ring-teal-600":"border-slate-200 bg-white hover:border-slate-400"}`}><div className="flex items-start justify-between gap-3"><div><p className="text-lg font-black">{carrier.name}</p><p className="text-xs text-slate-500">{carrier.service}</p><p className="mt-1 text-xs font-bold text-slate-700">{carrier.zone?.label || quote.zone.label}</p></div>{quote.recommended===carrier.carrier&&<span className="rounded bg-emerald-100 px-2 py-1 text-[10px] font-black uppercase text-emerald-800">Consigliato</span>}</div><p className="mt-5 text-3xl font-black">€ {carrier.net.toFixed(2)}</p><p className="mt-1 text-xs text-slate-500">€ {carrier.gross.toFixed(2)} IVA inclusa{carrier.surcharge ? ` · supplemento € ${carrier.surcharge.toFixed(2)}` : ""}</p><p className="mt-2 text-[10px] font-black uppercase text-slate-400">{carrier.rate_source === "csv" ? "Tariffario cliente" : "Tariffa demo di fallback"}</p>{selected===carrier.carrier&&<Check className="absolute bottom-4 right-4 h-5 w-5 text-teal-700"/>}</button>)}</div>
+      <div className={`rounded-md p-3 text-sm ${quote.locked?"bg-rose-50 text-rose-800":"bg-slate-100 text-slate-700"}`}>{quote.locked?<b>{quote.lock_reason}</b>:"Puoi cambiare e confermare il corriere fino all'avvio del packing."}</div>
+    </div>}
+    <DialogFooter><Button variant="outline" onClick={()=>onOpenChange(false)}>Chiudi</Button><Button onClick={confirm} disabled={busy||!quote||quote.locked||!selected}>{busy&&<Loader2 className="mr-2 h-4 w-4 animate-spin"/>}Conferma {selected?.toUpperCase()}</Button></DialogFooter>
+  </DialogContent></Dialog>;
+}
+
+function QuoteMetric({label,value}) { return <div className="min-w-0 p-3"><p className="text-[10px] font-extrabold uppercase text-slate-400">{label}</p><p className="mt-1 truncate text-sm font-black" title={value}>{value}</p></div>; }
 
 function CancelOrderDialog({ order, onOpenChange, onCancelled }) {
   const [busy,setBusy]=useState(false);

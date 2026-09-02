@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import CameraScanner from "@/components/wms/CameraScanner";
 import { supabase } from "@/lib/supabase";
 import { createPrintJobId, getPairedPrintStationCode, normalizePrintStationCode, pairPrintStation, printStationChannelName, unpairPrintStation } from "@/lib/printStation";
-import { printZebraLocationLabels } from "@/lib/zebraPrinter";
+import { printZebraBagLabels, printZebraLocationLabels } from "@/lib/zebraPrinter";
 
 const DEFAULT_CART = "CARRELLO-01";
 
@@ -17,6 +17,8 @@ export default function WmsAppCartBags() {
   const [searchParams] = useSearchParams();
   const printChannelRef = useRef(null);
   const pendingPrintJobRef = useRef("");
+  const pendingPrintKindRef = useRef("");
+  const pendingBagCodesRef = useRef([]);
   const printTimeoutRef = useRef(null);
   const [snapshot, setSnapshot] = useState(null);
   const [cartCode, setCartCode] = useState("");
@@ -28,6 +30,10 @@ export default function WmsAppCartBags() {
   const [locationDraft, setLocationDraft] = useState({ tipo: "slot", blocco: "101", bloccoFine: "101", livelli: 5, ubicazioni: 5 });
   const [generatedLocations, setGeneratedLocations] = useState([]);
   const [printingLocations, setPrintingLocations] = useState(false);
+  const [bagDraft, setBagDraft] = useState({ quantity: 10 });
+  const [generatedBags, setGeneratedBags] = useState([]);
+  const [generatingBags, setGeneratingBags] = useState(false);
+  const [printingBags, setPrintingBags] = useState(false);
   const [pairedStation, setPairedStation] = useState(getPairedPrintStationCode);
   const [stationOnline, setStationOnline] = useState(false);
 
@@ -52,15 +58,34 @@ export default function WmsAppCartBags() {
     channel
       .on("presence", { event: "sync" }, () => {
         const devices = Object.values(channel.presenceState()).flat();
-        setStationOnline(devices.some((device) => device.role === "station"));
+        setStationOnline(devices.some((device) => device.role === "station"
+          && Array.isArray(device.capabilities)
+          && device.capabilities.includes("location-labels")
+          && device.capabilities.includes("bag-labels")));
       })
-      .on("broadcast", { event: "print-result" }, ({ payload }) => {
+      .on("broadcast", { event: "print-result" }, async ({ payload }) => {
         if (!payload?.jobId || payload.jobId !== pendingPrintJobRef.current) return;
         window.clearTimeout(printTimeoutRef.current);
+        const printKind = pendingPrintKindRef.current;
         pendingPrintJobRef.current = "";
-        setPrintingLocations(false);
-        if (payload.ok) toast.success(`${payload.count} etichette stampate su ${payload.printer || "Zebra"}`);
-        else toast.error(payload.message || "La Packing Station non ha completato la stampa");
+        if (printKind === "bags") setPrintingBags(false);
+        else setPrintingLocations(false);
+        pendingPrintKindRef.current = "";
+        if (payload.ok && printKind === "bags") {
+          try {
+            await api.post("/wms/bags/segna-stampate", { codes: pendingBagCodesRef.current });
+            setGeneratedBags([]);
+            toast.success(`${payload.count} bag stampate e bloccate: non potranno essere ristampate`);
+          } catch (error) {
+            toast.error(error.response?.data?.detail || "Bag stampate, ma il blocco ristampa non è stato registrato. Non ristamparle.");
+          } finally {
+            pendingBagCodesRef.current = [];
+          }
+        } else if (payload.ok) toast.success(`${payload.count} etichette stampate su ${payload.printer || "Zebra"}`);
+        else {
+          pendingBagCodesRef.current = [];
+          toast.error(payload.message || "La Packing Station non ha completato la stampa");
+        }
       })
       .subscribe(async (status) => {
         if (status === "SUBSCRIBED") await channel.track({ role: "mobile", pairedAt: new Date().toISOString() });
@@ -89,6 +114,16 @@ export default function WmsAppCartBags() {
     }
   }, [applySnapshot]);
   useEffect(() => { loadDefault(); }, [loadDefault]);
+
+  useEffect(() => {
+    api.get("/wms/bags").then(({ data }) => {
+      const pending = (data || []).filter((bag) => /^B-[A-Z0-9]{5}$/.test(String(bag.codice || ""))
+        && /[A-Z]/.test(String(bag.codice || "").slice(2))
+        && !bag.label_printed_at);
+      setGeneratedBags(pending);
+      if (pending.length) toast.message(`${pending.length} bag già attivate attendono la loro unica stampa`);
+    }).catch(() => {});
+  }, []);
 
   const scanCart = async (rawValue) => {
     const codice = normalizeScannerCode(rawValue || cartCode);
@@ -198,6 +233,7 @@ export default function WmsAppCartBags() {
       if (pairedStation && stationOnline && printChannelRef.current) {
         const jobId = createPrintJobId();
         pendingPrintJobRef.current = jobId;
+        pendingPrintKindRef.current = "locations";
         const result = await printChannelRef.current.send({
           type: "broadcast",
           event: "print-location-labels",
@@ -222,6 +258,79 @@ export default function WmsAppCartBags() {
         : error.message || "Zebra non raggiungibile. Avvia Browser Print e riprova.");
     } finally {
       if (!pendingPrintJobRef.current) setPrintingLocations(false);
+    }
+  };
+
+  const generateBags = async () => {
+    if (generatingBags) return;
+    setGeneratingBags(true);
+    try {
+      const response = await api.post("/wms/bags/genera", {
+        quantity: Number(bagDraft.quantity),
+      });
+      setGeneratedBags(response.data.bags || []);
+      toast.success(`${response.data.create} nuove bag casuali create e attivate`);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || error.message || "Bag non generate");
+    } finally {
+      setGeneratingBags(false);
+    }
+  };
+
+  const printBags = async (bags = generatedBags) => {
+    if (!bags.length || printingBags) return;
+    if (pairedStation && !stationOnline) {
+      toast.error("Station non aggiornata: riapri la Packing Station sul Mac prima di stampare le bag");
+      return;
+    }
+    if (bags.some((bag) => bag.label_printed_at)) {
+      toast.error("Una o più bag risultano già stampate e non possono essere ristampate");
+      return;
+    }
+    setPrintingBags(true);
+    const labels = bags.map((bag) => ({ code: bag.codice || bag.code }));
+    try {
+      if (pairedStation && stationOnline && printChannelRef.current) {
+        const jobId = createPrintJobId();
+        pendingPrintJobRef.current = jobId;
+        pendingPrintKindRef.current = "bags";
+        pendingBagCodesRef.current = labels.map((label) => label.code);
+        const result = await printChannelRef.current.send({
+          type: "broadcast",
+          event: "print-location-labels",
+          payload: {
+            jobId,
+            locations: labels.map((label) => ({
+              code: label.code,
+              displayCode: label.code,
+              qrData: label.code,
+              type: "bag",
+            })),
+          },
+        });
+        if (result !== "ok") throw new Error("Invio alla Packing Station non riuscito");
+        toast.message("Bag inviate alla Packing Station");
+        printTimeoutRef.current = window.setTimeout(() => {
+          if (pendingPrintJobRef.current !== jobId) return;
+          pendingPrintJobRef.current = "";
+          pendingPrintKindRef.current = "";
+          pendingBagCodesRef.current = [];
+          setPrintingBags(false);
+          toast.error("La Packing Station non ha risposto. Controlla Zebra Browser Print sul PC.");
+        }, 20000);
+        return;
+      }
+      const printer = await printZebraBagLabels(labels);
+      await api.post("/wms/bags/segna-stampate", { codes: labels.map((label) => label.code) });
+      setGeneratedBags([]);
+      toast.success(`${labels.length} bag stampate su ${printer.name || "Zebra"} e bloccate definitivamente`);
+    } catch (error) {
+      pendingPrintJobRef.current = "";
+      pendingPrintKindRef.current = "";
+      pendingBagCodesRef.current = [];
+      toast.error(error.message || "Zebra non raggiungibile. Avvia Browser Print e riprova.");
+    } finally {
+      if (!pendingPrintJobRef.current) setPrintingBags(false);
     }
   };
 
@@ -272,9 +381,30 @@ export default function WmsAppCartBags() {
             </div>;
           })}
         </div>
-        {selectedPosition && <div className="mt-4 rounded-md border-2 border-teal-500 bg-teal-50 p-3"><div className="flex items-center justify-between"><span className="text-sm font-black text-teal-950">Posizione {selectedPosition}</span><button type="button" onClick={() => setSelectedPosition(null)} className="text-xs font-bold text-slate-500">Annulla</button></div><div className="mt-3 flex gap-2"><Input value={bagCode} onChange={(event) => setBagCode(normalizeScannerCode(event.target.value))} placeholder="B-12345" className="h-12 flex-1 font-mono" autoComplete="off" /><Button type="button" className="h-12 px-4" onClick={() => setScanner("bag")} disabled={working} aria-label="Scansiona bag"><ScanLine className="h-5 w-5" /></Button></div><Button type="button" variant="outline" className="mt-2 h-10 w-full bg-white" onClick={() => assignBag()} disabled={!bagCode.trim() || working}>Assegna bag alla posizione {selectedPosition}</Button></div>}
+        {selectedPosition && <div className="mt-4 rounded-md border-2 border-teal-500 bg-teal-50 p-3"><div className="flex items-center justify-between"><span className="text-sm font-black text-teal-950">Posizione {selectedPosition}</span><button type="button" onClick={() => setSelectedPosition(null)} className="text-xs font-bold text-slate-500">Annulla</button></div><div className="mt-3 flex gap-2"><Input value={bagCode} onChange={(event) => setBagCode(normalizeScannerCode(event.target.value))} placeholder="B-7K2Q9" className="h-12 flex-1 font-mono" autoComplete="off" /><Button type="button" className="h-12 px-4" onClick={() => setScanner("bag")} disabled={working} aria-label="Scansiona bag"><ScanLine className="h-5 w-5" /></Button></div><Button type="button" variant="outline" className="mt-2 h-10 w-full bg-white" onClick={() => assignBag()} disabled={!bagCode.trim() || working}>Assegna bag alla posizione {selectedPosition}</Button></div>}
       </section>
     </>}
+
+    <section className="rounded-md border border-slate-200 bg-white p-4" data-testid="wms-bag-generator">
+      <div className="flex items-start gap-3">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-slate-950 text-white"><ShoppingBag className="h-5 w-5" /></span>
+        <div><p className="text-xs font-black uppercase text-teal-700">Bag stampabili</p><h2 className="mt-1 text-xl font-black">Genera bag</h2><p className="mt-1 text-sm text-slate-500">Crea bag reali nel WMS e stampa QR e barcode con lo stesso codice.</p></div>
+      </div>
+      <div className="mt-4"><GridStepper label="Quantità" value={bagDraft.quantity} onChange={(quantity) => setBagDraft({ quantity })} min={1} max={500} /></div>
+      <div className="mt-4 rounded-md border border-teal-200 bg-teal-50 p-3">
+        <span className="block text-xs font-black uppercase text-teal-700">Codici automatici</span>
+        <strong className="mt-1 block text-sm text-teal-950">Aimago genera B- + 5 lettere o numeri casuali, sempre univoci.</strong>
+      </div>
+      <Button type="button" className="mt-4 h-12 w-full font-black" onClick={generateBags} disabled={generatingBags || generatedBags.length > 0}>{generatingBags ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Plus className="mr-2 h-5 w-5" />} Genera e attiva {bagDraft.quantity} bag</Button>
+      <Button type="button" variant="outline" className="mt-2 h-12 w-full bg-white font-black" onClick={() => printBags()} disabled={!generatedBags.length || printingBags}>{printingBags ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Printer className="mr-2 h-5 w-5" />} {pairedStation && stationOnline ? "Stampa alla station e blocca" : "Stampa il lotto e blocca"} {generatedBags.length ? `· ${generatedBags.length} bag` : ""}</Button>
+      {generatedBags.length > 0 && <>
+        <p className="mt-2 text-center text-xs font-semibold text-rose-700">Ogni bag viene stampata una sola volta. Dopo la conferma questo lotto non sarà più ristampabile.</p>
+        <p className="mt-1 text-center text-xs font-semibold text-slate-500">3 bag per etichetta fisica 15 x 10 cm · QR e barcode leggono lo stesso codice</p>
+        <div className="mt-4 max-h-72 divide-y divide-slate-100 overflow-y-auto rounded-md border border-emerald-200 bg-emerald-50">
+          {generatedBags.map((bag) => <div key={bag.codice} className="p-3"><strong className="block font-mono text-lg">{bag.codice}</strong><span className="block text-xs text-emerald-800">Attiva per picking e packing · in attesa della prima e unica stampa</span></div>)}
+        </div>
+      </>}
+    </section>
 
     <section className="rounded-md border border-slate-200 bg-white p-4" data-testid="wms-location-generator">
       <div className="flex items-start gap-3">
