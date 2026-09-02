@@ -311,6 +311,7 @@ Correzione recente verificata in produzione:
 
 ## Verifiche eseguite
 
+- Baseline Git completata su `main`, allineata a `origin/main`, con working tree pulito.
 - Build frontend completata con successo.
 - Deploy Vercel completato e alias canonico aggiornato.
 - Migrazione `076` applicata al progetto Supabase collegato.
@@ -328,4 +329,3 @@ Correzione recente verificata in produzione:
 8. **Dipendenze npm.** L'audit installazione ha rilevato 34 vulnerabilita (12 low, 6 moderate, 16 high). Aggiornare in modo controllato, evitando `force` senza regressioni testate.
 9. **Documentazione storica obsoleta.** Alcuni file in `docs/` descrivono ancora il vecchio backend.
 10. **Dati storici stock.** La migrazione `076` sistema il caso noto Relifebattery, ma serve una riconciliazione generale per tutti i clienti tra ricevuto, spedito, riservato, ubicato e disponibile.
-11. **Worktree non pulito.** Sono presenti numerose modifiche funzionali e migrazioni non ancora consolidate in un commit di baseline. Non perderle e non sovrascriverle accidentalmente.
