@@ -39,6 +39,8 @@ Deno.serve(async (req) => {
   if (profileError || !["admin", "staff", "cliente"].includes(profile?.role)) return response({ detail: "Profilo non autorizzato" }, 403);
 
   const payload = await req.json().catch(() => ({}));
+  const source = String(payload.source || "csv").trim().toLowerCase() === "manual" ? "manual" : "csv";
+  const shopDomain = source === "manual" ? "manual-entry" : "csv-import";
   const clienteId = profile.role === "cliente" ? String(profile.cliente_id || "") : String(payload.cliente_id || "").trim();
   if (!clienteId) return response({ detail: "Cliente degli ordini non disponibile" }, 400);
   if (!Array.isArray(payload.rows) || !payload.rows.length) return response({ detail: "Il file CSV non contiene righe" }, 400);
@@ -73,8 +75,8 @@ Deno.serve(async (req) => {
   if (payload.dry_run !== false) return response(preview);
   if (!preview.valid) return response({ detail: "Correggi gli errori del CSV prima di importare" }, 400);
 
-  const identifiers = orders.map((order: any) => identifier(order.order_number));
-  const { data: existingOrders, error: existingError } = await admin.from("shopify_orders").select("id,shopify_order_id,wms_status,order_name").eq("cliente_id", clienteId).eq("shop_domain", "csv-import").in("shopify_order_id", identifiers);
+  const identifiers = orders.map((order: any) => identifier(order.order_number, source));
+  const { data: existingOrders, error: existingError } = await admin.from("shopify_orders").select("id,shopify_order_id,wms_status,order_name").eq("cliente_id", clienteId).eq("shop_domain", shopDomain).in("shopify_order_id", identifiers);
   if (existingError) return response({ detail: existingError.message }, 400);
   const existingMap = new Map((existingOrders || []).map((order) => [order.shopify_order_id, order]));
   const locked = (existingOrders || []).filter((order) => !["da_preparare", "in_attesa_refill", "in_verifica", "eccezione"].includes(order.wms_status));
@@ -83,14 +85,14 @@ Deno.serve(async (req) => {
   let imported = 0;
   const gateResults: any[] = [];
   for (const order of orders as any[]) {
-    const existing: any = existingMap.get(identifier(order.order_number));
+    const existing: any = existingMap.get(identifier(order.order_number, source));
     const now = new Date().toISOString();
     const gate = initialGateForImportedOrder(order);
-    const row = { cliente_id: clienteId, shop_domain: "csv-import", shopify_order_id: identifier(order.order_number), order_name: order.order_number, financial_status: "csv", fulfillment_status: "unfulfilled", wms_status: gate.wms_status, gate_status: gate.gate_status, exception_type: gate.exception_type, exception_reasons: gate.exception_reasons, address_validation: gate.addressValidation || gate.address_validation, stock_shortages: gate.stock_shortages, refill_requirements: gate.refill_requirements || [], gate_checked_at: now, unblocked_at: gate.gate_status === "sbloccato" ? now : null, processed_at: dateOrNow(order.processed_at), note: order.note || null, customer_email: order.email || null, customer_phone: order.phone || null, ship_name: order.recipient || null, ship_company: order.company || null, ship_address1: order.address1 || null, ship_address2: order.address2 || null, ship_zip: order.zip || null, ship_city: order.city || null, ship_province: order.province || null, ship_country: order.country || null, ship_country_code: order.country_code || null, raw: { source: "csv", imported_at: now }, updated_at: now };
+    const row = { cliente_id: clienteId, shop_domain: shopDomain, shopify_order_id: identifier(order.order_number, source), order_name: order.order_number, financial_status: source, fulfillment_status: "unfulfilled", wms_status: gate.wms_status, gate_status: gate.gate_status, exception_type: gate.exception_type, exception_reasons: gate.exception_reasons, address_validation: gate.addressValidation || gate.address_validation, stock_shortages: gate.stock_shortages, refill_requirements: gate.refill_requirements || [], gate_checked_at: now, unblocked_at: gate.gate_status === "sbloccato" ? now : null, processed_at: dateOrNow(order.processed_at), note: order.note || null, customer_email: order.email || null, customer_phone: order.phone || null, ship_name: order.recipient || null, ship_company: order.company || null, ship_address1: order.address1 || null, ship_address2: order.address2 || null, ship_zip: order.zip || null, ship_city: order.city || null, ship_province: order.province || null, ship_country: order.country || null, ship_country_code: order.country_code || null, raw: { source, imported_at: now }, updated_at: now };
     const savedResult = existing ? await admin.from("shopify_orders").update(row).eq("id", existing.id).select().single() : await admin.from("shopify_orders").insert(row).select().single();
     if (savedResult.error) return response({ detail: savedResult.error.message }, 400);
     if (existing) { const deleted = await admin.from("shopify_order_items").delete().eq("order_id", existing.id); if (deleted.error) return response({ detail: deleted.error.message }, 400); }
-    const itemRows = order.items.map((item: any, index: number) => ({ order_id: savedResult.data.id, shopify_line_item_id: itemIdentifier(item, index), referenza_id: item.reference?.id || null, sku: item.sku || item.reference?.sku || null, ean: item.ean || item.reference?.ean || null, titolo: item.title, quantita: item.quantity, fulfillable_quantity: item.quantity, fulfillment_status: null, raw: { source: "csv", source_row: item.source_row, fnsku: item.fnsku || null }, updated_at: now }));
+    const itemRows = order.items.map((item: any, index: number) => ({ order_id: savedResult.data.id, shopify_line_item_id: itemIdentifier(item, index, source), referenza_id: item.reference?.id || null, sku: item.sku || item.reference?.sku || null, ean: item.ean || item.reference?.ean || null, titolo: item.title, quantita: item.quantity, fulfillable_quantity: item.quantity, fulfillment_status: null, raw: { source, source_row: item.source_row, fnsku: item.fnsku || null }, updated_at: now }));
     const inserted = await admin.from("shopify_order_items").insert(itemRows);
     if (inserted.error) return response({ detail: inserted.error.message }, 400);
     try {
@@ -112,8 +114,8 @@ function normalizeCsvZip(value: unknown, countryCode: unknown) {
   const country = String(countryCode || "IT").trim().toUpperCase();
   return country === "IT" && /^\d{1,4}$/.test(zip) ? zip.padStart(5, "0") : zip;
 }
-function identifier(value: unknown) { return `csv:${norm(value)}`; }
-function itemIdentifier(item: any, index: number) { return `csv:${index + 1}:${norm(item.ean || item.sku || item.fnsku || item.title).replace(/[^a-z0-9]+/g, "-").slice(0, 80) || "riga"}`; }
+function identifier(value: unknown, source = "csv") { return `${source}:${norm(value)}`; }
+function itemIdentifier(item: any, index: number, source = "csv") { return `${source}:${index + 1}:${norm(item.ean || item.sku || item.fnsku || item.title).replace(/[^a-z0-9]+/g, "-").slice(0, 80) || "riga"}`; }
 function dateOrNow(value: unknown) { const parsed = value ? new Date(String(value)) : new Date(); return Number.isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString(); }
 function normalizeOrders(rows: Record<string, unknown>[]) {
   const errors: string[] = []; const grouped = new Map<string, any>();
