@@ -14,6 +14,17 @@ function balanceKey(locationId: string, key: string) { return `${locationId}:${k
 function add(map: Map<string, number>, key: string, quantity: unknown) {
   map.set(key, Number(map.get(key) || 0) + Number(quantity || 0));
 }
+export function wmsGateError(error: unknown) {
+  if (error instanceof Error) return error;
+  if (error && typeof error === "object") {
+    const value = error as Record<string, unknown>;
+    const parts = [value.message, value.details, value.hint, value.code]
+      .map((part) => text(part))
+      .filter(Boolean);
+    if (parts.length) return new Error([...new Set(parts)].join(" · "));
+  }
+  return new Error(text(error) || "Verifica ordine non riuscita");
+}
 function addressCheck(order: any) {
   const countryCode = norm(order.ship_country_code || order.ship_country || "IT");
   const address = text(order.ship_address1);
@@ -43,7 +54,7 @@ function addressCheck(order: any) {
 
 async function rows<T = any>(promise: PromiseLike<{ data: T[] | null; error: any }>) {
   const { data, error } = await promise;
-  if (error) throw error;
+  if (error) throw wmsGateError(error);
   return data || [];
 }
 
@@ -96,10 +107,9 @@ async function physicalBalances(admin: SupabaseAdmin, clienteId: string, referen
   const balance = new Map<string, number>();
   const referencesByFnsku = new Map(references.filter((row) => norm(row.fnsku)).map((row) => [norm(row.fnsku), row]));
   const referencesByEan = new Map(references.filter((row) => norm(row.ean)).map((row) => [norm(row.ean), row]));
-  const referencesBySku = new Map(references.filter((row) => norm(row.sku)).map((row) => [norm(row.sku), row]));
   const entries = await rows(admin.from("entrate").select("id").eq("cliente_id", clienteId).in("stato", ACTIVE_ENTRY_STATUSES));
   const entryRows = entries.length
-    ? await rows(admin.from("entrate_righe").select("id,ean,fnsku,sku").in("entrata_id", entries.map((row: any) => row.id)))
+    ? await rows(admin.from("entrate_righe").select("id,ean,fnsku").in("entrata_id", entries.map((row: any) => row.id)))
     : [];
   const entryRowMap = new Map(entryRows.map((row: any) => [row.id, row]));
   const inbound = entryRows.length
@@ -108,7 +118,7 @@ async function physicalBalances(admin: SupabaseAdmin, clienteId: string, referen
   for (const movement of inbound as any[]) {
     if (!movement.location_id) continue;
     const source: any = entryRowMap.get(movement.entrata_riga_id);
-    const reference = referencesByFnsku.get(norm(source?.fnsku)) || referencesByEan.get(norm(source?.ean)) || referencesBySku.get(norm(source?.sku));
+    const reference = referencesByFnsku.get(norm(source?.fnsku)) || referencesByEan.get(norm(source?.ean));
     const key = productKey(reference);
     if (key) add(balance, balanceKey(movement.location_id, key), movement.quantita);
   }
@@ -137,7 +147,7 @@ async function physicalBalances(admin: SupabaseAdmin, clienteId: string, referen
 
 export async function evaluateWmsOrderGate(admin: SupabaseAdmin, orderId: string, actorId: string | null = null) {
   const orderResult = await admin.from("shopify_orders").select("*").eq("id", orderId).single();
-  if (orderResult.error || !orderResult.data) throw orderResult.error || new Error("Ordine non trovato");
+  if (orderResult.error || !orderResult.data) throw orderResult.error ? wmsGateError(orderResult.error) : new Error("Ordine non trovato");
   const order = orderResult.data;
   if (!["in_verifica", "eccezione", "in_attesa_refill", "da_preparare"].includes(order.wms_status)) return order;
   const checkedAt = new Date().toISOString();
@@ -214,9 +224,9 @@ export async function evaluateWmsOrderGate(admin: SupabaseAdmin, orderId: string
   }
 
   const saved = await admin.from("shopify_orders").update(update).eq("id", order.id).select().single();
-  if (saved.error) throw saved.error;
+  if (saved.error) throw wmsGateError(saved.error);
   const event = await admin.from("wms_order_gate_events").insert({ order_id: order.id, cliente_id: order.cliente_id, from_status: order.gate_status || "da_verificare", to_status: update.gate_status, reason, details: { address_validation: update.address_validation, stock_shortages: update.stock_shortages }, created_by: actorId });
-  if (event.error) throw event.error;
+  if (event.error) throw wmsGateError(event.error);
   return saved.data;
 }
 
