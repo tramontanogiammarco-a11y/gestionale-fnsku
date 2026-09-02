@@ -11,6 +11,10 @@ function productKey(reference: any) {
       : reference?.sku ? `sku:${norm(reference.sku)}` : "";
 }
 function balanceKey(locationId: string, key: string) { return `${locationId}:${key}`; }
+function isVerifiedQueuedOrder(order: any) {
+  return (order.wms_status === "da_preparare" && order.gate_status === "sbloccato")
+    || (order.wms_status === "in_attesa_refill" && order.gate_status === "attesa_refill");
+}
 function add(map: Map<string, number>, key: string, quantity: unknown) {
   map.set(key, Number(map.get(key) || 0) + Number(quantity || 0));
 }
@@ -81,9 +85,11 @@ async function activeReservations(admin: SupabaseAdmin, clienteId: string) {
     rows(admin.from("wms_galluse_batches").select("id").eq("cliente_id", clienteId).in("stato", ["da_associare_bag", "in_corso"])),
   ]);
   const taskOrders = allTasks.length
-    ? await rows(admin.from("shopify_orders").select("id").eq("cliente_id", clienteId).in("id", allTasks.map((row: any) => row.order_id)))
+    ? await rows(admin.from("shopify_orders").select("id,wms_status,gate_status").eq("cliente_id", clienteId).in("id", allTasks.map((row: any) => row.order_id)))
     : [];
-  const clientOrderIds = new Set(taskOrders.map((row: any) => row.id));
+  const clientOrderIds = new Set(taskOrders
+    .filter((row: any) => row.gate_status === "sbloccato" && ["da_preparare", "in_preparazione"].includes(row.wms_status))
+    .map((row: any) => row.id));
   const tasks = allTasks.filter((row: any) => clientOrderIds.has(row.order_id));
   const [pickLines, massLines, galluseLines] = await Promise.all([
     tasks.length ? rows(admin.from("wms_pick_lines").select("location_id,product_key,quantita_attesa,quantita_prelevata").in("task_id", tasks.map((row: any) => row.id))) : [],
@@ -97,7 +103,8 @@ async function activeReservations(admin: SupabaseAdmin, clienteId: string) {
 }
 
 async function priorQueueReservations(admin: SupabaseAdmin, order: any, referencesById: Map<string, any>) {
-  const queued = await rows(admin.from("shopify_orders").select("id,processed_at,created_at").eq("cliente_id", order.cliente_id).eq("wms_status", "da_preparare"));
+  const queuedRows = await rows(admin.from("shopify_orders").select("id,processed_at,created_at,wms_status,gate_status").eq("cliente_id", order.cliente_id).in("wms_status", ["da_preparare", "in_attesa_refill"]));
+  const queued = queuedRows.filter(isVerifiedQueuedOrder);
   const ordered = [...queued.filter((row: any) => row.id !== order.id), order].sort((left: any, right: any) => {
     const byDate = String(left.processed_at || left.created_at || "").localeCompare(String(right.processed_at || right.created_at || ""));
     return byDate || String(left.id).localeCompare(String(right.id));
