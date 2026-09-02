@@ -5208,7 +5208,7 @@ async function markWmsBagLabelsPrinted(payload = {}) {
 function normalizedWmsCartCode(value) {
   const code = normalizedScanCode(value);
   if (!/^[A-Z][A-Z0-9_-]{2,39}$/.test(code)) {
-    fail("Scansiona un carrello nel formato CARRELLO-01.");
+    fail("Scansiona un codice carrello valido.");
   }
   return code;
 }
@@ -5694,7 +5694,7 @@ function galluseCandidateOrders(orders = []) {
   ));
 }
 
-function galluseFixedCartRound(candidates = []) {
+function galluseCartRound(candidates = []) {
   const byClient = new Map();
   for (const order of candidates || []) {
     const current = byClient.get(order.cliente_id) || [];
@@ -5705,19 +5705,17 @@ function galluseFixedCartRound(candidates = []) {
     .sort((left, right) => right[1].length - left[1].length)[0] || [];
   const firstOrder = clientOrders?.[0];
   if (!clientId || !firstOrder || clientOrders.length < 1) return [];
-  const orders = clientOrders.slice(0, 10);
   return [{
-    id: `fixed-cart:${firstOrder.cliente_id}`,
+    id: `cart:${firstOrder.cliente_id}`,
     cliente_id: firstOrder.cliente_id,
     cliente: firstOrder.cliente_ragione_sociale || "Cliente",
     numero: 1,
     totale_ordini: clientOrders.length,
-    numero_compiti: Math.ceil(clientOrders.length / 10),
     offset: 0,
-    orders,
-    numero_ordini: orders.length,
-    pezzi: orders.reduce((sum, order) => sum + (order.items || []).reduce((inner, item) => inner + Number(item.quantita || 0), 0), 0),
-    referenze: new Set(orders.flatMap((order) => (order.items || []).map((item) => item.referenza_id))).size,
+    orders: clientOrders,
+    numero_ordini: clientOrders.length,
+    pezzi: clientOrders.reduce((sum, order) => sum + (order.items || []).reduce((inner, item) => inner + Number(item.quantita || 0), 0), 0),
+    referenze: new Set(clientOrders.flatMap((order) => (order.items || []).map((item) => item.referenza_id))).size,
   }];
 }
 
@@ -5746,7 +5744,7 @@ async function listWmsGallusePicking(params = new URLSearchParams()) {
   const orderMap = Object.fromEntries((linkedOrders || []).map((order) => [order.id, order]));
   return ok({
     candidates,
-    rounds: galluseFixedCartRound(candidates),
+    rounds: galluseCartRound(candidates),
     batches: (batches || []).map((batch) => ({
       ...batch,
       orders: (links || []).filter((link) => link.batch_id === batch.id).sort((left, right) => left.posizione_bag - right.posizione_bag).map((link) => ({ ...link, order: orderMap[link.order_id] || null })),
@@ -5811,6 +5809,24 @@ async function wmsGalluseSnapshot(batchId) {
 async function startWmsGallusePicking(payload = {}) {
   const profile = await assertWmsStaff();
   const requestedClientId = optionalText(payload.cliente_id);
+  const cartCode = normalizedWmsCartCode(payload.cart_code || payload.codice);
+  const { data: cart, error: cartError } = await requireSupabase()
+    .from("wms_carts")
+    .select("id,codice,righe,colonne")
+    .eq("codice", cartCode)
+    .maybeSingle();
+  if (cartError) fail(cartError.message);
+  if (!cart) fail(`Carrello ${cartCode} non configurato.`, 404);
+  const { data: cartPositions, error: cartPositionsError } = await requireSupabase()
+    .from("wms_cart_bag_positions")
+    .select("posizione,bag_id,bag_code")
+    .eq("cart_id", cart.id)
+    .order("posizione");
+  if (cartPositionsError) fail(cartPositionsError.message);
+  const capacity = (cartPositions || []).length;
+  if (!capacity) fail(`Il carrello ${cart.codice} non contiene bag configurate.`, 409);
+  const positionsAreContiguous = (cartPositions || []).every((position, index) => Number(position.posizione) === index + 1);
+  if (!positionsAreContiguous) fail(`Configura le bag del carrello ${cart.codice} in posizioni consecutive a partire da 1.`, 409);
   const operational = await wmsOperationalOrdersData(new URLSearchParams(requestedClientId ? { cliente_id: requestedClientId } : {}));
   const candidates = galluseCandidateOrders(operational.orders);
   const clientId = requestedClientId || candidates[0]?.cliente_id;
@@ -5820,7 +5836,7 @@ async function startWmsGallusePicking(payload = {}) {
     .in("stato", ["da_associare_bag", "in_corso"]);
   if (activeBatchesError) fail(activeBatchesError.message);
   if ((activeBatches || []).length) fail("Completa prima il carrello Galluse gia in corso.", 409);
-  const orders = candidates.filter((order) => order.cliente_id === clientId).slice(0, 10);
+  const orders = candidates.filter((order) => order.cliente_id === clientId).slice(0, capacity);
   if (!clientId || orders.length < 1) fail("Non ci sono ordini disponibili per il carrello Galluse.", 409);
   const combinedItems = orders.flatMap((order) => (order.items || []).map((item) => ({ ...item, galluse_order_id: order.id })));
   const itemOrderMap = Object.fromEntries(combinedItems.map((item) => [item.id, item.galluse_order_id]));
@@ -5835,6 +5851,8 @@ async function startWmsGallusePicking(payload = {}) {
     stato: "da_associare_bag",
     numero_bag: orders.length,
     operatore_id: profile.id,
+    cart_id: cart.id,
+    cart_code: cart.codice,
   }).select().single();
   if (batchError || !batch) fail(batchError?.message || "Missione Metodo Galluse non creata");
   const { data: links, error: linksError } = await requireSupabase().from("wms_galluse_orders").insert(orders.map((order, index) => ({
@@ -5874,6 +5892,14 @@ async function startWmsGallusePicking(payload = {}) {
     quantita: allocation.quantita_attesa,
   })));
   if (allocationsError) fail(allocationsError.message);
+  const { error: claimError } = await requireSupabase().rpc("claim_wms_galluse_cart", {
+    p_batch_id: batch.id,
+    p_cart_code: cart.codice,
+  });
+  if (claimError) {
+    await requireSupabase().from("wms_galluse_batches").delete().eq("id", batch.id);
+    fail(claimError.message);
+  }
   const { error: statusError } = await requireSupabase().from("shopify_orders").update({ wms_status: "in_preparazione", updated_at: nowIso() }).in("id", orders.map((order) => order.id));
   if (statusError) fail(statusError.message);
   return wmsGalluseSnapshot(batch.id);

@@ -23,7 +23,6 @@ export default function WmsAppOrders() {
   const [tab, setTab] = useState("oggi");
   const [selected, setSelected] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [startingGalluse, setStartingGalluse] = useState(false);
 
   const load = useCallback(async () => {
     setRefreshing(true);
@@ -80,18 +79,7 @@ export default function WmsAppOrders() {
       toast.error("Non ci sono ordini 1x1 disponibili per il Metodo Galluse.");
       return;
     }
-    setStartingGalluse(true);
-    try {
-      const response = await api.post("/wms/picking-galluse/avvia", {
-        cliente_id: nextGalluseRound.cliente_id,
-        offset: nextGalluseRound.offset,
-      });
-      navigate(`/wms-app/picking-galluse/${response.data.batch.id}`);
-    } catch (error) {
-      toast.error(error.response?.data?.detail || "Carrello Galluse non avviato");
-    } finally {
-      setStartingGalluse(false);
-    }
+    navigate("/wms-app/picking-galluse?scan=1");
   };
   return (
     <div className="wms-page" data-testid="wms-orders">
@@ -109,7 +97,7 @@ export default function WmsAppOrders() {
       <section>
         <div className="mb-3"><p className="text-[11px] font-extrabold uppercase text-slate-500">Modalità di preparazione</p><h2 className="mt-1.5 text-xl font-extrabold">Prepara ordini</h2></div>
         <div className="space-y-2">
-          <button type="button" onClick={startGalluse} disabled={startingGalluse} className="wms-action-row disabled:opacity-60"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-sky-50 text-sky-800"><ShoppingCart className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className="block font-extrabold">Metodo Galluse</strong><span className="mt-1 block text-xs font-medium text-slate-500">{activeGalluse ? `Riprendi carrello · ${activeGalluse.numero_bag} ordini` : nextGalluseRound ? `${nextGalluseRound.totale_ordini} ordini · ${nextGalluseRound.numero_compiti} compiti` : "Nessun compito disponibile"}</span></span><ChevronRight className="h-5 w-5 text-slate-400" /></button>
+          <button type="button" onClick={startGalluse} className="wms-action-row"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-sky-50 text-sky-800"><ShoppingCart className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className="block font-extrabold">Metodo Galluse</strong><span className="mt-1 block text-xs font-medium text-slate-500">{activeGalluse ? `Riprendi ${activeGalluse.cart_code || "missione"} · ${activeGalluse.numero_bag} ordini` : nextGalluseRound ? `${nextGalluseRound.totale_ordini} ordini · scansiona un carrello` : "Nessun compito disponibile"}</span></span><ChevronRight className="h-5 w-5 text-slate-400" /></button>
           <button type="button" onClick={() => navigate("/wms-app/picking-massivo")} className="wms-action-row"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-violet-50 text-violet-800"><Layers3 className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className="block font-extrabold">Massivo</strong><span className="mt-1 block text-xs font-medium text-slate-500">{activeMassOrders || availableMassOrders} ordini disponibili</span></span><ChevronRight className="h-5 w-5 text-slate-400" /></button>
           {refillOrders > 0 && <button type="button" onClick={() => navigate("/wms-app/refill")} className="wms-action-row border-amber-300 bg-amber-50"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-white text-amber-800"><Boxes className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className="block font-extrabold text-amber-950">Waiting to refill</strong><span className="mt-1 block text-xs font-bold text-amber-800">{refillOrders} {refillOrders === 1 ? "ordine bloccato" : "ordini bloccati"} prima del picking</span></span><ChevronRight className="h-5 w-5 text-amber-700" /></button>}
         </div>
