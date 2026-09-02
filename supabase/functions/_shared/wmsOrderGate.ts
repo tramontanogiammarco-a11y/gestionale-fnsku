@@ -58,6 +58,21 @@ async function rows<T = any>(promise: PromiseLike<{ data: T[] | null; error: any
   return data || [];
 }
 
+async function warehouseLocations(admin: SupabaseAdmin) {
+  const result: any[] = [];
+  const pageSize = 1000;
+  for (let offset = 0; offset < 20000; offset += pageSize) {
+    const page = await rows(admin.from("wms_locations")
+      .select("id,codice,tipo,stato")
+      .in("tipo", ["slot", "pallet"])
+      .order("id")
+      .range(offset, offset + pageSize - 1));
+    result.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return result;
+}
+
 async function activeReservations(admin: SupabaseAdmin, clienteId: string) {
   const reserved = new Map<string, number>();
   const [allTasks, massBatches, galluseBatches] = await Promise.all([
@@ -120,7 +135,9 @@ async function physicalBalances(admin: SupabaseAdmin, clienteId: string, referen
     const source: any = entryRowMap.get(movement.entrata_riga_id);
     const reference = referencesByFnsku.get(norm(source?.fnsku)) || referencesByEan.get(norm(source?.ean));
     const key = productKey(reference);
-    if (key) add(balance, balanceKey(movement.location_id, key), movement.quantita);
+    if (key) {
+      add(balance, balanceKey(movement.location_id, key), movement.quantita);
+    }
   }
 
   const [placements, transfers, outbound, completedInventories] = await Promise.all([
@@ -163,7 +180,7 @@ export async function evaluateWmsOrderGate(admin: SupabaseAdmin, orderId: string
     const referenceIds = [...new Set(items.map((item: any) => item.referenza_id).filter(Boolean))];
     const references = referenceIds.length ? await rows(admin.from("referenze").select("id,cliente_id,titolo,ean,fnsku,sku").eq("cliente_id", order.cliente_id).in("id", referenceIds)) : [];
     const referencesById = new Map(references.map((reference: any) => [reference.id, reference]));
-    const locations = await rows(admin.from("wms_locations").select("id,codice,tipo,stato").in("tipo", ["slot", "pallet"]));
+    const locations = await warehouseLocations(admin);
     const [{ balance, locationMap }, reserved, queued] = await Promise.all([
       physicalBalances(admin, order.cliente_id, references, locations),
       activeReservations(admin, order.cliente_id),
