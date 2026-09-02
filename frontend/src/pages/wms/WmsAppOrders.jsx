@@ -20,6 +20,7 @@ export default function WmsAppOrders() {
   const [data, setData] = useState(null);
   const [massData, setMassData] = useState(null);
   const [galluseData, setGalluseData] = useState(null);
+  const [refillData, setRefillData] = useState(null);
   const [tab, setTab] = useState("oggi");
   const [selected, setSelected] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -30,14 +31,16 @@ export default function WmsAppOrders() {
       const query = new URLSearchParams();
       if (clientId && clientId !== "all") query.set("cliente_id", clientId);
       const suffix = query.toString() ? `?${query.toString()}` : "";
-      const [response, massResponse, galluseResponse] = await Promise.all([
+      const [response, massResponse, galluseResponse, refillResponse] = await Promise.all([
         api.get(`/wms/ordini${suffix}`),
         api.get(`/wms/picking-massivo${suffix}`),
         api.get(`/wms/picking-galluse${suffix}`),
+        api.get(`/wms/refill${suffix}`),
       ]);
       setData(response.data);
       setMassData(massResponse.data);
       setGalluseData(galluseResponse.data);
+      setRefillData(refillResponse.data);
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Ordini non disponibili");
     } finally {
@@ -67,7 +70,7 @@ export default function WmsAppOrders() {
     .filter((batch) => ["in_corso", "da_confermare_bag"].includes(batch.stato))
     .reduce((sum, batch) => sum + (batch.orders?.length || 0), 0);
   const availableMassOrders = (massData?.groups || []).reduce((sum, group) => sum + group.numero_ordini, 0);
-  const refillOrders = (data?.orders || []).filter((order) => order.wms_status === "in_attesa_refill").length;
+  const refillTasks = Number(refillData?.tasks || 0);
   const activeGalluse = (galluseData?.batches || []).find((batch) => ["da_associare_bag", "in_corso"].includes(batch.stato));
   const nextGalluseRound = (galluseData?.rounds || [])[0];
   const startGalluse = async () => {
@@ -99,7 +102,7 @@ export default function WmsAppOrders() {
         <div className="space-y-2">
           <button type="button" onClick={startGalluse} className="wms-action-row"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-sky-50 text-sky-800"><ShoppingCart className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className="block font-extrabold">Metodo Galluse</strong><span className="mt-1 block text-xs font-medium text-slate-500">{activeGalluse ? `Riprendi ${activeGalluse.cart_code || "missione"} · ${activeGalluse.numero_bag} ordini` : nextGalluseRound ? `${nextGalluseRound.totale_ordini} ordini · scansiona un carrello` : "Nessun compito disponibile"}</span></span><ChevronRight className="h-5 w-5 text-slate-400" /></button>
           <button type="button" onClick={() => navigate("/wms-app/picking-massivo")} className="wms-action-row"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-violet-50 text-violet-800"><Layers3 className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className="block font-extrabold">Massivo</strong><span className="mt-1 block text-xs font-medium text-slate-500">{activeMassOrders || availableMassOrders} ordini disponibili</span></span><ChevronRight className="h-5 w-5 text-slate-400" /></button>
-          {refillOrders > 0 && <button type="button" onClick={() => navigate("/wms-app/refill")} className="wms-action-row border-amber-300 bg-amber-50"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-white text-amber-800"><Boxes className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className="block font-extrabold text-amber-950">Waiting to refill</strong><span className="mt-1 block text-xs font-bold text-amber-800">{refillOrders} {refillOrders === 1 ? "ordine bloccato" : "ordini bloccati"} prima del picking</span></span><ChevronRight className="h-5 w-5 text-amber-700" /></button>}
+          <button type="button" onClick={() => navigate("/wms-app/refill")} className={`wms-action-row ${refillTasks ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-white"}`}><span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-md ${refillTasks ? "bg-white text-amber-800" : "bg-slate-100 text-slate-600"}`}><Boxes className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className={`block font-extrabold ${refillTasks ? "text-amber-950" : "text-slate-950"}`}>Refill</strong><span className={`mt-1 block text-xs font-bold ${refillTasks ? "text-amber-800" : "text-slate-500"}`}>{refillTasks ? `${refillTasks} attività da eseguire` : "Nessuna attività in attesa"}</span></span><ChevronRight className={`h-5 w-5 ${refillTasks ? "text-amber-700" : "text-slate-400"}`} /></button>
         </div>
       </section>
 
