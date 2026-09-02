@@ -4769,6 +4769,7 @@ async function listWmsRefillQueue(params = new URLSearchParams()) {
       target: refill.target_slot,
       quantita: Math.min(Number(refill.quantita || 0), Number(source.quantita || 0)),
       total_required: Number(refill.quantita || 0),
+      maximum_quantity: Number(source.quantita || 0),
     });
   }
   return ok({ queue, orders_waiting: orders.length, tasks: queue.length });

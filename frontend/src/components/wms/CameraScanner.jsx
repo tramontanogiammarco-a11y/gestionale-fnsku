@@ -6,7 +6,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 
-export default function CameraScanner({ open, onOpenChange, purpose = "universal", onDetected, context = null }) {
+export default function CameraScanner({ open, onOpenChange, purpose = "universal", onDetected, context = null, allowManual = true }) {
   const controlsRef = useRef(null);
   const onDetectedRef = useRef(onDetected);
   const [videoElement, setVideoElement] = useState(null);
@@ -49,14 +49,16 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
     }).catch(() => {
       if (cancelled) return;
       setStarting(false);
-      setError("Fotocamera non disponibile. Consenti l'accesso nelle impostazioni del browser oppure usa l'inserimento manuale.");
+      setError(allowManual
+        ? "Fotocamera non disponibile. Consenti l'accesso nelle impostazioni del browser oppure usa l'inserimento manuale."
+        : "Fotocamera non disponibile. Consenti l'accesso nelle impostazioni del browser e riprova.");
     });
     return () => {
       cancelled = true;
       controlsRef.current?.stop();
       controlsRef.current = null;
     };
-  }, [open, videoElement]);
+  }, [allowManual, open, videoElement]);
 
   const title = purpose === "location" ? "Scansiona posizione" : purpose === "product" ? "Scansiona prodotto" : purpose === "bag" ? "Scansiona bag" : purpose === "cart" ? "Scansiona carrello" : purpose === "carrier_label" ? "Scansiona etichetta corriere" : purpose === "packing" ? "Scansiona carrello o bag" : "Scanner universale";
   const description = purpose === "location"
@@ -84,8 +86,8 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
           <div className="flex items-center gap-2 p-2">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-black uppercase text-teal-700">{purpose === "cart" ? "Master" : "Slot"}</span>
-                <span className="text-[10px] font-bold text-slate-500">Rif. {context.completedLines}/{context.totalLines} · Pezzi {context.picked}/{context.expected}</span>
+                <span className="text-[10px] font-black uppercase text-teal-700">{context.eyebrow || (purpose === "cart" ? "Master" : "Slot")}</span>
+                <span className="text-[10px] font-bold text-slate-500">{context.progressText || `Rif. ${context.completedLines}/${context.totalLines} · Pezzi ${context.picked}/${context.expected}`}</span>
               </div>
               <div className="mt-0.5 flex items-end gap-2">
                 <strong className="min-w-0 truncate font-mono text-3xl font-black leading-none tracking-wide text-slate-950">{context.location}</strong>
@@ -131,7 +133,7 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
           {!starting && !previewReady && !error && <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 p-6"><Button type="button" variant="secondary" onClick={() => videoElement?.play().catch(() => setError("Il browser ha bloccato l'anteprima. Chiudi e riapri la fotocamera."))}>Avvia anteprima</Button></div>}
         </div>
         {error && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-        <Button type="button" variant="outline" className={`${compactPicking ? "h-9 shrink-0 text-sm" : "h-11"} w-full bg-white`} onClick={() => onOpenChange(false)}>Inserimento manuale</Button>
+        <Button type="button" variant="outline" className={`${compactPicking ? "h-9 shrink-0 text-sm" : "h-11"} w-full bg-white`} onClick={() => onOpenChange(false)}>{allowManual ? "Inserimento manuale" : "Chiudi fotocamera"}</Button>
       </DialogContent>
     </Dialog>
   );
