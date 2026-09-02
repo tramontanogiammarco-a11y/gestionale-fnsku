@@ -27,12 +27,16 @@ export default function ControlOrders() {
   const loadOrders = useCallback(() => { setOrders(null); return api.get(`/shopify/orders${queryForClient(context.clientId)}`).then((r) => setOrders(r.data || [])); }, [context.clientId]);
   const recheckOrders = useCallback(async () => {
     setRechecking(true);
+    const toastId = toast.loading("Ricontrollo stock e prenotazioni in corso…");
     try {
       const { data } = await api.post("/wms/order-gate/recheck", { pending_only: false, limit: 500, cliente_id: context.clientId || null });
       await loadOrders();
-      toast.success(`${data.checked || 0} ordini ricontrollati · ${data.unblocked || 0} sbloccati`);
+      const failed = (data.results || []).filter((row) => row.error).length;
+      const summary = `${data.checked || 0} ordini ricontrollati · ${data.unblocked || 0} sbloccati`;
+      if (failed) toast.warning(`${summary} · ${failed} non verificati`, { id: toastId });
+      else toast.success(summary, { id: toastId });
     } catch (error) {
-      toast.error(error.response?.data?.detail || error.message || "Ricontrollo non riuscito");
+      toast.error(error.response?.data?.detail || error.message || "Ricontrollo non riuscito", { id: toastId });
     } finally {
       setRechecking(false);
     }
