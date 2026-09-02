@@ -6,9 +6,8 @@ Aggiornato al 2 settembre 2026.
 
 Portare l'attuale prototipo operativo a una piattaforma stabile, verificabile e gestibile quotidianamente senza introdurre regressioni nei flussi gia funzionanti.
 
-## Priorita 0 - Mettere in sicurezza lo stato attuale
+## Priorita 0 - Supabase e stato dati
 
-- Creare un commit di baseline completo dopo aver revisionato le modifiche presenti nel worktree.
 - Esportare schema e backup Supabase prima di nuovi backfill o cambi di stato massivi.
 - Verificare che tutte le migrazioni `001`-`076` risultino applicate e nello stesso ordine in produzione.
 - Allineare Supabase Auth Site URL e redirect URL al dominio canonico `aimago-prep-wms.vercel.app`.
@@ -178,11 +177,13 @@ La release puo essere considerata stabile quando:
 
 ## Ordine consigliato di esecuzione
 
-1. Baseline Git, backup e allineamento Auth URL.
-2. Riconciliazione stock multi-cliente.
-3. Test del gate ordini e transazioni ATP/refill.
-4. Test end-to-end picking e packing con Zebra.
-5. Integrazione corrieri reale.
-6. Dettaglio costi e fatturazione riconciliabile.
-7. Modularizzazione e prestazioni frontend.
-8. Routing 3D, audit operatori e automazioni avanzate.
+1. Backup e verifica schema Supabase.
+2. Verifica allineamento migrazioni `001`-`076`.
+3. Verifica redirect/Auth Supabase.
+4. Riconciliazione stock multi-cliente.
+5. Test end-to-end dei flussi critici.
+6. Consolidamento delle operazioni stock tramite RPC transazionali.
+7. Stabilizzazione Zebra/Packing Station.
+8. Integrazione corrieri reali.
+9. Dettaglio costi e fatturazione riconciliabile.
+10. Modularizzazione, routing 3D, audit operatori e automazioni avanzate.

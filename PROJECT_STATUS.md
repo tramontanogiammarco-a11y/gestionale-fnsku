@@ -20,6 +20,16 @@ Il prodotto e in una fase avanzata di prototipo operativo: molti flussi sono uti
 
 Le route SPA vengono riscritte verso `index.html`, quindi i link diretti alle aree React devono funzionare su Vercel.
 
+## Baseline Git
+
+La baseline Git e completata:
+
+- repository corretto verificato: `gestionale-fnsku-wms`;
+- branch corrente: `main`;
+- branch allineato a `origin/main`;
+- working tree pulito;
+- ultimo commit funzionale: `49a1406 checkpoint WMS functional development`.
+
 ## Aree disponibili
 
 ### Control Tower `/wms`
