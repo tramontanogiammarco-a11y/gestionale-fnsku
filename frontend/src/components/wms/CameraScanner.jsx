@@ -126,7 +126,6 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
               {[1, 5, 10].map((amount) => <Button key={amount} type="button" variant="outline" className="h-12 text-lg font-black" onClick={() => context.quantityControls.onAdd(amount)} disabled={context.quantityControls.working || context.quantityControls.value >= context.quantityControls.remaining}>+{amount}</Button>)}
             </div>
             <div className="mt-2 flex items-center justify-between text-sm font-black"><span>Pezzi selezionati</span><span>{context.quantityControls.value}/{context.quantityControls.remaining}</span></div>
-            <Button type="button" className="mt-2 h-12 w-full font-black" onClick={context.quantityControls.onConfirm} disabled={context.quantityControls.working || context.quantityControls.value !== context.quantityControls.remaining}>Conferma {context.quantityControls.remaining} pezzi</Button>
           </div>}
           {starting && <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 text-white"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Avvio fotocamera</div>}
           {!starting && !previewReady && !error && <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 p-6"><Button type="button" variant="secondary" onClick={() => videoElement?.play().catch(() => setError("Il browser ha bloccato l'anteprima. Chiudi e riapri la fotocamera."))}>Avvia anteprima</Button></div>}
