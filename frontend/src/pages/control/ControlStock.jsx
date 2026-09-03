@@ -6,10 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
 import { EmptyState, Metric, PageIntro, PageLoader, Panel, StatusPill } from "./ControlUi";
 
-const EMPTY_FORM = { ean: "", sku: "", peso_kg: "", lunghezza_cm: "", larghezza_cm: "", altezza_cm: "" };
+const EMPTY_FORM = { ean: "", sku: "", peso_kg: "", lunghezza_cm: "", larghezza_cm: "", altezza_cm: "", picking_scan_product_enabled: false };
 
 function errorMessage(error) {
   return error?.response?.data?.detail || error?.message || "Operazione non riuscita";
@@ -39,6 +40,7 @@ function ProductDetail({ product, onOpenChange, onSaved }) {
       lunghezza_cm: product.lunghezza_cm || "",
       larghezza_cm: product.larghezza_cm || "",
       altezza_cm: product.altezza_cm || "",
+      picking_scan_product_enabled: Boolean(product.picking_scan_product_enabled),
     });
   }, [product]);
 
@@ -51,7 +53,7 @@ function ProductDetail({ product, onOpenChange, onSaved }) {
 
   const save = async () => {
     if (!product?.referenza_id) return toast.error("Scheda referenza non collegata: aggiorna la pagina e riprova");
-    const payload = { ean: form.ean, sku: form.sku };
+    const payload = { ean: form.ean, sku: form.sku, picking_scan_product_enabled: form.picking_scan_product_enabled };
     for (const field of ["peso_kg", "lunghezza_cm", "larghezza_cm", "altezza_cm"]) {
       if (String(form[field]).trim()) payload[field] = form[field];
     }
@@ -108,6 +110,10 @@ function ProductDetail({ product, onOpenChange, onSaved }) {
               <div><Label htmlFor="stock-height">Altezza (cm)</Label><Input id="stock-height" className="mt-1" type="number" min="0.01" step="0.01" value={form.altezza_cm} onChange={(event) => setField("altezza_cm", event.target.value)} /></div>
               <div className="flex items-end"><StatusPill tone={product.misure_confermate ? "emerald" : "amber"}>{product.misure_confermate ? "Misure confermate" : "Misure da completare"}</StatusPill></div>
             </div>
+            <label className="mt-4 flex cursor-pointer items-center justify-between gap-4 border border-slate-200 bg-slate-50 p-4">
+              <span><strong className="block text-sm">Barcode prodotto nel picking</strong><span className="mt-1 block text-xs text-slate-500">Accetta EAN, FNSKU o SKU al posto della scansione dello slot indicato.</span></span>
+              <Switch checked={form.picking_scan_product_enabled} onCheckedChange={(checked) => setField("picking_scan_product_enabled", Boolean(checked))} />
+            </label>
           </section>
         </div>
 

@@ -285,6 +285,9 @@ function normalizeReferenzaPayload(payload = {}) {
   if (Object.prototype.hasOwnProperty.call(out, "misure_confermate")) {
     out.misure_confermate = Boolean(out.misure_confermate);
   }
+  if (Object.prototype.hasOwnProperty.call(out, "picking_scan_product_enabled")) {
+    out.picking_scan_product_enabled = Boolean(out.picking_scan_product_enabled);
+  }
   return out;
 }
 
@@ -3861,7 +3864,7 @@ async function wmsStock(params) {
       ? requireSupabase().from("entrate").select("id,cliente_id").in("cliente_id", clientIds)
       : Promise.resolve({ data: [], error: null }),
     clientIds.length
-      ? requireSupabase().from("referenze").select("id,cliente_id,ean,sku,fnsku,titolo,foto_url,peso_kg,lunghezza_cm,larghezza_cm,altezza_cm,misure_confermate").in("cliente_id", clientIds)
+      ? requireSupabase().from("referenze").select("id,cliente_id,ean,sku,fnsku,titolo,foto_url,peso_kg,lunghezza_cm,larghezza_cm,altezza_cm,misure_confermate,picking_scan_product_enabled").in("cliente_id", clientIds)
       : Promise.resolve({ data: [], error: null }),
     requireSupabase().from("wms_inventory_sessions").select("id").eq("stato", "completata"),
     clientIds.length
@@ -3916,6 +3919,7 @@ async function wmsStock(params) {
         larghezza_cm: Number(reference?.larghezza_cm || 0) || null,
         altezza_cm: Number(reference?.altezza_cm || 0) || null,
         misure_confermate: Boolean(reference?.misure_confermate),
+        picking_scan_product_enabled: Boolean(reference?.picking_scan_product_enabled),
         ricevuto: Number(row.ricevuto || 0),
         in_preparazione: Number(row.in_preparazione || 0),
         spedito: Number(row.spedito || 0),
@@ -5265,27 +5269,44 @@ async function withWmsReferencePhotos(lines = [], clienteId = null) {
   })).filter((lookup) => lookup.values.length);
   if (!lookups.length) return lines || [];
   const results = await Promise.all(lookups.map(async ({ field, values }) => {
-    let query = requireSupabase().from("referenze").select("id,fnsku,ean,sku,foto_url").in(field, values);
+    let query = requireSupabase().from("referenze").select("id,fnsku,ean,sku,foto_url,picking_scan_product_enabled").in(field, values);
     if (clienteId) query = query.eq("cliente_id", clienteId);
     const { data, error } = await query;
     if (error) fail(error.message);
     return data || [];
   }));
-  const photosByCode = new Map();
+  const referencesByCode = new Map();
   results.flat().forEach((reference) => {
     for (const field of ["fnsku", "ean", "sku"]) {
       const value = optionalText(reference?.[field]);
-      if (value && reference.foto_url) photosByCode.set(`${field}:${value}`, reference.foto_url);
+      if (value) referencesByCode.set(`${field}:${value}`, reference);
     }
   });
-  return (lines || []).map((line) => ({
-    ...line,
-    foto_url: line.foto_url
-      || photosByCode.get(`fnsku:${optionalText(line.fnsku)}`)
-      || photosByCode.get(`ean:${optionalText(line.ean)}`)
-      || photosByCode.get(`sku:${optionalText(line.sku)}`)
-      || null,
-  }));
+  return (lines || []).map((line) => {
+    const reference = referencesByCode.get(`fnsku:${optionalText(line.fnsku)}`)
+      || referencesByCode.get(`ean:${optionalText(line.ean)}`)
+      || referencesByCode.get(`sku:${optionalText(line.sku)}`)
+      || null;
+    return {
+      ...line,
+      foto_url: line.foto_url || reference?.foto_url || null,
+      picking_scan_product_enabled: Boolean(reference?.picking_scan_product_enabled),
+    };
+  });
+}
+
+function matchesPickingConfirmation(current, code) {
+  const normalizedCode = normalizedText(code);
+  if (normalizedText(current?.location?.codice) === normalizedCode) return true;
+  if (!current?.picking_scan_product_enabled) return false;
+  return [current.ean, current.fnsku, current.sku]
+    .some((value) => optionalText(value) && normalizedText(value) === normalizedCode);
+}
+
+function pickingConfirmationError(current) {
+  return current?.picking_scan_product_enabled
+    ? `Vai in ${current.location?.codice} e scansiona lo slot oppure il barcode del prodotto corretto.`
+    : `Vai in ${current.location?.codice} e scansiona lo slot corretto.`;
 }
 
 async function wmsPickSnapshot(orderId) {
@@ -6140,7 +6161,7 @@ async function scanWmsMassPicking(batchId, payload = {}) {
   if (!current.location_confirmed_at) {
     if (!code) fail("Scansiona lo slot");
     if (current.location?.tipo !== "slot") fail("Il picking e consentito solo dagli slot.", 409);
-    if (normalizedText(current.location?.codice) !== code) fail(`Vai in ${current.location?.codice} e scansiona lo slot corretto.`);
+    if (!matchesPickingConfirmation(current, code)) fail(pickingConfirmationError(current));
     const { error } = await requireSupabase().from("wms_mass_pick_lines").update({ location_confirmed_at: nowIso() }).eq("id", current.id);
     if (error) fail(error.message);
     return wmsMassPickSnapshot(batchId);
@@ -6447,7 +6468,7 @@ async function scanWmsGallusePicking(batchId, payload = {}) {
   if (!current.location_confirmed_at) {
     if (!code) fail("Scansiona lo slot");
     if (current.location?.tipo !== "slot") fail("Il Metodo Galluse preleva solo dagli slot.", 409);
-    if (normalizedText(current.location?.codice) !== code) fail(`Vai in ${current.location?.codice} e scansiona lo slot corretto.`);
+    if (!matchesPickingConfirmation(current, code)) fail(pickingConfirmationError(current));
     const { error } = await requireSupabase().from("wms_galluse_lines").update({ location_confirmed_at: nowIso() }).eq("id", current.id);
     if (error) fail(error.message);
     return wmsGalluseSnapshot(batchId);
@@ -7013,7 +7034,7 @@ async function scanWmsPicking(taskId, payload = {}) {
   if (!current.location_confirmed_at) {
     if (!code) fail("Scansiona una posizione");
     if (current.location?.tipo !== "slot") fail("Il picking e consentito solo da una posizione slot.", 409);
-    if (normalizedText(current.location?.codice) !== code) fail(`Vai in ${current.location?.codice} e scansiona la posizione corretta.`);
+    if (!matchesPickingConfirmation(current, code)) fail(pickingConfirmationError(current));
     const { error } = await requireSupabase().from("wms_pick_lines").update({ location_confirmed_at: nowIso() }).eq("id", current.id);
     if (error) fail(error.message);
     return wmsPickSnapshot(task.order_id);

@@ -146,5 +146,6 @@ function buildScannerContext(lines, current, remaining, summary) {
     totalLines: groups.size,
     picked: summary.picked,
     expected: summary.expected,
+    allowProductBarcode: Boolean(current.picking_scan_product_enabled),
   };
 }

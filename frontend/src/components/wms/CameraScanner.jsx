@@ -62,7 +62,9 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
 
   const title = purpose === "location" ? "Scansiona posizione" : purpose === "product" ? "Scansiona prodotto" : purpose === "bag" ? "Scansiona bag" : purpose === "cart" ? "Scansiona carrello" : purpose === "carrier_label" ? "Scansiona etichetta corriere" : purpose === "packing" ? "Scansiona carrello o bag" : "Scanner universale";
   const description = purpose === "location"
-    ? "Inquadra il barcode applicato alla posizione pallet o slot."
+    ? context?.allowProductBarcode
+      ? "Inquadra il barcode dello slot oppure quello del prodotto indicato."
+      : "Inquadra il barcode applicato alla posizione pallet o slot."
     : purpose === "product"
       ? "Inquadra l'EAN o il barcode del prodotto."
       : purpose === "bag"
@@ -86,7 +88,7 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
           <div className="flex items-center gap-2 p-2">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-black uppercase text-teal-700">{context.eyebrow || (purpose === "cart" ? "Master" : "Slot")}</span>
+                <span className="text-[10px] font-black uppercase text-teal-700">{context.eyebrow || (purpose === "cart" ? "Master" : context.allowProductBarcode ? "Slot o prodotto" : "Slot")}</span>
                 <span className="text-[10px] font-bold text-slate-500">{context.progressText || `Rif. ${context.completedLines}/${context.totalLines} · Pezzi ${context.picked}/${context.expected}`}</span>
               </div>
               <div className="mt-0.5 flex items-end gap-2">
