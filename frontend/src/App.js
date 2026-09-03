@@ -67,6 +67,7 @@ import WmsAppCartBags from "@/pages/wms/WmsAppCartBags";
 import WmsAppStockMovement from "@/pages/wms/WmsAppStockMovement";
 import WmsAppPackagingLabels from "@/pages/wms/WmsAppPackagingLabels";
 import WmsAppRefill from "@/pages/wms/WmsAppRefill";
+import WmsAppPackingRemote from "@/pages/wms/WmsAppPackingRemote";
 
 const AdminWmsWarehouseMap = lazy(() => import("@/pages/admin/WmsWarehouseMap"));
 
@@ -167,6 +168,8 @@ function App() {
               <Route path="picking/:orderId" element={<WmsAppPicking />} />
               <Route path="picking-massivo" element={<WmsAppMassPicking />} />
               <Route path="picking-massivo/:batchId" element={<WmsAppMassPicking />} />
+              <Route path="picking-mono" element={<WmsAppMassPicking mode="mono" />} />
+              <Route path="picking-mono/:batchId" element={<WmsAppMassPicking mode="mono" />} />
               <Route path="picking-galluse" element={<WmsAppGalluse />} />
               <Route path="picking-galluse/:batchId" element={<WmsAppGalluse />} />
               <Route path="packing" element={<Navigate to="/packing-station" replace />} />
@@ -177,6 +180,7 @@ function App() {
               <Route path="strumenti" element={<WmsAppTools />} />
               <Route path="carrelli-bag" element={<WmsAppCartBags />} />
               <Route path="barcode-imballaggi" element={<WmsAppPackagingLabels />} />
+              <Route path="packing-remoto" element={<WmsAppPackingRemote />} />
               <Route path="configurazione" element={<WmsAppSettings />} />
             </Route>
 

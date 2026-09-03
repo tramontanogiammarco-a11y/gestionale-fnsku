@@ -5345,6 +5345,7 @@ function massGroupsFromOrders(orders = []) {
     if (!isVerifiedQueuedOrder(order) || order.wms_status !== "da_preparare" || !(order.items || []).length) continue;
     if (order.raw?.preparation_method === "galluse") continue;
     if ((order.items || []).some((item) => !item.referenza_id || Number(item.quantita || 0) <= 0)) continue;
+    if ((order.items || []).length === 1 && Number(order.items[0].quantita || 0) === 1) continue;
     const signature = massOrderSignature(order);
     const key = `${order.cliente_id}:${signature}`;
     if (!groups.has(key)) groups.set(key, { key, signature, cliente_id: order.cliente_id, cliente: order.cliente_ragione_sociale, orders: [], products: [] });
@@ -5373,6 +5374,7 @@ async function listWmsMassPicking(params = new URLSearchParams()) {
   const { data: batches, error: batchesError } = await requireSupabase()
     .from("wms_mass_pick_batches")
     .select("*")
+    .eq("picking_mode", "massivo")
     .neq("stato", "annullata")
     .order("created_at", { ascending: false });
   if (batchesError) fail(batchesError.message);
@@ -5396,6 +5398,68 @@ async function listWmsMassPicking(params = new URLSearchParams()) {
       lines: (batchLines || []).filter((line) => line.batch_id === batch.id),
     })),
     separate_orders: operational.orders.filter((order) => order.wms_status === "da_preparare" && !groups.some((group) => group.orders.some((candidate) => candidate.id === order.id))).length,
+  });
+}
+
+function monoCandidateOrders(orders = []) {
+  return (orders || []).filter((order) => (
+    isVerifiedQueuedOrder(order)
+    && order.wms_status === "da_preparare"
+    && (order.items || []).length === 1
+    && Boolean(order.items[0].referenza_id)
+    && Number(order.items[0].quantita || 0) === 1
+  ));
+}
+
+function monoGroupsFromOrders(orders = []) {
+  const byClient = new Map();
+  for (const order of monoCandidateOrders(orders)) {
+    const group = byClient.get(order.cliente_id) || {
+      key: `mono:${order.cliente_id}`,
+      signature: `mono:${order.cliente_id}`,
+      cliente_id: order.cliente_id,
+      cliente: order.cliente_ragione_sociale,
+      orders: [],
+      products: new Map(),
+    };
+    group.orders.push(order);
+    const item = order.items[0];
+    const product = group.products.get(item.referenza_id) || {
+      referenza_id: item.referenza_id,
+      titolo: item.titolo,
+      ean: item.ean,
+      sku: item.sku,
+      quantita_totale: 0,
+    };
+    product.quantita_totale += 1;
+    group.products.set(item.referenza_id, product);
+    byClient.set(order.cliente_id, group);
+  }
+  return [...byClient.values()].map((group) => ({
+    ...group,
+    products: [...group.products.values()],
+    numero_ordini: group.orders.length,
+    pezzi_totali: group.orders.length,
+  })).sort((left, right) => right.numero_ordini - left.numero_ordini);
+}
+
+async function listWmsMonoPicking(params = new URLSearchParams()) {
+  await assertWmsStaff();
+  const operational = await wmsOperationalOrdersData(params);
+  const groups = monoGroupsFromOrders(operational.orders);
+  let batchesQuery = requireSupabase().from("wms_mass_pick_batches").select("*").eq("picking_mode", "mono").neq("stato", "annullata");
+  if (optionalText(params.get("cliente_id"))) batchesQuery = batchesQuery.eq("cliente_id", params.get("cliente_id"));
+  const { data: batches, error: batchesError } = await batchesQuery.order("created_at", { ascending: false });
+  if (batchesError) fail(batchesError.message);
+  const batchIds = (batches || []).map((batch) => batch.id);
+  const { data: links, error: linksError } = batchIds.length
+    ? await requireSupabase().from("wms_mass_pick_orders").select("*").in("batch_id", batchIds)
+    : { data: [], error: null };
+  if (linksError) fail(linksError.message);
+  return ok({
+    groups,
+    batches: (batches || []).map((batch) => ({ ...batch, orders: (links || []).filter((link) => link.batch_id === batch.id) })),
+    separate_orders: operational.orders.filter((order) => order.wms_status === "da_preparare" && !monoCandidateOrders([order]).length).length,
   });
 }
 
@@ -5965,6 +6029,88 @@ async function startWmsMassPicking(payload = {}) {
   return wmsMassPickSnapshot(batch.id);
 }
 
+async function startWmsMonoPicking(payload = {}) {
+  const profile = await assertWmsStaff();
+  const requestedClientId = optionalText(payload.cliente_id);
+  const operational = await wmsOperationalOrdersData(new URLSearchParams(requestedClientId ? { cliente_id: requestedClientId } : {}));
+  const groups = monoGroupsFromOrders(operational.orders);
+  const group = groups.find((candidate) => !requestedClientId || candidate.cliente_id === requestedClientId);
+  if (!group?.orders?.length) fail("Non ci sono ordini mono-prodotto disponibili.", 409);
+
+  const { data: active, error: activeError } = await requireSupabase()
+    .from("wms_mass_pick_batches")
+    .select("id")
+    .eq("picking_mode", "mono")
+    .in("stato", ["in_corso", "da_confermare_bag"])
+    .limit(1);
+  if (activeError) fail(activeError.message);
+  if ((active || []).length) fail("Completa prima la missione mono-prodotto già aperta.", 409);
+
+  const orders = group.orders;
+  const orderIds = orders.map((order) => order.id);
+  const combinedItems = orders.map((order) => order.items[0]);
+  const queuedSlotReserved = await verifiedQueuedReservationsExcept(group.cliente_id, orderIds);
+  const plan = await wmsPickingPlan({ cliente_id: group.cliente_id }, combinedItems, { queuedSlotReserved });
+  if (plan.errors.length) fail(plan.errors.join(" "));
+  if (plan.replenishment.length) fail(`Rifornisci prima gli slot per ${plan.replenishment.length} ${plan.replenishment.length === 1 ? "prodotto" : "prodotti"}.`);
+
+  const uniqueLocations = [...new Set(plan.allocations.map((allocation) => allocation.location_id))]
+    .map((id) => plan.locationMap[id]).filter(Boolean);
+  const physicalStops = [...new Map(uniqueLocations.map((location) => [wmsPhysicalBlockKey(location), location])).values()];
+  const route = calculateWarehouseRoute(visibleWmsRouteLocations(physicalStops, plan.mapSettings), plan.mapSettings);
+  if (route.unreachable?.length) fail(`Mappa bloccata: ${route.unreachable.map((location) => location.codice).join(", ")} non è raggiungibile.`);
+
+  const { data: batch, error: batchError } = await requireSupabase().from("wms_mass_pick_batches").insert({
+    cliente_id: group.cliente_id,
+    signature: `mono:${group.cliente_id}:${Date.now()}`,
+    picking_mode: "mono",
+    stato: "in_corso",
+    operatore_id: profile.id,
+  }).select().single();
+  if (batchError || !batch) fail(batchError?.message || "Missione mono-prodotto non creata");
+
+  const blockSequence = Object.fromEntries(route.locations.map((location, index) => [wmsPhysicalBlockKey(location), index + 1]));
+  const sequenceMap = Object.fromEntries(uniqueLocations.map((location) => [location.id, blockSequence[wmsPhysicalBlockKey(location)] || 9999]));
+  const itemReferenceMap = Object.fromEntries(combinedItems.map((item) => [item.id, item.referenza_id]));
+  const groupedLines = new Map();
+  for (const allocation of plan.allocations) {
+    const key = `${allocation.location_id}:${allocation.product_key}`;
+    const current = groupedLines.get(key) || { ...allocation, quantita_attesa: 0 };
+    current.quantita_attesa += Number(allocation.quantita_attesa || 0);
+    current.referenza_id = itemReferenceMap[allocation.order_item_id];
+    groupedLines.set(key, current);
+  }
+  const lines = [...groupedLines.values()]
+    .sort((left, right) => (sequenceMap[left.location_id] || 9999) - (sequenceMap[right.location_id] || 9999)
+      || naturalLocationSort(plan.locationMap[left.location_id], plan.locationMap[right.location_id])
+      || String(left.titolo || "").localeCompare(String(right.titolo || ""), "it"))
+    .map((line, index) => ({
+      batch_id: batch.id,
+      referenza_id: line.referenza_id,
+      location_id: line.location_id,
+      product_key: line.product_key,
+      titolo: line.titolo,
+      ean: line.ean,
+      fnsku: line.fnsku,
+      sku: line.sku,
+      quantita_per_ordine: 1,
+      numero_ordini: line.quantita_attesa,
+      quantita_attesa: line.quantita_attesa,
+      sequenza: index + 1,
+    }));
+
+  const [{ error: linksError }, { error: linesError }, { error: statusesError }] = await Promise.all([
+    requireSupabase().from("wms_mass_pick_orders").insert(orderIds.map((orderId, index) => ({ batch_id: batch.id, order_id: orderId, packing_sequence: index + 1 }))),
+    requireSupabase().from("wms_mass_pick_lines").insert(lines),
+    requireSupabase().from("shopify_orders").update({ wms_status: "in_preparazione", updated_at: nowIso() }).in("id", orderIds),
+  ]);
+  if (linksError || linesError || statusesError) {
+    await requireSupabase().from("wms_mass_pick_batches").delete().eq("id", batch.id);
+    fail((linksError || linesError || statusesError).message);
+  }
+  return wmsMassPickSnapshot(batch.id);
+}
+
 async function scanWmsMassPicking(batchId, payload = {}) {
   const profile = await assertWmsStaff();
   const snapshot = await wmsMassPickSnapshot(batchId);
@@ -6037,6 +6183,7 @@ function galluseCandidateOrders(orders = []) {
     order.wms_status === "da_preparare"
     && order.gate_status === "sbloccato"
     && !massOrderIds.has(order.id)
+    && !monoCandidateOrders([order]).length
     && (order.items || []).length > 0
     && !(order.items || []).some((item) => !item.referenza_id || Number(item.quantita || 0) <= 0)
   ));
@@ -7029,6 +7176,7 @@ async function packingStationSnapshot(bagCode) {
   const hasPendingBagCheck = sessions.some((session) => session.stato === "in_verifica_bag");
   const hasPendingPackaging = sessions.some((session) => session.stato === "in_attesa_imballaggio");
   const pendingLabels = labels.filter((label) => !label.scanned);
+  const monoMode = snapshot.data.batch?.picking_mode === "mono";
   return ok({
     bag_code: bagCode,
     batch: snapshot.data.batch || null,
@@ -7038,6 +7186,12 @@ async function packingStationSnapshot(bagCode) {
     packaging_options: packagingOptions || [],
     phase: sessions.every((session) => session.stato === "completata")
       ? "completed"
+      : monoMode && hasPendingPackaging
+        ? "scan_packaging"
+        : monoMode && pendingLabels.length
+          ? "scan_labels"
+          : monoMode
+            ? "select_product"
       : hasPendingBagCheck
         ? "double_check"
         : hasPendingPackaging
@@ -7046,6 +7200,22 @@ async function packingStationSnapshot(bagCode) {
             ? "scan_labels"
             : "scan_bag",
   });
+}
+
+async function selectWmsMonoPackingProduct(payload = {}) {
+  await assertWmsStaff();
+  const bagCode = normalizedScanCode(payload.bag_code);
+  if (!bagCode) fail("Scansiona prima la bag mono-prodotto");
+  const snapshot = await packingStationSnapshot(bagCode);
+  if (snapshot.data.batch?.picking_mode !== "mono") fail("Questa bag non appartiene al picking mono-prodotto", 409);
+  if (snapshot.data.phase !== "select_product") fail("Completa prima il prodotto già selezionato", 409);
+  const { error } = await requireSupabase().rpc("claim_wms_mono_packing_item", {
+    p_batch_id: snapshot.data.batch.id,
+    p_identifier: optionalText(payload.code || payload.codice),
+    p_session_id: optionalText(payload.session_id),
+  });
+  if (error) fail(error.message);
+  return packingStationSnapshot(bagCode);
 }
 
 async function completePackingLabel(session) {
@@ -7143,6 +7313,7 @@ async function scanWmsPackingStation(payload = {}) {
     if (/^(SCATOLA-(PICCOLA|MEDIA|GRANDE)|BUSTA-CORRIERE)$/.test(code)) fail("Scansiona prima la bag da imballare");
     if (!/^B-[A-Z0-9]{5}$/.test(code)) fail("Scansiona prima il barcode della bag");
     const snapshot = await packingStationSnapshot(code);
+    if (snapshot.data.batch?.picking_mode === "mono" && snapshot.data.phase === "select_product") return snapshot;
     if (snapshot.data.phase === "completed") {
       if (/^CARRELLO-[0-9]{2}$/.test(normalizedScanCode(payload.cart_code))) return packingCartSnapshot(payload.cart_code);
       return snapshot;
@@ -7173,6 +7344,9 @@ async function scanWmsPackingStation(payload = {}) {
   } catch (error) {
     if (!code.startsWith("PK-")) throw error;
     snapshot = await packingStationSnapshotForLabel(code);
+  }
+  if (snapshot.data.phase === "select_product" && snapshot.data.batch?.picking_mode === "mono") {
+    return selectWmsMonoPackingProduct({ bag_code: activeBagCode, code });
   }
   if (code === activeBagCode) {
     const awaitingDoubleCheck = snapshot.data.sessions.filter((session) => session.stato === "in_verifica_bag");
@@ -8524,7 +8698,9 @@ export const api = {
     if (path === "/wms/refill") return listWmsRefillQueue(params);
     if (path.match(/^\/wms\/refill\/[^/]+$/)) return wmsRefillMissionSnapshot(path.split("/")[3]);
     if (path === "/wms/picking-massivo") return listWmsMassPicking(params);
+    if (path === "/wms/picking-mono") return listWmsMonoPicking(params);
     if (path.match(/^\/wms\/picking-massivo\/[^/]+$/)) return wmsMassPickSnapshot(path.split("/")[3]);
+    if (path.match(/^\/wms\/picking-mono\/[^/]+$/)) return wmsMassPickSnapshot(path.split("/")[3]);
     if (path === "/wms/picking-galluse") return listWmsGallusePicking(params);
     if (path.match(/^\/wms\/picking-galluse\/[^/]+$/)) return wmsGalluseSnapshot(path.split("/")[3]);
     if (path === "/wms/packing") return listWmsPacking();
@@ -8586,7 +8762,10 @@ export const api = {
     if (path.match(/^\/wms\/carrelli\/[^/]+\/bag$/)) return assignWmsCartBag(decodeURIComponent(path.split("/")[3]), payload);
     if (path.match(/^\/wms\/carrelli\/[^/]+\/rimuovi-bag$/)) return removeWmsCartBag(decodeURIComponent(path.split("/")[3]), payload);
     if (path === "/wms/picking-massivo/avvia") return startWmsMassPicking(payload);
+    if (path === "/wms/picking-mono/avvia") return startWmsMonoPicking(payload);
     if (path.match(/^\/wms\/picking-massivo\/[^/]+\/scan$/)) return scanWmsMassPicking(path.split("/")[3], payload);
+    if (path.match(/^\/wms\/picking-mono\/[^/]+\/scan$/)) return scanWmsMassPicking(path.split("/")[3], payload);
+    if (path === "/wms/packing/mono/select") return selectWmsMonoPackingProduct(payload);
     if (path === "/wms/picking-galluse/avvia") return startWmsGallusePicking(payload);
     if (path.match(/^\/wms\/picking-galluse\/[^/]+\/bag$/)) return assignWmsGalluseBag(path.split("/")[3], payload);
     if (path.match(/^\/wms\/picking-galluse\/[^/]+\/scan$/)) return scanWmsGallusePicking(path.split("/")[3], payload);

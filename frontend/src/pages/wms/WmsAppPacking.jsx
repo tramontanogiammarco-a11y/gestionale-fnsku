@@ -54,11 +54,23 @@ function printBlobWithBrowserDialog(blob) {
   document.body.appendChild(frame);
 }
 
-function ActiveBagContents({ station, phase, working, onLabelScan, sectionRef }) {
+function ActiveBagContents({ station, phase, working, onLabelScan, onProductSelect, sectionRef }) {
   if (!station?.sessions?.length) return null;
   const needsDoubleCheck = phase === "double_check";
   const scanningPackaging = phase === "scan_packaging";
   const scanningLabels = phase === "scan_labels";
+  const monoMode = station.batch?.picking_mode === "mono";
+  const monoProducts = [...station.sessions
+    .filter((session) => session.stato === "in_attesa_packing")
+    .reduce((groups, session) => {
+      const line = session.lines?.[0];
+      if (!line) return groups;
+      const key = line.referenza_id || line.ean || line.fnsku || line.sku || line.id;
+      const current = groups.get(key) || { ...line, count: 0, sessionId: session.id };
+      current.count += 1;
+      groups.set(key, current);
+      return groups;
+    }, new Map()).values()];
 
   return <section ref={sectionRef} className={`scroll-mt-3 rounded-md border-2 p-4 shadow-sm sm:p-5 ${needsDoubleCheck ? "border-amber-500 bg-amber-50" : scanningPackaging ? "border-sky-500 bg-sky-50" : scanningLabels ? "border-teal-500 bg-teal-50" : "border-slate-200 bg-white"}`}>
     <div className="flex flex-wrap items-center gap-3">
@@ -68,15 +80,23 @@ function ActiveBagContents({ station, phase, working, onLabelScan, sectionRef })
         <h2 className="font-mono text-3xl font-black leading-none text-slate-950 sm:text-4xl">{station.bag_code}</h2>
       </div>
       <div className={`w-full rounded-md px-3 py-2 text-center text-sm font-black sm:w-auto ${needsDoubleCheck ? "bg-amber-600 text-white" : scanningLabels ? "bg-teal-700 text-white" : "bg-slate-100 text-slate-800"}`}>
-        {needsDoubleCheck ? "RISCANSIONA QUESTA BAG" : scanningPackaging ? "SCANSIONA IMBALLAGGIO" : scanningLabels ? "SCANSIONA ETICHETTA" : `${station.summary.orders} ${station.summary.orders === 1 ? "ordine" : "ordini"}`}
+        {needsDoubleCheck ? "RISCANSIONA QUESTA BAG" : phase === "select_product" ? "SCEGLI UN PRODOTTO" : scanningPackaging ? "SCANSIONA IMBALLAGGIO" : scanningLabels ? "SCANSIONA ETICHETTA" : `${station.summary.orders} ${station.summary.orders === 1 ? "ordine" : "ordini"}`}
       </div>
     </div>
     {scanningPackaging && <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">{(station.packaging_options || []).map((item) => <div key={item.code} className={`rounded-md border bg-white p-3 ${Number(item.stock_quantity) > 0 ? "border-sky-200" : "border-rose-300"}`}><strong className="block text-xs">{item.name}</strong><code className="mt-1 block text-[10px] font-black text-slate-600">{item.barcode}</code><span className={`mt-2 block text-xs font-bold ${Number(item.stock_quantity) > 0 ? "text-teal-700" : "text-rose-700"}`}>{item.stock_quantity} disponibili</span></div>)}</div>}
     <div className="mt-4 flex items-center justify-between gap-3 border-t border-current/10 pt-3">
       <div><h3 className="text-base font-black">Contenuto della bag</h3><p className="text-xs text-slate-600">Controlla prodotti e quantita prima di chiuderla.</p></div>
-      <span className="shrink-0 rounded-full bg-white px-3 py-1 text-xs font-black shadow-sm">{station.batch ? "Massivo" : "1x1"}</span>
+      <span className="shrink-0 rounded-full bg-white px-3 py-1 text-xs font-black shadow-sm">{monoMode ? "Mono-prodotto" : station.batch ? "Massivo" : "1x1"}</span>
     </div>
-    <div className="mt-3 grid gap-3 md:grid-cols-2">
+    {monoMode && phase === "select_product" && <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+      {monoProducts.map((product) => <button key={product.sessionId} type="button" onClick={() => onProductSelect(product.sessionId)} disabled={working} className="relative min-h-44 overflow-hidden rounded-md border-2 border-slate-200 bg-white p-3 text-left transition hover:border-teal-500 disabled:opacity-60">
+        <span className="absolute right-2 top-2 rounded-md bg-slate-950 px-2 py-1 text-sm font-black text-white">×{product.count}</span>
+        {product.foto_url ? <img src={fileUrl(product.foto_url)} alt={product.titolo} className="h-24 w-full object-contain" /> : <span className="flex h-24 items-center justify-center text-slate-300"><ImageIcon className="h-8 w-8" /></span>}
+        <strong className="mt-2 block text-sm leading-4">{product.titolo}</strong>
+        <span className="mt-1 block truncate font-mono text-[10px] text-slate-500">{product.ean || product.fnsku || product.sku}</span>
+      </button>)}
+    </div>}
+    {phase !== "select_product" && <div className="mt-3 grid gap-3 md:grid-cols-2">
       {station.sessions.map((session, index) => <article key={session.id} className={`rounded-md border bg-white p-3 ${session.stato === "completata" ? "border-emerald-300" : needsDoubleCheck ? "border-amber-300" : "border-teal-200"}`}>
         <div className="flex items-center gap-3"><span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-black ${session.stato === "completata" ? "bg-emerald-600 text-white" : "bg-slate-950 text-white"}`}>{session.stato === "completata" ? <CheckCircle2 className="h-4 w-4" /> : index + 1}</span><div className="min-w-0 flex-1"><strong className="block truncate text-sm">Ordine {session.order?.order_name}</strong><span className="text-xs text-slate-500">{session.lines.length} referenze</span></div></div>
         <div className="mt-3 grid grid-cols-3 gap-2">{session.lines.map((line) => <div key={line.id} className="min-w-0 rounded-md bg-slate-50 p-2 text-center">{line.foto_url ? <img src={fileUrl(line.foto_url)} alt="" className="mx-auto h-14 w-full object-contain" /> : <span className="mx-auto flex h-14 items-center justify-center text-slate-300"><ImageIcon className="h-5 w-5" /></span>}<strong className="mt-1 block truncate text-[10px]">{line.titolo}</strong><span className="block text-sm font-black">x{line.quantita_attesa}</span></div>)}</div>
@@ -84,7 +104,7 @@ function ActiveBagContents({ station, phase, working, onLabelScan, sectionRef })
           ? <div className="mt-3 rounded-md bg-emerald-100 px-3 py-2 font-mono text-xs font-black text-emerald-800">ETICHETTA ACQUISITA</div>
           : <button type="button" onClick={() => onLabelScan(session.carrier_label_code)} disabled={working} className="mt-3 w-full rounded-md bg-amber-100 px-3 py-3 text-left font-mono text-xs font-black text-amber-900 hover:bg-amber-200 disabled:opacity-60">{session.carrier_label_code}</button>)}
       </article>)}
-    </div>
+    </div>}
   </section>;
 }
 
@@ -94,6 +114,8 @@ export default function WmsAppPacking() {
   const scanInFlightRef = useRef(false);
   const printRetryInFlightRef = useRef(false);
   const wakeLockRef = useRef(null);
+  const stationChannelRef = useRef(null);
+  const stationSnapshotRef = useRef(null);
   const [station, setStation] = useState(null);
   const [cart, setCart] = useState(null);
   const [code, setCode] = useState("");
@@ -105,7 +127,9 @@ export default function WmsAppPacking() {
   const [pairedDevices, setPairedDevices] = useState(0);
   const [remotePrintStatus, setRemotePrintStatus] = useState("ready");
   const [pendingCarrierPrint, setPendingCarrierPrint] = useState(null);
-  const stationQrUrl = useMemo(() => `${window.location.origin}/wms-app/barcode-imballaggi?station=${encodeURIComponent(printStationCode)}`, [printStationCode]);
+  const stationQrUrl = useMemo(() => `${window.location.origin}/wms-app/packing-remoto?station=${encodeURIComponent(printStationCode)}`, [printStationCode]);
+
+  useEffect(() => { stationSnapshotRef.current = station; }, [station]);
 
   const openCamera = useCallback(() => {
     setCameraSession((value) => value + 1);
@@ -214,6 +238,7 @@ export default function WmsAppPacking() {
     const channel = supabase.channel(printStationChannelName(printStationCode), {
       config: { broadcast: { ack: true }, presence: { key: `packing-${printStationCode}` } },
     });
+    stationChannelRef.current = channel;
 
     channel
       .on("presence", { event: "sync" }, () => {
@@ -294,22 +319,47 @@ export default function WmsAppPacking() {
           setRemotePrintStatus("ready");
         }
       })
+      .on("broadcast", { event: "request-packing-state" }, async () => {
+        await channel.send({ type: "broadcast", event: "packing-state", payload: { station: stationSnapshotRef.current } });
+      })
+      .on("broadcast", { event: "mono-product-select" }, async ({ payload }) => {
+        const current = stationSnapshotRef.current;
+        if (!current?.bag_code || current.batch?.picking_mode !== "mono" || payload?.bagCode !== current.bag_code) return;
+        try {
+          const response = await api.post("/wms/packing/mono/select", { bag_code: current.bag_code, session_id: payload?.sessionId });
+          stationSnapshotRef.current = response.data;
+          setStation(response.data);
+          await channel.send({ type: "broadcast", event: "mono-select-result", payload: { ok: true, requestId: payload?.requestId } });
+          await channel.send({ type: "broadcast", event: "packing-state", payload: { station: response.data } });
+          toast.success("Prodotto selezionato dal telefono: scansiona l'imballaggio");
+        } catch (error) {
+          await channel.send({ type: "broadcast", event: "mono-select-result", payload: { ok: false, requestId: payload?.requestId, message: error.response?.data?.detail || "Prodotto non disponibile" } });
+        }
+      })
       .subscribe(async (status) => {
         if (status === "SUBSCRIBED") {
           await channel.track({
             role: "station",
             stationCode: printStationCode,
-            capabilities: ["location-labels", "packaging-labels", "bag-labels"],
+            capabilities: ["location-labels", "packaging-labels", "bag-labels", "mono-packing"],
             onlineAt: new Date().toISOString(),
           });
         }
       });
 
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      stationChannelRef.current = null;
+      supabase.removeChannel(channel);
+    };
   }, [printStationCode]);
 
   useEffect(() => {
-    if (!station?.bag_code || !["double_check", "scan_packaging", "scan_labels"].includes(station.phase)) return;
+    if (!stationChannelRef.current) return;
+    stationChannelRef.current.send({ type: "broadcast", event: "packing-state", payload: { station } });
+  }, [station]);
+
+  useEffect(() => {
+    if (!station?.bag_code || !["select_product", "double_check", "scan_packaging", "scan_labels"].includes(station.phase)) return;
     window.setTimeout(() => activeBagRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
   }, [station?.bag_code, station?.phase]);
 
@@ -428,10 +478,11 @@ export default function WmsAppPacking() {
       setCode("");
       if (navigator.vibrate) navigator.vibrate([55, 35, 55]);
       if (next.phase === "cart_ready") toast.success("Carrello riconosciuto: ora scansiona una bag");
+      if (next.phase === "select_product" && station?.phase !== "select_product") toast.success("Bag mono-prodotto riconosciuta: scansiona il prodotto o seleziona la foto");
       if (next.phase === "double_check") toast.success("Bag riconosciuta: riscansionala per il doppio controllo");
       if (next.phase === "scan_packaging") toast.success("Bag confermata: scansiona scatola o busta corriere");
       if (next.phase === "scan_labels" && station?.phase === "scan_packaging") {
-        await printCarrierLabels(next.bag_code, next.labels);
+        await printCarrierLabels(next.bag_code, next.labels.filter((label) => !label.scanned));
         toast.success("Imballaggio associato e scalato: scansiona l'etichetta corriere");
       }
       if (next.phase === "completed") toast.success("Packing completato. Bag liberata.");
@@ -440,6 +491,22 @@ export default function WmsAppPacking() {
       if (navigator.vibrate) navigator.vibrate(180);
     } finally {
       scanInFlightRef.current = false;
+      setWorking(false);
+      focusScanner();
+    }
+  };
+
+  const selectMonoProduct = async (sessionId) => {
+    if (!station?.bag_code || working) return;
+    setWorking(true);
+    try {
+      const response = await api.post("/wms/packing/mono/select", { bag_code: station.bag_code, session_id: sessionId });
+      setStation(response.data);
+      toast.success("Prodotto riconosciuto: scansiona l'imballaggio");
+      if (navigator.vibrate) navigator.vibrate([55, 35, 55]);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Prodotto non disponibile");
+    } finally {
       setWorking(false);
       focusScanner();
     }
@@ -459,6 +526,8 @@ export default function WmsAppPacking() {
       ? "Scansiona scatola o busta corriere"
     : phase === "scan_labels"
       ? `Scansiona ${pendingLabels === 1 ? "l'etichetta corriere" : "tutte le etichette corriere"}`
+      : phase === "select_product"
+        ? "Scansiona un prodotto o seleziona la foto"
       : phase === "completed"
         ? "Bag liberata"
         : phase === "cart_ready"
@@ -490,7 +559,7 @@ export default function WmsAppPacking() {
       <div className="min-w-0 text-center sm:text-left">
         <div className="flex items-center justify-center gap-2 text-teal-800 sm:justify-start"><QrCode className="h-5 w-5" /><p className="text-xs font-black uppercase">Collega app e stampante</p></div>
         <h2 className="mt-2 text-xl font-black text-slate-950">Scansiona questo QR dal telefono</h2>
-        <p className="mt-1 text-sm leading-5 text-slate-600">Apre direttamente Barcode imballaggi e associa questo PC. Da lì puoi stampare sulla Zebra collegata alla station.</p>
+        <p className="mt-1 text-sm leading-5 text-slate-600">Apre il controllo remoto: nel picking mono-prodotto puoi scegliere dal telefono la foto del pezzo che hai in mano.</p>
         <div className="mt-3 flex flex-wrap items-center justify-center gap-2 sm:justify-start">
           <span className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-black ${pairedDevices > 0 ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"}`}><Smartphone className="h-4 w-4" /> {pairedDevices > 0 ? `${pairedDevices} dispositivo collegato` : "In attesa del telefono"}</span>
           <span className="rounded-md bg-slate-950 px-3 py-2 font-mono text-[11px] font-black text-white">{printStationCode}</span>
@@ -542,7 +611,7 @@ export default function WmsAppPacking() {
       </form>}
     </section>
 
-    <ActiveBagContents station={station} phase={phase} working={working} onLabelScan={submitScan} sectionRef={activeBagRef} />
+    <ActiveBagContents station={station} phase={phase} working={working} onLabelScan={submitScan} onProductSelect={selectMonoProduct} sectionRef={activeBagRef} />
 
     {visibleCart && visibleCartBags.length > 0 && <section className="rounded-md border border-slate-200 bg-white p-5">
       <div className="flex items-center justify-between gap-4">
@@ -599,7 +668,7 @@ export default function WmsAppPacking() {
       onOpenChange={(nextOpen) => {
         setCameraOpen(nextOpen);
       }}
-      purpose={phase === "scan_labels" ? "carrier_label" : phase === "cart_ready" || phase === "double_check" ? "bag" : "packing"}
+      purpose={phase === "scan_labels" ? "carrier_label" : phase === "select_product" ? "product" : phase === "cart_ready" || phase === "double_check" ? "bag" : "packing"}
       onDetected={(value) => {
         setCameraOpen(false);
         submitScan(value);

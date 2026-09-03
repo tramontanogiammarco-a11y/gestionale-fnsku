@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
-import { AlertTriangle, Boxes, ChevronRight, Clock3, Layers3, Loader2, PackageCheck, RefreshCw, Settings, ShoppingCart } from "lucide-react";
+import { AlertTriangle, Boxes, ChevronRight, Clock3, Layers3, Loader2, PackageCheck, RefreshCw, ScanLine, Settings, ShoppingCart } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -19,6 +19,7 @@ export default function WmsAppOrders() {
   const { clientId } = useOutletContext();
   const [data, setData] = useState(null);
   const [massData, setMassData] = useState(null);
+  const [monoData, setMonoData] = useState(null);
   const [galluseData, setGalluseData] = useState(null);
   const [refillData, setRefillData] = useState(null);
   const [tab, setTab] = useState("oggi");
@@ -31,14 +32,16 @@ export default function WmsAppOrders() {
       const query = new URLSearchParams();
       if (clientId && clientId !== "all") query.set("cliente_id", clientId);
       const suffix = query.toString() ? `?${query.toString()}` : "";
-      const [response, massResponse, galluseResponse, refillResponse] = await Promise.all([
+      const [response, massResponse, monoResponse, galluseResponse, refillResponse] = await Promise.all([
         api.get(`/wms/ordini${suffix}`),
         api.get(`/wms/picking-massivo${suffix}`),
+        api.get(`/wms/picking-mono${suffix}`),
         api.get(`/wms/picking-galluse${suffix}`),
         api.get(`/wms/refill${suffix}`),
       ]);
       setData(response.data);
       setMassData(massResponse.data);
+      setMonoData(monoResponse.data);
       setGalluseData(galluseResponse.data);
       setRefillData(refillResponse.data);
     } catch (error) {
@@ -55,12 +58,14 @@ export default function WmsAppOrders() {
     const massOrderIds = new Set([
       ...(massData?.groups || []).flatMap((group) => group.orders.map((order) => order.id)),
       ...(massData?.batches || []).flatMap((batch) => batch.orders.map((item) => item.order_id)),
+      ...(monoData?.groups || []).flatMap((group) => group.orders.map((order) => order.id)),
+      ...(monoData?.batches || []).flatMap((batch) => batch.orders.map((item) => item.order_id)),
       ...(galluseData?.batches || []).flatMap((batch) => batch.orders.map((item) => item.order_id)),
       ...(galluseData?.rounds || []).flatMap((round) => round.orders.map((order) => order.id)),
     ]);
     const individual = orders.filter((order) => !massOrderIds.has(order.id) && ["da_preparare", "in_preparazione"].includes(order.wms_status));
     return tab === "oggi" ? individual.filter((order) => order.wave !== "prossima") : individual.filter((order) => order.wave === "prossima");
-  }, [data, massData, galluseData, tab]);
+  }, [data, massData, monoData, galluseData, tab]);
 
   if (!data) return <div className="flex min-h-[65dvh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-teal-700" /></div>;
 
@@ -70,6 +75,10 @@ export default function WmsAppOrders() {
     .filter((batch) => ["in_corso", "da_confermare_bag"].includes(batch.stato))
     .reduce((sum, batch) => sum + (batch.orders?.length || 0), 0);
   const availableMassOrders = (massData?.groups || []).reduce((sum, group) => sum + group.numero_ordini, 0);
+  const activeMonoOrders = (monoData?.batches || [])
+    .filter((batch) => ["in_corso", "da_confermare_bag"].includes(batch.stato))
+    .reduce((sum, batch) => sum + (batch.orders?.length || 0), 0);
+  const availableMonoOrders = (monoData?.groups || []).reduce((sum, group) => sum + group.numero_ordini, 0);
   const refillTasks = Number(refillData?.tasks || 0);
   const activeGalluse = (galluseData?.batches || []).find((batch) => ["da_associare_bag", "in_corso"].includes(batch.stato));
   const nextGalluseRound = (galluseData?.rounds || [])[0];
@@ -100,6 +109,7 @@ export default function WmsAppOrders() {
       <section>
         <h2 className="mb-2 text-base font-bold">Preparazione</h2>
         <div className="space-y-2">
+          <button type="button" onClick={() => navigate("/wms-app/picking-mono")} className="wms-action-row"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-800"><ScanLine className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className="block font-extrabold">Mono-prodotto</strong><span className="mt-1 block text-xs font-medium text-slate-500">{activeMonoOrders || availableMonoOrders} ordini da un solo pezzo</span></span><ChevronRight className="h-5 w-5 text-slate-400" /></button>
           <button type="button" onClick={startGalluse} className="wms-action-row"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-sky-50 text-sky-800"><ShoppingCart className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className="block font-extrabold">Metodo Galluse</strong><span className="mt-1 block text-xs font-medium text-slate-500">{activeGalluse ? `Riprendi ${activeGalluse.cart_code || "missione"} · ${activeGalluse.numero_bag} ordini` : nextGalluseRound ? `${nextGalluseRound.totale_ordini} ordini · scansiona un carrello` : "Nessun compito disponibile"}</span></span><ChevronRight className="h-5 w-5 text-slate-400" /></button>
           <button type="button" onClick={() => navigate("/wms-app/picking-massivo")} className="wms-action-row"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-violet-50 text-violet-800"><Layers3 className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className="block font-extrabold">Massivo</strong><span className="mt-1 block text-xs font-medium text-slate-500">{activeMassOrders || availableMassOrders} ordini disponibili</span></span><ChevronRight className="h-5 w-5 text-slate-400" /></button>
           <button type="button" onClick={() => navigate("/wms-app/refill")} className={`wms-action-row ${refillTasks ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-white"}`}><span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-md ${refillTasks ? "bg-white text-amber-800" : "bg-slate-100 text-slate-600"}`}><Boxes className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className={`block font-extrabold ${refillTasks ? "text-amber-950" : "text-slate-950"}`}>Refill</strong><span className={`mt-1 block text-xs font-bold ${refillTasks ? "text-amber-800" : "text-slate-500"}`}>{refillTasks ? `${refillTasks} attività da eseguire` : "Nessuna attività in attesa"}</span></span><ChevronRight className={`h-5 w-5 ${refillTasks ? "text-amber-700" : "text-slate-400"}`} /></button>
