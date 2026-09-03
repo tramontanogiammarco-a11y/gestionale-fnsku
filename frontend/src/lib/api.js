@@ -4340,7 +4340,13 @@ async function verifiedQueuedReservationsExcept(clienteId, excludedOrderIds = []
 async function wmsPickingPlan(order, items, options = {}) {
   const missingReferences = (items || []).filter((item) => !item.referenza_id);
   if (missingReferences.length) {
-    return { ready: false, allocations: [], replenishment: [], errors: [`Collega prima ${missingReferences.length} ${missingReferences.length === 1 ? "riga" : "righe"} alle referenze.`] };
+    return {
+      ready: false,
+      allocations: [],
+      replenishment: [],
+      errors: [`Collega prima ${missingReferences.length} ${missingReferences.length === 1 ? "riga" : "righe"} alle referenze.`],
+      unavailableOrderItemIds: missingReferences.map((item) => item.id),
+    };
   }
 
   const referenceIds = [...new Set((items || []).map((item) => item.referenza_id))];
@@ -4433,11 +4439,13 @@ async function wmsPickingPlan(order, items, options = {}) {
   const allocations = [];
   const replenishment = [];
   const errors = [];
+  const unavailableOrderItemIds = new Set();
 
   for (const item of items || []) {
     const reference = referenceMap[item.referenza_id];
     if (!reference) {
       errors.push(`Referenza non trovata per ${item.titolo}`);
+      unavailableOrderItemIds.add(item.id);
       continue;
     }
     const productKey = pickingProductKey(reference);
@@ -4448,6 +4456,7 @@ async function wmsPickingPlan(order, items, options = {}) {
     ));
     if (!product || !productKey) {
       errors.push(`Nessuno stock disponibile per ${reference.titolo || item.titolo}`);
+      unavailableOrderItemIds.add(item.id);
       continue;
     }
 
@@ -4479,6 +4488,7 @@ async function wmsPickingPlan(order, items, options = {}) {
     }
 
     if (remaining > 0) {
+      unavailableOrderItemIds.add(item.id);
       const palletSources = (product.ubicazioni || [])
         .filter((location) => location.tipo === "pallet" && Number(location.quantita || 0) > 0)
         .sort(naturalLocationSort)
@@ -4519,6 +4529,7 @@ async function wmsPickingPlan(order, items, options = {}) {
     allocations,
     replenishment,
     errors,
+    unavailableOrderItemIds: [...unavailableOrderItemIds],
     locationMap,
     mapSettings: {
       ...mapSettings,
@@ -5464,10 +5475,53 @@ function monoGroupsFromOrders(orders = []) {
   })).sort((left, right) => right.numero_ordini - left.numero_ordini);
 }
 
+async function startableMonoGroupsFromOrders(orders = []) {
+  const checkedGroups = [];
+  for (const group of monoGroupsFromOrders(orders)) {
+    const sortedOrders = [...group.orders].sort((left, right) => (
+      String(left.processed_at || left.created_at || "").localeCompare(String(right.processed_at || right.created_at || ""))
+      || String(left.id).localeCompare(String(right.id))
+    ));
+    const orderIds = sortedOrders.map((order) => order.id);
+    const queuedSlotReserved = await verifiedQueuedReservationsExcept(group.cliente_id, orderIds);
+    const plan = await wmsPickingPlan(
+      { cliente_id: group.cliente_id },
+      sortedOrders.map((order) => order.items[0]),
+      { queuedSlotReserved },
+    );
+    const unavailableItems = new Set(plan.unavailableOrderItemIds || []);
+    const startableOrders = sortedOrders.filter((order) => !unavailableItems.has(order.items[0].id));
+    const [startableGroup] = monoGroupsFromOrders(startableOrders);
+    if (startableGroup) {
+      checkedGroups.push({
+        ...startableGroup,
+        refill_orders: sortedOrders.length - startableOrders.length,
+      });
+    }
+  }
+  return checkedGroups.sort((left, right) => right.numero_ordini - left.numero_ordini);
+}
+
 async function listWmsMonoPicking(params = new URLSearchParams()) {
   await assertWmsStaff();
   const operational = await wmsOperationalOrdersData(params);
-  const groups = monoGroupsFromOrders(operational.orders);
+  const monoCandidates = monoCandidateOrders(operational.orders);
+  const groups = await startableMonoGroupsFromOrders(operational.orders);
+  const startableOrderIds = new Set(groups.flatMap((group) => group.orders.map((order) => order.id)));
+  const refillOrders = monoCandidates.filter((order) => !startableOrderIds.has(order.id));
+  const refillProducts = [...refillOrders.reduce((products, order) => {
+    const item = order.items[0];
+    const current = products.get(item.referenza_id) || {
+      referenza_id: item.referenza_id,
+      titolo: item.titolo,
+      ean: item.ean,
+      sku: item.sku,
+      quantita: 0,
+    };
+    current.quantita += 1;
+    products.set(item.referenza_id, current);
+    return products;
+  }, new Map()).values()];
   let batchesQuery = requireSupabase().from("wms_mass_pick_batches").select("*").eq("picking_mode", "mono").neq("stato", "annullata");
   if (optionalText(params.get("cliente_id"))) batchesQuery = batchesQuery.eq("cliente_id", params.get("cliente_id"));
   const { data: batches, error: batchesError } = await batchesQuery.order("created_at", { ascending: false });
@@ -5480,6 +5534,8 @@ async function listWmsMonoPicking(params = new URLSearchParams()) {
   return ok({
     groups,
     batches: (batches || []).map((batch) => ({ ...batch, orders: (links || []).filter((link) => link.batch_id === batch.id) })),
+    refill_orders: refillOrders.length,
+    refill_products: refillProducts,
     separate_orders: operational.orders.filter((order) => order.wms_status === "da_preparare" && !monoCandidateOrders([order]).length).length,
   });
 }
@@ -6054,7 +6110,7 @@ async function startWmsMonoPicking(payload = {}) {
   const profile = await assertWmsStaff();
   const requestedClientId = optionalText(payload.cliente_id);
   const operational = await wmsOperationalOrdersData(new URLSearchParams(requestedClientId ? { cliente_id: requestedClientId } : {}));
-  const groups = monoGroupsFromOrders(operational.orders);
+  const groups = await startableMonoGroupsFromOrders(operational.orders);
   const group = groups.find((candidate) => !requestedClientId || candidate.cliente_id === requestedClientId);
   if (!group?.orders?.length) fail("Non ci sono ordini mono-prodotto disponibili.", 409);
 
