@@ -557,9 +557,20 @@ export default function WmsAppPacking() {
           : "Scansiona un carrello o una bag";
 
   return <div className="wms-page mx-auto max-w-5xl pb-24" data-testid="wms-packing-station">
-    <header className="wms-page-header items-start gap-4">
-      <div><p className="wms-eyebrow">Outbound</p><h1 className="wms-title">Packing station</h1><p className="wms-subtitle">Scanner sempre pronto. La fotocamera si apre solo quando serve.</p></div>
-      <div className="flex flex-col items-end gap-2">
+    <header className="wms-page-header flex-col items-start gap-4 lg:flex-row">
+      <div className="min-w-0 flex-1"><p className="wms-eyebrow">Outbound</p><h1 className="wms-title">Packing station</h1><p className="wms-subtitle">Scanner sempre pronto. La fotocamera si apre solo quando serve.</p></div>
+      <div className="flex w-full shrink-0 flex-col items-center gap-3 lg:w-[244px] lg:items-end">
+        <section className="w-full rounded-md border border-teal-300 bg-white p-3 shadow-sm">
+          <div className="mx-auto w-fit rounded-md border border-slate-200 bg-white p-2">
+            <QrCodeSvg value={stationQrUrl} size={196} className="h-[196px] w-[196px]" />
+          </div>
+          <div className="mt-3 flex items-center justify-center gap-2 text-teal-800"><QrCode className="h-4 w-4" /><p className="text-[10px] font-black uppercase">Collega telefono</p></div>
+          <div className="mt-2 flex flex-col items-center gap-2">
+            <span className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-black ${pairedDevices > 0 ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"}`}><Smartphone className="h-4 w-4" /> {pairedDevices > 0 ? `${pairedDevices} dispositivo collegato` : "In attesa del telefono"}</span>
+            <span className="rounded-md bg-slate-950 px-3 py-2 font-mono text-[11px] font-black text-white">{printStationCode}</span>
+            {remotePrintStatus === "printing" && <span className="inline-flex items-center gap-2 rounded-md bg-amber-100 px-3 py-2 text-xs font-black text-amber-800"><Loader2 className="h-4 w-4 animate-spin" /> Stampa in corso</span>}
+          </div>
+        </section>
         <button type="button" onClick={() => checkZebra({ notify: true })} className={`flex h-10 shrink-0 items-center gap-2 rounded-md border px-3 text-xs font-black ${zebra.status === "ready" ? "border-emerald-300 bg-emerald-50 text-emerald-800" : zebra.status === "checking" ? "border-slate-300 bg-white text-slate-600" : "border-rose-300 bg-rose-50 text-rose-700"}`}>
           {zebra.status === "checking" ? <Loader2 className="h-4 w-4 animate-spin" /> : zebra.status === "ready" ? <Printer className="h-4 w-4" /> : <CircleAlert className="h-4 w-4" />}
           <span>{zebra.status === "ready" ? zebra.name : zebra.status === "checking" ? "Cerco Zebra" : "Zebra non collegata"}</span>
@@ -574,21 +585,6 @@ export default function WmsAppPacking() {
         </div>
       </div>
     </header>
-    <section className="mb-4 grid gap-4 rounded-md border border-teal-200 bg-white p-4 shadow-sm sm:grid-cols-[144px_1fr] sm:items-center">
-      <div className="mx-auto rounded-md border border-slate-200 bg-white p-2 shadow-sm sm:mx-0">
-        <QrCodeSvg value={stationQrUrl} size={124} className="h-[124px] w-[124px]" />
-      </div>
-      <div className="min-w-0 text-center sm:text-left">
-        <div className="flex items-center justify-center gap-2 text-teal-800 sm:justify-start"><QrCode className="h-5 w-5" /><p className="text-xs font-black uppercase">Collega app e stampante</p></div>
-        <h2 className="mt-2 text-xl font-black text-slate-950">Scansiona questo QR dal telefono</h2>
-        <p className="mt-1 text-sm leading-5 text-slate-600">Apre il controllo remoto: nel picking mono-prodotto puoi scegliere dal telefono la foto del pezzo che hai in mano.</p>
-        <div className="mt-3 flex flex-wrap items-center justify-center gap-2 sm:justify-start">
-          <span className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-xs font-black ${pairedDevices > 0 ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"}`}><Smartphone className="h-4 w-4" /> {pairedDevices > 0 ? `${pairedDevices} dispositivo collegato` : "In attesa del telefono"}</span>
-          <span className="rounded-md bg-slate-950 px-3 py-2 font-mono text-[11px] font-black text-white">{printStationCode}</span>
-          {remotePrintStatus === "printing" && <span className="inline-flex items-center gap-2 rounded-md bg-amber-100 px-3 py-2 text-xs font-black text-amber-800"><Loader2 className="h-4 w-4 animate-spin" /> Stampa in corso</span>}
-        </div>
-      </div>
-    </section>
     {zebra.status === "unavailable" && <div className="mb-4 flex items-start gap-3 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><CircleAlert className="mt-0.5 h-5 w-5 shrink-0" /><div><strong className="block">Stampa automatica Zebra non attiva</strong><span className="mt-1 block text-xs leading-5">Controlla che Zebra Browser Print sia aperto e la stampante collegata. La station verifica il collegamento e riprende la stampa automaticamente.</span></div></div>}
 
     <section className={`rounded-md border-2 bg-white p-5 shadow-sm ${pendingCarrierPrint ? "border-amber-500" : phase === "completed" ? "border-emerald-500" : phase === "scan_packaging" ? "border-sky-500" : phase === "scan_labels" ? "border-teal-500" : "border-slate-950"}`}>
