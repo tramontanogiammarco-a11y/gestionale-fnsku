@@ -122,6 +122,13 @@ function App() {
               <Route path="billing" element={<ControlBilling />} />
               <Route path="tickets" element={<ControlTickets />} />
               <Route path="integrations" element={<WmsIntegrationsRoute />} />
+              <Route path="prep" element={<ProtectedRoute roles={["cliente"]}><Navigate to="/wms/prep/preparazioni" replace /></ProtectedRoute>} />
+              <Route path="prep/referenze" element={<ProtectedRoute roles={["cliente"]}><ClientReferenze /></ProtectedRoute>} />
+              <Route path="prep/entrate" element={<ProtectedRoute roles={["cliente"]}><ClientEntrate basePath="/wms/prep" /></ProtectedRoute>} />
+              <Route path="prep/entrate/:id" element={<ProtectedRoute roles={["cliente"]}><ClientEntrataDetail basePath="/wms/prep" /></ProtectedRoute>} />
+              <Route path="prep/preparazioni" element={<ProtectedRoute roles={["cliente"]}><ClientPreparazioni basePath="/wms/prep" /></ProtectedRoute>} />
+              <Route path="prep/preparazioni/:id" element={<ProtectedRoute roles={["cliente"]}><ClientPreparazioneDetail basePath="/wms/prep" /></ProtectedRoute>} />
+              <Route path="prep/box" element={<ProtectedRoute roles={["cliente"]}><ClientBox /></ProtectedRoute>} />
               <Route path="control-room" element={<ProtectedRoute roles={["admin", "staff"]}><WmsControlRoom /></ProtectedRoute>} />
               <Route path="operatori" element={<ProtectedRoute roles={["admin"]}><WmsOperators /></ProtectedRoute>} />
               <Route path="prezzari" element={<ProtectedRoute roles={["admin", "staff"]}><WmsPricing /></ProtectedRoute>} />

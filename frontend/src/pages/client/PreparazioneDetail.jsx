@@ -24,9 +24,10 @@ function statoCliente(prep) {
   return isPreparazioneAttiva(prep) ? prep.stato : "spedito";
 }
 
-export default function ClientPreparazioneDetail() {
+export default function ClientPreparazioneDetail({ basePath = "/app" }) {
   const { id } = useParams();
   const navigate = useNavigate();
+  const preparazioniPath = `${basePath}/preparazioni`;
   const [prep, setPrep] = useState(null);
   const [note, setNote] = useState("");
   const [righe, setRighe] = useState([]);
@@ -51,9 +52,9 @@ export default function ClientPreparazioneDetail() {
       if (s === 403) toast.error("Questa preparazione non appartiene al tuo account.");
       else if (s === 404) toast.error("Preparazione non trovata.");
       else if (s !== 401) toast.error("Impossibile caricare la preparazione.");
-      navigate("/app/preparazioni");
+      navigate(preparazioniPath);
     });
-  }, [id, navigate]);
+  }, [id, navigate, preparazioniPath]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -94,7 +95,7 @@ export default function ClientPreparazioneDetail() {
     try {
       await api.delete(`/preparazioni/${id}`);
       toast.success("Preparazione cancellata");
-      navigate("/app/preparazioni");
+      navigate(preparazioniPath);
     } catch (err) {
       toast.error(formatApiError(err.response?.data?.detail));
     }
@@ -162,7 +163,7 @@ export default function ClientPreparazioneDetail() {
 
   return (
     <div className="space-y-6" data-testid="client-prep-detail">
-      <button onClick={() => navigate("/app/preparazioni")} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground" data-testid="back-btn">
+      <button onClick={() => navigate(preparazioniPath)} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground" data-testid="back-btn">
         <ArrowLeft className="h-4 w-4" /> Torna alle preparazioni
       </button>
 

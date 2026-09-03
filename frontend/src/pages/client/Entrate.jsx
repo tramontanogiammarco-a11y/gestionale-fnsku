@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { Loader2, Plus, Trash2, PackagePlus, FileText, Truck, ChevronRight } from "lucide-react";
 
-export default function ClientEntrate() {
+export default function ClientEntrate({ basePath = "/app" }) {
   const [entrate, setEntrate] = useState(null);
   const [view, setView] = useState("attive");
   const navigate = useNavigate();
@@ -61,7 +61,7 @@ export default function ClientEntrate() {
               key={e.id}
               data-testid={`centrata-${e.id}`}
               className="p-4 cursor-pointer hover:shadow-sm transition-shadow"
-              onClick={() => navigate(`/app/entrate/${e.id}`)}
+              onClick={() => navigate(`${basePath}/entrate/${e.id}`)}
             >
               <div className="flex items-center justify-between">
                 <div className="font-heading font-semibold capitalize">{e.tipo}</div>

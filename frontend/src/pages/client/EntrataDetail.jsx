@@ -18,9 +18,10 @@ import {
 } from "@/components/ui/table";
 import { Loader2, ArrowLeft, Save, FileText, Truck, Barcode, Plus, Trash2 } from "lucide-react";
 
-export default function ClientEntrataDetail() {
+export default function ClientEntrataDetail({ basePath = "/app" }) {
   const { id } = useParams();
   const navigate = useNavigate();
+  const entratePath = `${basePath}/entrate`;
   const [entrata, setEntrata] = useState(null);
   const [form, setForm] = useState({ tipo: "pallet", colli: "1", ddt: "", corriere: "", tracking: "", note: "" });
   const [righe, setRighe] = useState([]);
@@ -48,9 +49,9 @@ export default function ClientEntrataDetail() {
       if (s === 403) toast.error("Questa entrata non appartiene al tuo account.");
       else if (s === 404) toast.error("Entrata non trovata.");
       else if (s !== 401) toast.error("Impossibile caricare l'entrata.");
-      navigate("/app/entrate");
+      navigate(entratePath);
     });
-  }, [id, navigate]);
+  }, [entratePath, id, navigate]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -91,7 +92,7 @@ export default function ClientEntrataDetail() {
     try {
       await api.delete(`/entrate/${id}`);
       toast.success("Entrata cancellata");
-      navigate("/app/entrate");
+      navigate(entratePath);
     } catch (e) {
       toast.error(formatApiError(e.response?.data?.detail));
     }
@@ -151,7 +152,7 @@ export default function ClientEntrataDetail() {
 
   return (
     <div className="space-y-6" data-testid="client-entrata-detail">
-      <button onClick={() => navigate("/app/entrate")} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground" data-testid="back-btn">
+      <button onClick={() => navigate(entratePath)} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground" data-testid="back-btn">
         <ArrowLeft className="h-4 w-4" /> Torna alle entrate
       </button>
 

@@ -24,7 +24,7 @@ function statoCliente(prep) {
   return isPreparazioneAttiva(prep) ? prep.stato : "spedito";
 }
 
-export default function ClientPreparazioni() {
+export default function ClientPreparazioni({ basePath = "/app" }) {
   const [preps, setPreps] = useState(null);
   const [view, setView] = useState("attive");
   const navigate = useNavigate();
@@ -66,7 +66,7 @@ export default function ClientPreparazioni() {
           {preps.filter((p) => view === "archivio" ? !isPreparazioneAttiva(p) : isPreparazioneAttiva(p)).map((p) => {
             const displayStato = statoCliente(p);
             return (
-              <Card key={p.id} data-testid={`cprep-${p.id}`} className="p-4 cursor-pointer hover:shadow-sm transition-shadow" onClick={() => navigate(`/app/preparazioni/${p.id}`)}>
+              <Card key={p.id} data-testid={`cprep-${p.id}`} className="p-4 cursor-pointer hover:shadow-sm transition-shadow" onClick={() => navigate(`${basePath}/preparazioni/${p.id}`)}>
                 <div className="flex items-center justify-between">
                   <div className="font-heading font-semibold">Preparazione</div>
                   <StatusBadge stato={displayStato} tipo="prep" />

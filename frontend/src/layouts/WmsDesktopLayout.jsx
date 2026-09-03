@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import {
   AlertTriangle, Boxes, LayoutDashboard, LogOut, MapPinned, MessageSquareText,
   PackageSearch, Receipt, RotateCcw, ShoppingCart, Smartphone, Truck, Users, Warehouse,
-  PlugZap, UserCog, BadgeEuro, RadioTower,
+  PlugZap, UserCog, BadgeEuro, RadioTower, Tags, PackagePlus, ClipboardList,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -35,9 +35,18 @@ const ADMIN_NAV = [
   { to: "/packing-station", label: "Packing station", icon: Boxes },
 ];
 
-const CLIENT_NAV = [
+const CLIENT_PREP_NAV = [
+  { to: "/wms/prep/referenze", label: "Referenze", icon: Tags },
+  { to: "/wms/prep/entrate", label: "Entrate", icon: PackagePlus },
+  { to: "/wms/prep/preparazioni", label: "Preparazioni", icon: ClipboardList },
+  { to: "/wms/prep/box", label: "Box Amazon", icon: Boxes },
+];
+
+const CLIENT_LINK_NAV = [
   { to: "/wms/integrations", label: "Integrazioni", icon: PlugZap },
 ];
+
+const CLIENT_NAV = [...CLIENT_PREP_NAV, ...CLIENT_LINK_NAV];
 
 export default function WmsDesktopLayout() {
   const { user, logout } = useAuth();
@@ -80,7 +89,8 @@ export default function WmsDesktopLayout() {
         <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Control Tower">
           <NavGroup label="Control Tower" items={CORE_NAV} />
           {isStaff && <NavGroup label="Operazioni Aimago" items={ADMIN_NAV} className="mt-6" />}
-          {!isStaff && <NavGroup label="Collegamenti" items={CLIENT_NAV} className="mt-6" />}
+          {!isStaff && <NavGroup label="Amazon Prep" items={CLIENT_PREP_NAV} className="mt-6" />}
+          {!isStaff && <NavGroup label="Collegamenti" items={CLIENT_LINK_NAV} className="mt-6" />}
         </nav>
         <div className="border-t border-slate-100 p-3">
           <div className="mb-2 flex items-center gap-3 rounded-md bg-slate-50 p-3">
