@@ -7230,24 +7230,43 @@ async function packingStationSnapshot(bagCode) {
   });
 }
 
+async function recoverStalledMonoPackingSnapshot(snapshot) {
+  if (snapshot.data.batch?.picking_mode !== "mono") return snapshot;
+  const recoverableSessionIds = snapshot.data.sessions
+    .filter((session) => {
+      if (!["in_verifica_bag", "da_imballare", "in_corso"].includes(session.stato)) return false;
+      if (session.packaging_code || session.carrier_label_code) return false;
+      return (session.lines || []).every((line) => Number(line.quantita_verificata || 0) === 0);
+    })
+    .map((session) => session.id);
+  if (!recoverableSessionIds.length) return snapshot;
+
+  const recoverableOrderIds = snapshot.data.sessions
+    .filter((session) => recoverableSessionIds.includes(session.id))
+    .map((session) => session.order_id);
+  const recoveredAt = nowIso();
+  const [sessionsResult, ordersResult] = await Promise.all([
+    requireSupabase().from("wms_packing_sessions").update({
+      stato: "in_attesa_packing",
+      bag_first_scanned_at: null,
+      bag_double_checked_at: null,
+      updated_at: recoveredAt,
+    }).in("id", recoverableSessionIds),
+    requireSupabase().from("shopify_orders").update({
+      wms_status: "in_attesa_packing",
+      updated_at: recoveredAt,
+    }).in("id", recoverableOrderIds),
+  ]);
+  if (sessionsResult.error || ordersResult.error) fail((sessionsResult.error || ordersResult.error).message);
+  return packingStationSnapshot(snapshot.data.bag_code);
+}
+
 async function selectWmsMonoPackingProduct(payload = {}) {
   await assertWmsStaff();
   const bagCode = normalizedScanCode(payload.bag_code);
   if (!bagCode) fail("Scansiona prima la bag mono-prodotto");
-  let snapshot = await packingStationSnapshot(bagCode);
+  const snapshot = await recoverStalledMonoPackingSnapshot(await packingStationSnapshot(bagCode));
   if (snapshot.data.batch?.picking_mode !== "mono") fail("Questa bag non appartiene al picking mono-prodotto", 409);
-  const staleSessionIds = snapshot.data.sessions
-    .filter((session) => session.stato === "in_verifica_bag" && !session.packaging_code && !session.carrier_label_code)
-    .map((session) => session.id);
-  if (staleSessionIds.length) {
-    const { error: recoveryError } = await requireSupabase().from("wms_packing_sessions").update({
-      stato: "in_attesa_packing",
-      bag_first_scanned_at: null,
-      updated_at: nowIso(),
-    }).in("id", staleSessionIds);
-    if (recoveryError) fail(recoveryError.message);
-    snapshot = await packingStationSnapshot(bagCode);
-  }
   if (snapshot.data.phase !== "select_product") fail("Completa prima il prodotto già selezionato", 409);
   const { error } = await requireSupabase().rpc("claim_wms_mono_packing_item", {
     p_batch_id: snapshot.data.batch.id,
@@ -7352,7 +7371,7 @@ async function scanWmsPackingStation(payload = {}) {
     if (code.startsWith("PK-")) fail("Scansiona prima la bag da imballare");
     if (/^(SCATOLA-(PICCOLA|MEDIA|GRANDE)|BUSTA-CORRIERE)$/.test(code)) fail("Scansiona prima la bag da imballare");
     if (!/^B-[A-Z0-9]{5}$/.test(code)) fail("Scansiona prima il barcode della bag");
-    const snapshot = await packingStationSnapshot(code);
+    const snapshot = await recoverStalledMonoPackingSnapshot(await packingStationSnapshot(code));
     if (snapshot.data.batch?.picking_mode === "mono" && snapshot.data.phase === "select_product") return snapshot;
     if (snapshot.data.phase === "completed") {
       if (/^CARRELLO-[0-9]{2}$/.test(normalizedScanCode(payload.cart_code))) return packingCartSnapshot(payload.cart_code);

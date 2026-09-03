@@ -119,6 +119,7 @@ export default function WmsAppPacking() {
   const [station, setStation] = useState(null);
   const [cart, setCart] = useState(null);
   const [code, setCode] = useState("");
+  const [scannerResetKey, setScannerResetKey] = useState(0);
   const [working, setWorking] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraSession, setCameraSession] = useState(0);
@@ -467,6 +468,7 @@ export default function WmsAppPacking() {
     const isPackagingCode = /^(SCATOLA-(PICCOLA|MEDIA|GRANDE)|BUSTA-CORRIERE)$/.test(value);
     if (isPackagingCode && currentStation?.bag_code && currentStation.phase !== "scan_packaging") {
       setCode("");
+      setScannerResetKey((value) => value + 1);
       focusScanner();
       return;
     }
@@ -511,6 +513,8 @@ export default function WmsAppPacking() {
       if (navigator.vibrate) navigator.vibrate(180);
     } finally {
       scanInFlightRef.current = false;
+      setCode("");
+      setScannerResetKey((value) => value + 1);
       setWorking(false);
       focusScanner();
     }
@@ -579,7 +583,7 @@ export default function WmsAppPacking() {
           </div>
           {phase !== "completed" && <form onSubmit={(event) => { event.preventDefault(); submitScan(); }} className="mt-5 flex items-stretch gap-3">
             <Input
-              key={`${station?.bag_code || "none"}:${phase}:${station?.summary?.completed || 0}`}
+              key={`${station?.bag_code || "none"}:${phase}:${station?.summary?.completed || 0}:${scannerResetKey}`}
               ref={scannerRef}
               value={code}
               onChange={(event) => {
