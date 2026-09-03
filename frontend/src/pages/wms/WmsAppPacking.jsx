@@ -56,6 +56,10 @@ function printBlobWithBrowserDialog(blob) {
 
 function ActiveBagContents({ station, phase, working, onLabelScan, onProductSelect, sectionRef }) {
   if (!station?.sessions?.length) return null;
+  const labelHistory = phase === "label_history";
+  const labelHistoryExpiry = labelHistory && station.inspected_label?.expires_at
+    ? new Date(station.inspected_label.expires_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" })
+    : null;
   const needsDoubleCheck = phase === "double_check";
   const scanningPackaging = phase === "scan_packaging";
   const scanningLabels = phase === "scan_labels";
@@ -72,21 +76,21 @@ function ActiveBagContents({ station, phase, working, onLabelScan, onProductSele
       return groups;
     }, new Map()).values()];
 
-  return <section ref={sectionRef} className={`scroll-mt-3 rounded-md border-2 p-4 shadow-sm sm:p-5 ${needsDoubleCheck ? "border-amber-500 bg-amber-50" : scanningPackaging ? "border-sky-500 bg-sky-50" : scanningLabels ? "border-teal-500 bg-teal-50" : "border-slate-200 bg-white"}`}>
+  return <section ref={sectionRef} className={`scroll-mt-3 rounded-md border-2 p-4 shadow-sm sm:p-5 ${labelHistory ? "border-emerald-500 bg-emerald-50" : needsDoubleCheck ? "border-amber-500 bg-amber-50" : scanningPackaging ? "border-sky-500 bg-sky-50" : scanningLabels ? "border-teal-500 bg-teal-50" : "border-slate-200 bg-white"}`}>
     <div className="flex flex-wrap items-center gap-3">
       <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-md text-white ${needsDoubleCheck ? "bg-amber-600" : "bg-teal-700"}`}><ShoppingBag className="h-6 w-6" /></span>
       <div className="min-w-0 flex-1">
-        <p className={`text-xs font-black uppercase ${needsDoubleCheck ? "text-amber-800" : "text-teal-800"}`}>Bag attiva</p>
-        <h2 className="font-mono text-3xl font-black leading-none text-slate-950 sm:text-4xl">{station.bag_code}</h2>
+        <p className={`text-xs font-black uppercase ${needsDoubleCheck ? "text-amber-800" : "text-teal-800"}`}>{labelHistory ? "Controllo etichetta" : "Bag attiva"}</p>
+        <h2 className="font-mono text-3xl font-black leading-none text-slate-950 sm:text-4xl">{labelHistory ? station.inspected_label?.label_code : station.bag_code}</h2>
       </div>
       <div className={`w-full rounded-md px-3 py-2 text-center text-sm font-black sm:w-auto ${needsDoubleCheck ? "bg-amber-600 text-white" : scanningLabels ? "bg-teal-700 text-white" : "bg-slate-100 text-slate-800"}`}>
-        {needsDoubleCheck ? "RISCANSIONA QUESTA BAG" : phase === "select_product" ? "SCEGLI UN PRODOTTO" : scanningPackaging ? "SCANSIONA IMBALLAGGIO" : scanningLabels ? "SCANSIONA ETICHETTA" : `${station.summary.orders} ${station.summary.orders === 1 ? "ordine" : "ordini"}`}
+        {labelHistory ? `${String(station.inspected_label?.carrier || "").toUpperCase()} · ${station.inspected_label?.order_name}` : needsDoubleCheck ? "RISCANSIONA QUESTA BAG" : phase === "select_product" ? "SCEGLI UN PRODOTTO" : scanningPackaging ? "SCANSIONA IMBALLAGGIO" : scanningLabels ? "SCANSIONA ETICHETTA" : `${station.summary.orders} ${station.summary.orders === 1 ? "ordine" : "ordini"}`}
       </div>
     </div>
     {scanningPackaging && <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">{(station.packaging_options || []).map((item) => <div key={item.code} className={`rounded-md border bg-white p-3 ${Number(item.stock_quantity) > 0 ? "border-sky-200" : "border-rose-300"}`}><strong className="block text-xs">{item.name}</strong><code className="mt-1 block text-[10px] font-black text-slate-600">{item.barcode}</code><span className={`mt-2 block text-xs font-bold ${Number(item.stock_quantity) > 0 ? "text-teal-700" : "text-rose-700"}`}>{item.stock_quantity} disponibili</span></div>)}</div>}
     <div className="mt-4 flex items-center justify-between gap-3 border-t border-current/10 pt-3">
-      <div><h3 className="text-base font-black">Contenuto della bag</h3><p className="text-xs text-slate-600">Controlla prodotti e quantita prima di chiuderla.</p></div>
-      <span className="shrink-0 rounded-full bg-white px-3 py-1 text-xs font-black shadow-sm">{monoMode ? "Mono-prodotto" : station.batch ? "Massivo" : "1x1"}</span>
+      <div><h3 className="text-base font-black">{labelHistory ? "Contenuto previsto del pacco" : "Contenuto della bag"}</h3><p className="text-xs text-slate-600">{labelHistory ? `Disponibile fino al ${labelHistoryExpiry}.` : "Controlla prodotti e quantita prima di chiuderla."}</p></div>
+      <span className="shrink-0 rounded-full bg-white px-3 py-1 text-xs font-black shadow-sm">{labelHistory ? "Storico 48 ore" : monoMode ? "Mono-prodotto" : station.batch ? "Massivo" : "1x1"}</span>
     </div>
     {monoMode && phase === "select_product" && <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
       {monoProducts.map((product) => <button key={product.sessionId} type="button" onClick={() => onProductSelect(product.sessionId)} disabled={working} className="relative min-h-44 overflow-hidden rounded-md border-2 border-slate-200 bg-white p-3 text-left transition hover:border-teal-500 disabled:opacity-60">
@@ -478,8 +482,8 @@ export default function WmsAppPacking() {
     try {
       const response = await api.post("/wms/packing/station/scan", {
         codice: value,
-        bag_code: currentStation?.bag_code || null,
-        cart_code: cart?.cart_code || currentStation?.cart_code || null,
+        bag_code: currentStation?.phase === "label_history" ? null : currentStation?.bag_code || null,
+        cart_code: currentStation?.phase === "label_history" ? null : cart?.cart_code || currentStation?.cart_code || null,
       });
       const next = response.data;
       if (cartIsComplete(next)) {
@@ -556,6 +560,8 @@ export default function WmsAppPacking() {
         ? "Scansiona un prodotto o seleziona la foto"
       : phase === "completed"
         ? "Bag liberata"
+        : phase === "label_history"
+          ? "Contenuto previsto del pacco"
         : phase === "cart_ready"
           ? "Scansiona una bag del carrello"
           : "Scansiona un carrello o una bag";
@@ -591,7 +597,7 @@ export default function WmsAppPacking() {
                 setCode(nextCode);
                 if (isCompletePackingScan(nextCode)) window.setTimeout(() => submitScan(nextCode), 0);
               }}
-              placeholder={phase === "scan_labels" ? "Scansiona etichetta corriere" : phase === "scan_packaging" ? "SCATOLA-PICCOLA, MEDIA, GRANDE o BUSTA-CORRIERE" : phase === "select_product" ? "Scansiona barcode prodotto" : phase === "cart_ready" ? "Scansiona una bag" : "CARRELLO-01 oppure bag"}
+              placeholder={phase === "label_history" ? "Scansiona un'altra etichetta o bag" : phase === "scan_labels" ? "Scansiona etichetta corriere" : phase === "scan_packaging" ? "SCATOLA-PICCOLA, MEDIA, GRANDE o BUSTA-CORRIERE" : phase === "select_product" ? "Scansiona barcode prodotto" : phase === "cart_ready" ? "Scansiona una bag" : "CARRELLO-01 oppure bag o etichetta"}
               className="h-16 min-w-0 flex-1 border-slate-950 bg-slate-50 text-center font-mono text-xl font-black tracking-wider sm:text-2xl"
               autoComplete="off"
               inputMode="none"

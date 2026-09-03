@@ -7337,6 +7337,38 @@ async function packingStationSnapshotForLabel(labelCode) {
   return packingStationSnapshot(bagCode);
 }
 
+async function packingLabelAuditSnapshot(labelCode) {
+  const normalizedLabel = normalizedScanCode(labelCode);
+  const { data: audit, error } = await requireSupabase().rpc("lookup_wms_packing_label_audit", {
+    p_label_code: normalizedLabel,
+  });
+  if (error || !audit) fail(error?.message || "Etichetta non trovata oppure controllo scaduto dopo 48 ore", 404);
+  const items = Array.isArray(audit.items) ? audit.items : [];
+  return ok({
+    phase: "label_history",
+    bag_code: audit.bag_code || null,
+    batch: null,
+    sessions: [{
+      id: `audit-${audit.label_code}`,
+      stato: "completata",
+      order_id: audit.order_id,
+      packaging_code: audit.packaging_code,
+      carrier_label_code: audit.label_code,
+      carrier_label_scanned_at: audit.completed_at,
+      order: {
+        order_name: audit.order_name,
+        ship_name: audit.recipient_name,
+        selected_carrier: audit.carrier,
+      },
+      lines: items,
+    }],
+    labels: [],
+    packaging_options: [],
+    summary: { orders: 1, completed: 1 },
+    inspected_label: audit,
+  });
+}
+
 async function completePackingStationLabel(snapshot, code) {
   const normalizedCode = normalizedScanCode(code);
   const matchingSession = snapshot.data.sessions.find((session) => (
@@ -7368,9 +7400,8 @@ async function scanWmsPackingStation(payload = {}) {
 
   if (!activeBagCode) {
     if (/^CARRELLO-[0-9]{2}$/.test(code)) return packingCartSnapshot(code);
-    if (code.startsWith("PK-")) fail("Scansiona prima la bag da imballare");
     if (/^(SCATOLA-(PICCOLA|MEDIA|GRANDE)|BUSTA-CORRIERE)$/.test(code)) fail("Scansiona prima la bag da imballare");
-    if (!/^B-[A-Z0-9]{5}$/.test(code)) fail("Scansiona prima il barcode della bag");
+    if (!/^B-[A-Z0-9]{5}$/.test(code)) return packingLabelAuditSnapshot(code);
     const snapshot = await recoverStalledMonoPackingSnapshot(await packingStationSnapshot(code));
     if (snapshot.data.batch?.picking_mode === "mono" && snapshot.data.phase === "select_product") return snapshot;
     if (snapshot.data.phase === "completed") {
