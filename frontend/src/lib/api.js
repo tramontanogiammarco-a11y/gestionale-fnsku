@@ -7599,7 +7599,18 @@ async function wmsBagPackingSnapshot(bagCode) {
       .order("created_at", { ascending: false })
       .limit(1);
     const normalSession = normalSessions?.[0] || null;
-    if (normalError || !normalSession) fail(normalError?.message || "Bag non trovata", 404);
+    if (normalError) fail(normalError.message);
+    if (!normalSession) {
+      const { data: knownBag, error: knownBagError } = await requireSupabase()
+        .from("wms_bags")
+        .select("codice,stato")
+        .eq("codice", bagCode)
+        .maybeSingle();
+      if (knownBagError) fail(knownBagError.message);
+      if (knownBag?.stato === "disponibile") fail(`La bag ${bagCode} è libera e vuota: associala prima alla fine del picking.`, 409);
+      if (knownBag) fail(`La bag ${bagCode} risulta occupata ma non ha ordini associati.`, 409);
+      fail("Bag non censita", 404);
+    }
     const normalSnapshot = await wmsPackingSnapshot(normalSession.order_id);
     return ok({ batch: null, sessions: [{ ...normalSession, order: normalSnapshot.data.order, lines: normalSnapshot.data.lines }], summary: { orders: 1, completed: normalSession.stato === "completata" ? 1 : 0 } });
   }
