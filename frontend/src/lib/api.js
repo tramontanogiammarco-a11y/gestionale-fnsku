@@ -5200,6 +5200,74 @@ async function listWmsBags() {
   return ok(data || []);
 }
 
+async function wmsBagContents(rawCode) {
+  await assertWmsStaff();
+  const code = normalizedScanCode(rawCode);
+  if (!/^B-[A-Z0-9]{5}$/.test(code)) fail("Codice bag non valido");
+  const sb = requireSupabase();
+  const { data: bag, error: bagError } = await sb.from("wms_bags").select("id,codice,stato,updated_at").eq("codice", code).maybeSingle();
+  if (bagError || !bag) fail(bagError?.message || "Bag non trovata", 404);
+
+  const { data: sessions, error: sessionsError } = await sb
+    .from("wms_packing_sessions")
+    .select("id,order_id,stato,created_at")
+    .eq("bag_code", code)
+    .neq("stato", "annullata")
+    .neq("stato", "completata")
+    .order("created_at", { ascending: false });
+  if (sessionsError) fail(sessionsError.message);
+  let orderIds = [...new Set((sessions || []).map((session) => session.order_id).filter(Boolean))];
+  let phase = orderIds.length ? "packing" : null;
+
+  if (!orderIds.length && bag.stato !== "disponibile") {
+    const { data: links, error: linksError } = await sb
+      .from("wms_galluse_orders")
+      .select("batch_id,order_id,created_at")
+      .eq("bag_code", code)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    if (linksError) fail(linksError.message);
+    const batchIds = [...new Set((links || []).map((link) => link.batch_id).filter(Boolean))];
+    const { data: batches, error: batchesError } = batchIds.length
+      ? await sb.from("wms_galluse_batches").select("id,stato").in("id", batchIds).in("stato", ["in_corso", "completata"])
+      : { data: [], error: null };
+    if (batchesError) fail(batchesError.message);
+    const activeBatchIds = new Set((batches || []).map((batch) => batch.id));
+    orderIds = [...new Set((links || []).filter((link) => activeBatchIds.has(link.batch_id)).map((link) => link.order_id).filter(Boolean))];
+    if (orderIds.length) phase = "picking_galluse";
+  }
+
+  const { data: orders, error: ordersError } = orderIds.length
+    ? await sb.from("shopify_orders").select("*").in("id", orderIds)
+    : { data: [], error: null };
+  if (ordersError) fail(ordersError.message);
+  const enriched = await enrichShopifyOrders(orders || []);
+  const contents = enriched.map((order) => ({
+    id: order.id,
+    order_name: order.order_name,
+    cliente: order.cliente_ragione_sociale,
+    wms_status: order.wms_status,
+    items: (order.items || []).map((item) => ({
+      id: item.id,
+      titolo: item.titolo,
+      ean: item.ean,
+      fnsku: item.fnsku,
+      sku: item.sku,
+      quantita: Number(item.quantita || 0),
+    })),
+  }));
+  return ok({
+    bag,
+    phase,
+    orders: contents,
+    summary: {
+      orders: contents.length,
+      references: contents.reduce((sum, order) => sum + order.items.length, 0),
+      pieces: contents.reduce((sum, order) => sum + order.items.reduce((itemSum, item) => itemSum + item.quantita, 0), 0),
+    },
+  });
+}
+
 function randomWmsBagCode() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   const bytes = new Uint8Array(5);
@@ -8235,6 +8303,7 @@ export const api = {
     if (path === "/wms/packaging") return listWmsPackaging();
     if (path === "/wms/packaging/etichette" && config.responseType === "blob") return wmsPackagingLabelsPdf();
     if (path === "/wms/bags") return listWmsBags();
+    if (path.match(/^\/wms\/bags\/B-[A-Z0-9]{5}\/contenuto$/)) return wmsBagContents(path.split("/")[3]);
     if (path.match(/^\/wms\/carrelli\/[^/]+$/)) return wmsCartSnapshot(decodeURIComponent(path.split("/")[3]));
     if (path === "/wms/bags/storico") return listWmsBagHistory();
     if (path === "/wms/bags/pdf" && config.responseType === "blob") return wmsBagsPdf();

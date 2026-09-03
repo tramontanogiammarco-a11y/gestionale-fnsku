@@ -22,6 +22,7 @@ import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import CameraScanner from "@/components/wms/CameraScanner";
 import { toast } from "sonner";
 
@@ -34,12 +35,17 @@ export default function UniversalScanner({ open, onOpenChange, clientId, onViewL
   const [result, setResult] = useState(null);
   const [action, setAction] = useState(null);
   const [draft, setDraft] = useState({ quantity: "1", targetCode: "", sourceCode: "" });
+  const [selectedBag, setSelectedBag] = useState(null);
+  const [bagDetail, setBagDetail] = useState(null);
+  const [bagDetailLoading, setBagDetailLoading] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setResult(null);
     setAction(null);
     setDraft({ quantity: "1", targetCode: "", sourceCode: "" });
+    setSelectedBag(null);
+    setBagDetail(null);
     setCode("");
     window.setTimeout(() => inputRef.current?.focus(), 35);
   }, [open]);
@@ -61,6 +67,21 @@ export default function UniversalScanner({ open, onOpenChange, clientId, onViewL
       toast.error(error.response?.data?.detail || error.message || "Scansione non riuscita");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openBag = async (bag) => {
+    if (!bag?.codice || bag.stato === "disponibile") return;
+    setSelectedBag(bag);
+    setBagDetail(null);
+    setBagDetailLoading(true);
+    try {
+      const response = await api.get(`/wms/bags/${encodeURIComponent(bag.codice)}/contenuto`);
+      setBagDetail(response.data);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Contenuto bag non disponibile");
+    } finally {
+      setBagDetailLoading(false);
     }
   };
 
@@ -253,7 +274,7 @@ export default function UniversalScanner({ open, onOpenChange, clientId, onViewL
               />
             )}
             {!loading && result?.kind === "product" && <ProductResult products={result.products} onViewLocation={onViewLocation} />}
-            {!loading && result?.kind === "cart" && <CartResult result={result} />}
+            {!loading && result?.kind === "cart" && <CartResult result={result} onOpenBag={openBag} />}
             {!loading && result?.kind === "unknown" && (
               <div className="rounded-md border border-amber-200 bg-amber-50 p-5 text-center">
                 <Barcode className="mx-auto h-8 w-8 text-amber-700" />
@@ -264,12 +285,13 @@ export default function UniversalScanner({ open, onOpenChange, clientId, onViewL
           </div>
         </SheetContent>
       </Sheet>
+      <BagContentsDialog bag={selectedBag} detail={bagDetail} loading={bagDetailLoading} onOpenChange={(nextOpen) => { if (!nextOpen) { setSelectedBag(null); setBagDetail(null); } }} />
       <CameraScanner open={cameraOpen} onOpenChange={setCameraOpen} purpose="universal" onDetected={handleDetected} />
     </>
   );
 }
 
-function CartResult({ result }) {
+function CartResult({ result, onOpenBag }) {
   const { cart, positions = [], capacity = 0, summary = {} } = result;
   const positionMap = Object.fromEntries(positions.map((position) => [Number(position.posizione), position]));
   const columns = Math.max(1, Number(cart.colonne || 1));
@@ -295,9 +317,12 @@ function CartResult({ result }) {
               const item = positionMap[position];
               const occupied = item?.bag && item.bag.stato !== "disponibile";
               return (
-                <div key={position} className={`min-h-24 rounded-md border p-2 ${occupied ? "border-rose-300 bg-rose-50" : item?.bag ? "border-emerald-200 bg-emerald-50" : "border-dashed border-slate-300 bg-slate-50"}`}>
+                <div key={position} className={`relative min-h-24 rounded-md border ${occupied ? "border-rose-300 bg-rose-50" : item?.bag ? "border-emerald-200 bg-emerald-50" : "border-dashed border-slate-300 bg-slate-50"}`}>
+                  {occupied && <button type="button" className="absolute inset-0 z-10 rounded-md" onClick={() => onOpenBag(item.bag)} aria-label={`Apri contenuto ${item.bag.codice || item.bag_code}`} />}
+                  <div className="p-2">
                   <span className="block text-[9px] font-black uppercase text-slate-500">Pos. {position}</span>
-                  {item?.bag ? <><strong className="mt-2 block break-all font-mono text-xs text-slate-950">{item.bag.codice || item.bag_code}</strong><span className={`mt-2 block rounded-md px-1 py-1 text-center text-[9px] font-black uppercase ${occupied ? "bg-rose-700 text-white" : "bg-emerald-700 text-white"}`}>{occupied ? "Piena" : "Libera"}</span></> : <span className="mt-3 block text-[10px] font-bold text-slate-400">Nessuna bag</span>}
+                  {item?.bag ? <><strong className="mt-2 block break-all font-mono text-xs text-slate-950">{item.bag.codice || item.bag_code}</strong><span className={`mt-2 block rounded-md px-1 py-1 text-center text-[9px] font-black uppercase ${occupied ? "bg-rose-700 text-white" : "bg-emerald-700 text-white"}`}>{occupied ? "Apri · piena" : "Libera"}</span></> : <span className="mt-3 block text-[10px] font-bold text-slate-400">Nessuna bag</span>}
+                  </div>
                 </div>
               );
             })}
@@ -307,6 +332,42 @@ function CartResult({ result }) {
       </div>
     </div>
   );
+}
+
+function BagContentsDialog({ bag, detail, loading, onOpenChange }) {
+  const summary = detail?.summary || {};
+  return (
+    <Dialog open={Boolean(bag)} onOpenChange={onOpenChange}>
+      <DialogContent className="wms-shell max-h-[calc(100dvh-16px)] w-[calc(100%-16px)] max-w-lg overflow-y-auto rounded-md bg-white p-0">
+        <DialogHeader className="border-b border-slate-100 px-5 pb-4 pt-6 text-left">
+          <DialogTitle className="flex items-center gap-2 text-xl font-black"><ShoppingBag className="h-5 w-5 text-rose-700" /> {bag?.codice}</DialogTitle>
+          <DialogDescription>{detail?.phase === "picking_galluse" ? "Contenuto assegnato durante il picking" : "Contenuto presente nella bag per il packing"}</DialogDescription>
+        </DialogHeader>
+        {loading ? <div className="flex min-h-48 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-teal-700" /></div> : detail ? <div className="pb-5">
+          <div className="grid grid-cols-3 divide-x divide-slate-100 border-b border-slate-100 text-center">
+            <CartMetric label="Ordini" value={summary.orders || 0} />
+            <CartMetric label="Referenze" value={summary.references || 0} />
+            <CartMetric label="Pezzi" value={summary.pieces || 0} />
+          </div>
+          {(detail.orders || []).length ? <div className="divide-y divide-slate-200">
+            {detail.orders.map((order) => <section key={order.id} className="px-5 py-4">
+              <div className="flex items-start justify-between gap-3"><div><span className="text-[10px] font-black uppercase text-teal-700">Ordine</span><h3 className="mt-1 text-lg font-black">{order.order_name}</h3><p className="mt-1 text-xs text-slate-500">{order.cliente}</p></div><span className="rounded-md bg-slate-100 px-2 py-1 text-[9px] font-black uppercase text-slate-600">{bagOrderStatus(order.wms_status)}</span></div>
+              <div className="mt-4 divide-y divide-slate-100 rounded-md border border-slate-200">
+                {order.items.map((item) => <div key={item.id} className="flex items-start gap-3 p-3"><div className="min-w-0 flex-1"><strong className="block text-sm">{item.titolo}</strong><span className="mt-1 block break-all font-mono text-[10px] text-slate-500">{item.fnsku || item.ean || item.sku || "Codice non disponibile"}</span></div><strong className="shrink-0 text-lg">×{item.quantita}</strong></div>)}
+              </div>
+            </section>)}
+          </div> : <div className="p-6 text-center text-sm text-slate-500">La bag risulta occupata, ma non contiene ordini operativi associati.</div>}
+        </div> : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function bagOrderStatus(status) {
+  if (status === "in_preparazione") return "Picking";
+  if (status === "in_attesa_packing") return "Attesa packing";
+  if (status === "in_packing") return "In packing";
+  return String(status || "Occupata").replace(/_/g, " ");
 }
 
 function CartMetric({ label, value, tone = "text-slate-950" }) {
