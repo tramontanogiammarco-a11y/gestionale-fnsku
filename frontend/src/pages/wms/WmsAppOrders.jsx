@@ -87,18 +87,18 @@ export default function WmsAppOrders() {
   return (
     <div className="wms-page" data-testid="wms-orders">
       <header className="wms-page-header">
-        <div><p className="wms-eyebrow">Flusso outbound</p><h1 className="wms-title">Ordini</h1><p className="wms-subtitle">Scegli il metodo e avvia il prossimo compito.</p></div>
+        <div><p className="wms-eyebrow">Outbound</p><h1 className="wms-title">Ordini</h1></div>
         <Button type="button" size="icon" variant="outline" onClick={load} disabled={refreshing} aria-label="Aggiorna ordini">{refreshing ? <Loader2 className="h-5 w-5 animate-spin" /> : <RefreshCw className="h-5 w-5" />}</Button>
       </header>
 
-      <button type="button" onClick={() => navigate("/wms-app/configurazione?section=cutoff")} className="flex w-full items-center gap-3 rounded-md border border-slate-200/75 bg-white px-4 py-3 text-left shadow-[0_4px_16px_rgba(15,23,42,0.035)] transition hover:border-slate-300">
+      <button type="button" onClick={() => navigate("/wms-app/configurazione?section=cutoff")} className="flex w-full items-center gap-3 rounded-md border border-slate-200 bg-white px-3 py-2.5 text-left transition hover:border-slate-400">
         <span className={`flex h-9 w-9 items-center justify-center rounded-md ${settings.cutoff_passed ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"}`}><Clock3 className="h-5 w-5" /></span>
         <span className="min-w-0 flex-1"><strong className="block text-sm">Limite ordini {settings.cutoff_time}</strong><span className="mt-0.5 block text-xs text-slate-500">{settings.cutoff_passed ? "I nuovi ordini passano a domani" : "Giornata ancora aperta"}</span></span>
         <Settings className="h-5 w-5" />
       </button>
 
       <section>
-        <div className="mb-3"><p className="text-[11px] font-extrabold uppercase text-slate-500">Modalità di preparazione</p><h2 className="mt-1.5 text-xl font-extrabold">Prepara ordini</h2></div>
+        <h2 className="mb-2 text-base font-bold">Preparazione</h2>
         <div className="space-y-2">
           <button type="button" onClick={startGalluse} className="wms-action-row"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-sky-50 text-sky-800"><ShoppingCart className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className="block font-extrabold">Metodo Galluse</strong><span className="mt-1 block text-xs font-medium text-slate-500">{activeGalluse ? `Riprendi ${activeGalluse.cart_code || "missione"} · ${activeGalluse.numero_bag} ordini` : nextGalluseRound ? `${nextGalluseRound.totale_ordini} ordini · scansiona un carrello` : "Nessun compito disponibile"}</span></span><ChevronRight className="h-5 w-5 text-slate-400" /></button>
           <button type="button" onClick={() => navigate("/wms-app/picking-massivo")} className="wms-action-row"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-violet-50 text-violet-800"><Layers3 className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className="block font-extrabold">Massivo</strong><span className="mt-1 block text-xs font-medium text-slate-500">{activeMassOrders || availableMassOrders} ordini disponibili</span></span><ChevronRight className="h-5 w-5 text-slate-400" /></button>
@@ -106,14 +106,8 @@ export default function WmsAppOrders() {
         </div>
       </section>
 
-      <section className="grid grid-cols-3 gap-2">
-        <Metric label="Arretrati" value={summary.arretrati || 0} tone={summary.arretrati ? "amber" : "slate"} />
-        <Metric label="Oggi" value={summary.oggi || 0} tone="teal" />
-        <Metric label="Prossimi" value={summary.prossima || 0} tone="blue" />
-      </section>
-
       <div className="grid grid-cols-2 gap-1 rounded-md border border-slate-200/70 bg-slate-100/80 p-1" role="tablist" aria-label="Giornata ordini">
-        <TabButton active={tab === "oggi"} onClick={() => setTab("oggi")}>Oggi <span>{(summary.arretrati || 0) + (summary.oggi || 0)}</span></TabButton>
+        <TabButton active={tab === "oggi"} onClick={() => setTab("oggi")}>Oggi <span>{(summary.arretrati || 0) + (summary.oggi || 0)}</span>{summary.arretrati > 0 && <span className="text-[10px] text-amber-700">· {summary.arretrati} arretrati</span>}</TabButton>
         <TabButton active={tab === "prossima"} onClick={() => setTab("prossima")}>Prossima <span>{summary.prossima || 0}</span></TabButton>
       </div>
 
@@ -139,7 +133,7 @@ function OrderRow({ order, onClick }) {
   const pieces = (order.items || []).reduce((sum, item) => sum + Number(item.quantita || 0), 0);
   const missing = (order.items || []).filter((item) => !item.referenza_id).length;
   return (
-    <button type="button" onClick={onClick} className="w-full rounded-md border border-slate-200/75 bg-white p-4 text-left shadow-[0_5px_18px_rgba(15,23,42,0.04)] transition hover:-translate-y-px hover:border-teal-300 hover:shadow-[0_8px_24px_rgba(15,23,42,0.06)]">
+    <button type="button" onClick={onClick} className="w-full rounded-md border border-slate-200 bg-white p-3.5 text-left transition hover:border-teal-400 active:bg-slate-50">
       <div className="flex items-start gap-3">
         <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-md ${order.wave === "arretrati" ? "bg-amber-50 text-amber-700" : "bg-teal-50 text-teal-700"}`}><ShoppingCart className="h-5 w-5" /></span>
         <span className="min-w-0 flex-1"><span className="flex flex-wrap items-center gap-2"><strong className="text-lg">{order.order_name}</strong><SourceBadge order={order} />{order.wave === "arretrati" && <span className="rounded-md bg-amber-50 px-2 py-1 text-[10px] font-black uppercase text-amber-800">Arretrato</span>}</span><span className="mt-1 block text-xs text-slate-500">{order.cliente_ragione_sociale}</span></span>
@@ -163,8 +157,8 @@ function SourceBadge({ order }) {
 }
 
 function Metric({ label, value, tone, small }) {
-  const colors = { teal: "bg-teal-50 text-teal-950", amber: "bg-amber-50 text-amber-950", blue: "bg-sky-50 text-sky-950", slate: "bg-slate-100 text-slate-900" };
-  return <div className={`min-h-24 rounded-md border border-white/70 p-3 ${colors[tone]}`}><strong className={`block font-extrabold ${small ? "text-base" : "text-2xl"}`}>{value}</strong><span className="mt-2 block text-[10px] font-extrabold uppercase opacity-60">{label}</span></div>;
+  const colors = { teal: "text-teal-800", amber: "text-amber-800", blue: "text-sky-800", slate: "text-slate-900" };
+  return <div className="min-h-16 p-3 text-center"><strong className={`block font-bold ${small ? "text-base" : `text-2xl ${colors[tone]}`}`}>{value}</strong><span className="mt-1 block text-[9px] font-bold uppercase text-slate-500">{label}</span></div>;
 }
 function TabButton({ active, onClick, children }) { return <button type="button" role="tab" aria-selected={active} onClick={onClick} className={`flex h-12 items-center justify-center gap-2 rounded-md text-sm font-extrabold transition ${active ? "bg-white text-slate-950 shadow-[0_3px_10px_rgba(15,23,42,0.06)]" : "text-slate-500"}`}>{children}</button>; }
 function OrderStat({ label, value, compact }) { return <span className="px-2"><strong className={`block ${compact ? "text-[11px]" : "text-base"}`}>{value}</strong><span className="mt-1 block text-[9px] font-black uppercase text-slate-400">{label}</span></span>; }

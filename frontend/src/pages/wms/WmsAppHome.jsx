@@ -7,9 +7,9 @@ import {
 import { Button } from "@/components/ui/button";
 
 const VIEW_META = {
-  open: { title: "Arrivi da ricevere", subtitle: "Merce annunciata in attesa di controllo", empty: "Nessun arrivo da ricevere" },
-  active: { title: "Ricezioni in corso", subtitle: "Sessioni avviate e non ancora chiuse", empty: "Nessuna ricezione in corso" },
-  history: { title: "Inbound completati", subtitle: "Ultime ricezioni già registrate a stock", empty: "Nessun inbound completato" },
+  open: { title: "Arrivi da ricevere", empty: "Nessun arrivo da ricevere" },
+  active: { title: "Ricezioni in corso", empty: "Nessuna ricezione in corso" },
+  history: { title: "Inbound completati", empty: "Nessun inbound completato" },
 };
 
 export default function WmsAppHome() {
@@ -43,18 +43,17 @@ export default function WmsAppHome() {
       <section>
         <div className="wms-page-header">
           <div>
-            <p className="wms-eyebrow">Flusso inbound</p>
+            <p className="wms-eyebrow">Inbound</p>
             <h1 className="wms-title">Arrivi</h1>
-            <p className="wms-subtitle">Ricevi, controlla e ubica la merce.</p>
           </div>
           <Button size="icon" variant="outline" onClick={loadEntries} aria-label="Aggiorna inbound"><RefreshCw className="h-5 w-5" /></Button>
         </div>
 
-        <div className="mt-6 grid grid-cols-2 gap-3">
+        <div className="mt-4 grid grid-cols-2 divide-x divide-slate-200 rounded-md border border-slate-200 bg-white">
           <SummaryCard icon={PackageOpen} value={model.open.length} label="Da ricevere" tone="teal" />
           <SummaryCard icon={ScanLine} value={model.active.length} label="In corso" tone="ink" />
         </div>
-        <div className="mt-3 flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
+        <div className="mt-2 flex items-center justify-between border-b border-slate-200 px-1 py-2.5">
           <div className="flex items-center gap-3"><Box className="h-5 w-5 text-teal-700" /><span className="text-sm font-bold">Pezzi ancora da verificare</span></div>
           <strong className="text-xl">{openPieces}</strong>
         </div>
@@ -64,7 +63,6 @@ export default function WmsAppHome() {
         <div className="mb-4 flex items-end justify-between gap-3">
           <div>
             <h2 className="text-xl font-black">{meta.title}</h2>
-            <p className="mt-1 text-sm text-slate-500">{meta.subtitle}</p>
           </div>
           <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600">{rows.length}</span>
         </div>
@@ -93,10 +91,9 @@ export default function WmsAppHome() {
 
 function SummaryCard({ icon: Icon, value, label, tone }) {
   return (
-    <div className={`min-h-32 rounded-md border p-4 ${tone === "teal" ? "border-teal-200 bg-teal-50" : "border-slate-800 bg-slate-950 text-white"}`}>
-      <Icon className={`h-6 w-6 ${tone === "teal" ? "text-teal-700" : "text-teal-300"}`} />
-      <div className="mt-4 text-3xl font-black">{value}</div>
-      <div className={`mt-1 text-sm font-bold ${tone === "teal" ? "text-slate-700" : "text-slate-200"}`}>{label}</div>
+    <div className="flex min-h-20 items-center gap-3 p-3.5">
+      <Icon className={`h-5 w-5 ${tone === "teal" ? "text-teal-700" : "text-slate-700"}`} />
+      <div><div className="text-2xl font-bold">{value}</div><div className="text-xs font-semibold text-slate-500">{label}</div></div>
     </div>
   );
 }
@@ -107,14 +104,14 @@ function InboundCard({ entry, onClick }) {
   const status = historical ? "Completato" : active ? "In ricezione" : "Da ricevere";
   const StatusIcon = historical ? CheckCircle2 : active ? Barcode : Clock3;
   return (
-    <button type="button" onClick={onClick} className="group flex min-h-52 flex-col rounded-md border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:border-teal-300 hover:shadow-md" data-testid={`wms-inbound-card-${entry.id}`}>
+    <button type="button" onClick={onClick} className="group flex min-h-44 flex-col rounded-md border border-slate-200 bg-white p-4 text-left transition hover:border-teal-400" data-testid={`wms-inbound-card-${entry.id}`}>
       <div className="flex items-start justify-between gap-3">
         <div className={`flex h-11 w-11 items-center justify-center rounded-md ${historical ? "bg-emerald-50 text-emerald-700" : active ? "bg-slate-950 text-white" : "bg-teal-50 text-teal-700"}`}>
           <StatusIcon className="h-6 w-6" />
         </div>
         <span className={`rounded-md px-2 py-1 text-[11px] font-black uppercase ${historical ? "bg-emerald-50 text-emerald-700" : active ? "bg-slate-100 text-slate-700" : "bg-amber-50 text-amber-700"}`}>{status}</span>
       </div>
-      <h3 className="mt-5 truncate text-xl font-black">{entry.cliente_ragione_sociale || "Cliente"}</h3>
+      <h3 className="mt-4 truncate text-lg font-bold">{entry.cliente_ragione_sociale || "Cliente"}</h3>
       <p className="mt-1 text-sm text-slate-500"><span className="capitalize">{entry.tipo || "Arrivo"}</span> · {entry.colli || 1} {Number(entry.colli || 1) === 1 ? "collo" : "colli"}</p>
       <div className="mt-5 grid grid-cols-2 gap-3 border-t border-slate-100 pt-4 text-sm">
         <div><span className="block text-xs text-slate-400">Referenze</span><strong>{entry.righe?.length || 0}</strong></div>

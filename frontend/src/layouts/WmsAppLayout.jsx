@@ -3,7 +3,7 @@ import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
 import {
-  Archive, ArrowLeftRight, Barcode, ChevronRight, CircleHelp, History, Home, PackageCheck,
+  Archive, ArrowLeftRight, Barcode, ChevronRight, History, Home, PackageCheck,
   LogOut, Menu, PackageOpen, Search, Settings, ShoppingCart,
   SlidersHorizontal, UserRound, Warehouse, RefreshCcw,
 } from "lucide-react";
@@ -82,14 +82,14 @@ export default function WmsAppLayout() {
 
   return (
     <div className="wms-shell min-h-dvh text-slate-950" data-testid="wms-app-layout">
-      <div className="wms-app-frame mx-auto min-h-dvh w-full max-w-3xl shadow-[0_0_48px_rgba(15,23,42,0.07)]">
+      <div className="wms-app-frame mx-auto min-h-dvh w-full max-w-3xl border-x border-slate-200/70">
         <header className="wms-topbar sticky top-0 z-40 border-b">
-          <div className="flex h-[68px] items-center gap-2.5 px-4 sm:px-6">
-            <button type="button" onClick={() => navigate("/wms-app")} className="mr-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-md transition hover:bg-slate-100" aria-label="Home WMS"><img src={logo} alt="Aimago" className="h-8 w-8 object-contain" /></button>
+          <div className="flex h-[60px] items-center gap-2 px-3 sm:px-5">
+            <div className="mr-0.5 flex h-9 w-9 shrink-0 items-center justify-center"><img src={logo} alt="Aimago" className="h-8 w-8 object-contain" /></div>
             <button
               type="button"
               onClick={() => setCompanyOpen(true)}
-              className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-md border border-slate-200/80 bg-white/80 px-3.5 text-left text-sm font-bold shadow-[0_2px_8px_rgba(15,23,42,0.035)] transition hover:border-slate-300"
+              className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-left text-sm font-semibold transition hover:border-slate-400"
               aria-label="Seleziona azienda"
               data-testid="wms-company-picker"
             >
@@ -101,7 +101,7 @@ export default function WmsAppLayout() {
           </div>
         </header>
 
-        <main className="px-4 pb-28 pt-7 sm:px-6 sm:pt-8">
+        <main className="px-3 pb-24 pt-5 sm:px-5 sm:pt-6">
           <Outlet context={{ entries: filteredEntries, allEntries: entries, clientId, clients, loadEntries }} />
         </main>
 
@@ -151,11 +151,6 @@ export default function WmsAppLayout() {
             <button type="button" onClick={signOut} className="flex w-full items-center gap-3 rounded-md px-4 py-3 text-left font-bold text-red-600 hover:bg-red-50">
               <LogOut className="h-5 w-5" /> Esci
             </button>
-            <div className="mt-3 flex items-center gap-3 rounded-md border border-slate-200 p-3">
-              <img src={logo} alt="Aimago" className="h-8 w-auto" />
-              <div><div className="text-xs font-bold">Aimago WMS</div><div className="text-[11px] text-slate-400">Versione operativa</div></div>
-            </div>
-            <button type="button" onClick={() => toast.info("Manuale operatore: prossimo collegamento")} className="mt-3 flex w-full items-center gap-3 rounded-md border border-slate-200 px-4 py-3 text-left font-semibold"><CircleHelp className="h-5 w-5" /> Manuale operatore</button>
           </div>
         </SheetContent>
       </Sheet>
@@ -165,7 +160,7 @@ export default function WmsAppLayout() {
 
 function IconButton({ label, onClick, children }) {
   const primary = label === "Scansiona";
-  return <button type="button" aria-label={label} title={label} onClick={onClick} className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-md transition ${primary ? "bg-slate-950 text-white shadow-[0_5px_16px_rgba(15,23,42,0.2)] hover:bg-teal-800" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"}`}>{children}</button>;
+  return <button type="button" aria-label={label} title={label} onClick={onClick} className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md transition ${primary ? "bg-slate-950 text-white hover:bg-teal-800" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"}`}>{children}</button>;
 }
 
 function BottomNavigation() {
@@ -179,11 +174,11 @@ function BottomNavigation() {
     { label: "Packing", icon: PackageCheck, active: location.pathname.includes("/packing"), action: () => navigate("/packing-station") },
   ];
   return (
-    <nav className="wms-bottom-nav fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-3xl border-t px-2 pb-[max(8px,env(safe-area-inset-bottom))] pt-1.5" aria-label="Navigazione WMS">
+    <nav className="wms-bottom-nav fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-3xl border-x border-t px-2 pb-[max(6px,env(safe-area-inset-bottom))] pt-1" aria-label="Navigazione WMS">
       <div className="grid grid-cols-5 gap-1">
         {items.map((item) => (
-          <button key={item.label} type="button" onClick={item.action} className={`relative flex min-h-14 flex-col items-center justify-center gap-1 rounded-md px-1 text-[10px] font-extrabold transition ${item.active ? "text-teal-800" : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"}`}>
-            <span className={`flex h-7 w-10 items-center justify-center rounded-md transition ${item.active ? "bg-teal-50" : ""}`}><item.icon className={`h-[19px] w-[19px] ${item.active ? "stroke-[2.5]" : ""}`} /></span>
+          <button key={item.label} type="button" onClick={item.action} className={`relative flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-md px-1 text-[10px] font-bold transition ${item.active ? "text-teal-800" : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"}`}>
+            <span className="flex h-6 w-9 items-center justify-center"><item.icon className={`h-[19px] w-[19px] ${item.active ? "stroke-[2.5]" : ""}`} /></span>
             {item.label}
           </button>
         ))}
