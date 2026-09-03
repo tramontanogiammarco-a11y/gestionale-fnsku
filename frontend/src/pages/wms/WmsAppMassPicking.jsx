@@ -88,7 +88,7 @@ function MassMission({ batchId, mode }) {
     catch (error) { toast.error(error.response?.data?.detail || fallback); if (navigator.vibrate) navigator.vibrate(180); }
     finally { setWorking(false); }
   };
-  const scanSlot = (rawCode) => { const value = String(rawCode || code).trim(); if (value) { setCode(""); send({ codice: value }, "Slot confermato", "Slot errato"); } };
+  const scanSlot = (rawCode) => { const value = String(rawCode || code).trim(); if (value) { setCode(""); send({ codice: value }, mode === "mono" ? "Prelievo registrato, passa al prossimo prodotto" : "Slot confermato", "Slot o prodotto errato"); } };
   const confirmBag = (rawCode) => { const value = String(rawCode || bagCode).trim().toUpperCase(); if (bagPattern.test(value)) { setBagCode(""); send({ codice: value }, "Bag confermata e registrata nello storico", "Bag non valida"); } };
   const confirmQuantity = async (quantity = selectedQuantityRef.current) => {
     if (quantitySubmitRef.current || working || quantity !== remaining) return;

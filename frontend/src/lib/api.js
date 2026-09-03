@@ -6164,10 +6164,10 @@ async function scanWmsMassPicking(batchId, payload = {}) {
     if (!matchesPickingConfirmation(current, code)) fail(pickingConfirmationError(current));
     const { error } = await requireSupabase().from("wms_mass_pick_lines").update({ location_confirmed_at: nowIso() }).eq("id", current.id);
     if (error) fail(error.message);
-    return wmsMassPickSnapshot(batchId);
+    if (batch.picking_mode !== "mono") return wmsMassPickSnapshot(batchId);
   }
   const remaining = Number(current.quantita_attesa || 0) - Number(current.quantita_prelevata || 0);
-  const quantity = Math.floor(Number(payload.quantita || 0));
+  const quantity = batch.picking_mode === "mono" ? remaining : Math.floor(Number(payload.quantita || 0));
   if (!Number.isFinite(quantity) || quantity <= 0 || quantity > remaining) fail(`Seleziona da 1 a ${remaining} pezzi.`);
   const next = Number(current.quantita_prelevata || 0) + quantity;
   const { error: lineError } = await requireSupabase().from("wms_mass_pick_lines").update({
