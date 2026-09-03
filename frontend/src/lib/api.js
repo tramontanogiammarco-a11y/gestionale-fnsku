@@ -4393,6 +4393,13 @@ async function wmsPickingPlan(order, items, options = {}) {
     : { data: [], error: null };
   if (reservedGalluseError) fail(reservedGalluseError.message);
 
+  const { data: reservedRefillLines, error: reservedRefillError } = await requireSupabase()
+    .from("wms_refill_lines")
+    .select("source_location_id,product_key,quantita")
+    .eq("cliente_id", order.cliente_id)
+    .in("stato", ["da_associare_bag", "da_prelevare", "in_bag"]);
+  if (reservedRefillError) fail(reservedRefillError.message);
+
   const reserved = new Map();
   for (const line of reservedLines || []) {
     const key = `${line.location_id}:${line.product_key}`;
@@ -4405,6 +4412,10 @@ async function wmsPickingPlan(order, items, options = {}) {
   for (const line of reservedGalluseLines || []) {
     const key = `${line.location_id}:${line.product_key}`;
     reserved.set(key, Number(reserved.get(key) || 0) + Math.max(0, Number(line.quantita_attesa || 0) - Number(line.quantita_prelevata || 0)));
+  }
+  for (const line of reservedRefillLines || []) {
+    const key = `${line.source_location_id}:${line.product_key}`;
+    reserved.set(key, Number(reserved.get(key) || 0) + Number(line.quantita || 0));
   }
 
   const allLocations = stockResponse.data.locations || [];
@@ -4732,7 +4743,23 @@ async function recheckWmsOrderExceptions(payload = {}) {
 }
 
 async function listWmsRefillQueue(params = new URLSearchParams()) {
-  await assertWmsStaff();
+  const profile = await assertWmsStaff();
+  const { data: activeMission, error: activeMissionError } = await requireSupabase()
+    .from("wms_refill_missions")
+    .select("id,stato,created_at")
+    .eq("operatore_id", profile.id)
+    .in("stato", ["configurazione", "prelievo", "deposito"])
+    .maybeSingle();
+  if (activeMissionError) fail(activeMissionError.message);
+
+  const sourceReserved = new Map();
+  const { data: activeTargets, error: activeTargetsError } = await requireSupabase()
+    .from("wms_refill_lines")
+    .select("target_location_id,product_key")
+    .in("stato", ["da_associare_bag", "da_prelevare", "in_bag"]);
+  if (activeTargetsError) fail(activeTargetsError.message);
+  const targetAssignments = new Map((activeTargets || []).map((line) => [line.target_location_id, line.product_key]));
+
   let query = requireSupabase()
     .from("shopify_orders")
     .select("*")
@@ -4743,15 +4770,34 @@ async function listWmsRefillQueue(params = new URLSearchParams()) {
   const { data: rows, error } = await query;
   if (error) fail(error.message);
   const orders = await enrichShopifyOrders(rows || []);
-  const queue = [];
+  const grouped = new Map();
   for (const order of orders) {
     const queuedSlotReserved = await queuedSlotReservationsBefore(order);
     const plan = await wmsPickingPlan(order, order.items || [], { queuedSlotReserved });
     const refill = (plan.replenishment || []).find((item) => item.can_replenish);
     if (!refill) continue;
-    const source = (refill.pallet_sources || []).find((item) => Number(item.quantita || 0) > 0);
+    const source = (refill.pallet_sources || []).map((item) => {
+      const reservationKey = `${order.cliente_id}:${refill.product_key}:${item.id}`;
+      return { ...item, available: Math.max(0, Number(item.quantita || 0) - Number(sourceReserved.get(reservationKey) || 0)) };
+    }).find((item) => item.available > 0);
     if (!source || !refill.target_slot) continue;
-    queue.push({
+    const required = Math.min(Number(refill.quantita || 0), Number(source.available || 0));
+    if (required <= 0) continue;
+    const assignedTargetProduct = targetAssignments.get(refill.target_slot.id);
+    if (assignedTargetProduct && assignedTargetProduct !== refill.product_key) continue;
+    targetAssignments.set(refill.target_slot.id, refill.product_key);
+    const reservationKey = `${order.cliente_id}:${refill.product_key}:${source.id}`;
+    sourceReserved.set(reservationKey, Number(sourceReserved.get(reservationKey) || 0) + required);
+    const taskKey = [order.cliente_id, refill.product_key, source.id, refill.target_slot.id].join("|");
+    const existing = grouped.get(taskKey);
+    if (existing) {
+      existing.quantita += required;
+      existing.total_required += Number(refill.quantita || 0);
+      existing.order_ids.push(order.id);
+      continue;
+    }
+    grouped.set(taskKey, {
+      key: taskKey,
       order: {
         id: order.id,
         order_name: order.order_name,
@@ -4759,6 +4805,7 @@ async function listWmsRefillQueue(params = new URLSearchParams()) {
         cliente_ragione_sociale: order.cliente_ragione_sociale,
         processed_at: order.processed_at,
       },
+      order_ids: [order.id],
       product: {
         product_key: refill.product_key,
         titolo: refill.titolo,
@@ -4767,12 +4814,181 @@ async function listWmsRefillQueue(params = new URLSearchParams()) {
       },
       source,
       target: refill.target_slot,
-      quantita: Math.min(Number(refill.quantita || 0), Number(source.quantita || 0)),
+      quantita: required,
       total_required: Number(refill.quantita || 0),
-      maximum_quantity: Number(source.quantita || 0),
+      maximum_quantity: Number(source.available || 0),
     });
   }
-  return ok({ queue, orders_waiting: orders.length, tasks: queue.length });
+  const queue = [...grouped.values()];
+  return ok({ queue, orders_waiting: orders.length, tasks: queue.length, active_mission: activeMission || null });
+}
+
+async function wmsRefillMissionSnapshot(missionId) {
+  const profile = await assertWmsStaff();
+  const { data: mission, error: missionError } = await requireSupabase()
+    .from("wms_refill_missions").select("*").eq("id", missionId).single();
+  if (missionError || !mission) fail(missionError?.message || "Missione refill non trovata", 404);
+  if (mission.operatore_id !== profile.id && profile.role !== "admin") fail("Missione assegnata a un altro operatore", 403);
+  const { data: lines, error: linesError } = await requireSupabase()
+    .from("wms_refill_lines").select("*").eq("mission_id", missionId)
+    .order(mission.stato === "deposito" ? "target_sequence" : "source_sequence");
+  if (linesError) fail(linesError.message);
+  const locationIds = [...new Set((lines || []).flatMap((line) => [line.source_location_id, line.target_location_id]))];
+  const { data: locations, error: locationsError } = locationIds.length
+    ? await requireSupabase().from("wms_locations").select("*").in("id", locationIds)
+    : { data: [], error: null };
+  if (locationsError) fail(locationsError.message);
+  const locationMap = Object.fromEntries((locations || []).map((location) => [location.id, location]));
+  const rows = (lines || []).map((line) => ({
+    ...line,
+    source: locationMap[line.source_location_id] || null,
+    target: locationMap[line.target_location_id] || null,
+  }));
+  const currentLine = mission.stato === "configurazione"
+    ? rows.find((line) => !line.bag_id)
+    : mission.stato === "prelievo"
+      ? [...rows].sort((a, b) => a.source_sequence - b.source_sequence).find((line) => line.stato === "da_prelevare")
+      : mission.stato === "deposito"
+        ? [...rows].sort((a, b) => a.target_sequence - b.target_sequence).find((line) => line.stato === "in_bag")
+        : null;
+  const completed = rows.filter((line) => line.stato === "completata").length;
+  const inBag = rows.filter((line) => ["in_bag", "completata"].includes(line.stato)).length;
+  return ok({
+    mission,
+    lines: rows,
+    current_line: currentLine || null,
+    summary: { total: rows.length, bags_ready: rows.filter((line) => line.bag_id).length, picked: inBag, completed },
+  });
+}
+
+async function startWmsRefillMission(payload = {}) {
+  const profile = await assertWmsStaff();
+  const requested = Array.isArray(payload.lines) ? payload.lines : [];
+  if (!requested.length) fail("Seleziona almeno una referenza refill");
+  const queueResponse = await listWmsRefillQueue(new URLSearchParams(payload.cliente_id ? { cliente_id: payload.cliente_id } : {}));
+  if (queueResponse.data.active_mission) fail("Completa prima la missione refill gia in corso", 409);
+  const queueMap = new Map((queueResponse.data.queue || []).map((item) => [item.key, item]));
+  const selected = requested.map((selection) => {
+    const task = queueMap.get(optionalText(selection.key));
+    if (!task) fail("Una delle attività refill non è più disponibile. Aggiorna la lista.", 409);
+    const quantity = Math.floor(Number(selection.quantita || 0));
+    if (quantity < Number(task.quantita || 0) || quantity > Number(task.maximum_quantity || 0)) {
+      fail(`Per ${task.product.titolo} scegli una quantità tra ${task.quantita} e ${task.maximum_quantity}.`);
+    }
+    return { ...task, selected_quantity: quantity };
+  });
+  const locationIds = [...new Set(selected.flatMap((item) => [item.source.id, item.target.id]))];
+  const [{ data: locations, error: locationsError }, { data: mapSettings, error: mapError }] = await Promise.all([
+    requireSupabase().from("wms_locations").select("*").in("id", locationIds),
+    requireSupabase().from("wms_warehouse_map").select("*").eq("id", true).single(),
+  ]);
+  if (locationsError || mapError) fail((locationsError || mapError).message);
+  const locationMap = Object.fromEntries((locations || []).map((location) => [location.id, location]));
+  const allLocationsResponse = await fetchAllWmsLocations();
+  if (allLocationsResponse.error) fail(allLocationsResponse.error.message);
+  const hiddenLocationIds = new Set(Array.isArray(mapSettings.hidden_location_ids) ? mapSettings.hidden_location_ids : []);
+  const mapWithObstacles = {
+    ...mapSettings,
+    obstacles: (allLocationsResponse.data || []).filter((location) => (
+      !hiddenLocationIds.has(location.id)
+      && !["INBOUND-01", "OUTBOUND-01", "PACK-01"].includes(location.codice)
+    )),
+  };
+  const sourceLocations = [...new Set(selected.map((item) => item.source.id))].map((id) => locationMap[id]).filter(Boolean);
+  const targetLocations = [...new Set(selected.map((item) => item.target.id))].map((id) => locationMap[id]).filter(Boolean);
+  const sourceRoute = calculateWarehouseRoute(visibleWmsRouteLocations(sourceLocations, mapSettings), mapWithObstacles);
+  const targetRoute = calculateWarehouseRoute(visibleWmsRouteLocations(targetLocations, mapSettings), mapWithObstacles);
+  if (sourceRoute.unreachable?.length || targetRoute.unreachable?.length) fail("Una o più ubicazioni refill non sono raggiungibili nella mappa", 409);
+  const sourceSequence = Object.fromEntries(sourceRoute.locations.map((location, index) => [location.id, index + 1]));
+  const targetSequence = Object.fromEntries(targetRoute.locations.map((location, index) => [location.id, index + 1]));
+  const { data: mission, error: missionError } = await requireSupabase().from("wms_refill_missions").insert({
+    operatore_id: profile.id,
+    stato: "configurazione",
+  }).select().single();
+  if (missionError || !mission) fail(missionError?.message || "Missione refill non creata");
+  const { error: linesError } = await requireSupabase().from("wms_refill_lines").insert(selected.map((item, index) => ({
+    mission_id: mission.id,
+    cliente_id: item.order.cliente_id,
+    order_ids: item.order_ids,
+    product_key: item.product.product_key,
+    titolo: item.product.titolo,
+    ean: item.product.ean,
+    fnsku: item.product.fnsku,
+    source_location_id: item.source.id,
+    target_location_id: item.target.id,
+    quantita: item.selected_quantity,
+    source_sequence: sourceSequence[item.source.id] || index + 1,
+    target_sequence: targetSequence[item.target.id] || index + 1,
+  })));
+  if (linesError) {
+    await requireSupabase().from("wms_refill_missions").delete().eq("id", mission.id);
+    fail(linesError.message);
+  }
+  return wmsRefillMissionSnapshot(mission.id);
+}
+
+async function assignWmsRefillBag(missionId, payload = {}) {
+  await assertWmsStaff();
+  const snapshot = await wmsRefillMissionSnapshot(missionId);
+  if (snapshot.data.mission.stato !== "configurazione") fail("Le bag della missione sono già state configurate", 409);
+  const line = snapshot.data.current_line;
+  if (!line) fail("Tutte le bag sono già associate", 409);
+  const bag = await claimWmsBag(payload.bag_code || payload.codice, "in_refill");
+  const { data: assigned, error } = await requireSupabase().from("wms_refill_lines").update({
+    bag_id: bag.id, bag_code: bag.codice, stato: "da_prelevare", updated_at: nowIso(),
+  }).eq("id", line.id).is("bag_id", null).select("id").maybeSingle();
+  if (error || !assigned) {
+    await releaseWmsBag(bag.id);
+    fail(error?.message || "La referenza è stata appena associata a un'altra bag", 409);
+  }
+  const updated = await wmsRefillMissionSnapshot(missionId);
+  if (updated.data.summary.bags_ready === updated.data.summary.total) {
+    await requireSupabase().from("wms_refill_missions").update({ stato: "prelievo", started_at: nowIso(), updated_at: nowIso() }).eq("id", missionId);
+  }
+  return wmsRefillMissionSnapshot(missionId);
+}
+
+async function scanWmsRefillMission(missionId, payload = {}) {
+  await assertWmsStaff();
+  const code = normalizedScanCode(payload.code || payload.codice);
+  const snapshot = await wmsRefillMissionSnapshot(missionId);
+  const { mission, current_line: line } = snapshot.data;
+  if (!line) fail("La missione non ha una scansione in attesa", 409);
+  if (mission.stato === "prelievo") {
+    if (!line.pallet_scanned_at) {
+      if (!sameWmsCode(code, line.source?.codice)) fail(`Pallet errato. Scansiona ${line.source?.codice}.`);
+      const { error } = await requireSupabase().from("wms_refill_lines").update({ pallet_scanned_at: nowIso(), updated_at: nowIso() }).eq("id", line.id).is("pallet_scanned_at", null);
+      if (error) fail(error.message);
+    } else {
+      if (!sameWmsCode(code, line.bag_code)) fail(`Bag errata. Scansiona ${line.bag_code}.`);
+      const scannedAt = nowIso();
+      const { error } = await requireSupabase().from("wms_refill_lines").update({ pick_bag_scanned_at: scannedAt, stato: "in_bag", updated_at: scannedAt }).eq("id", line.id).eq("stato", "da_prelevare");
+      if (error) fail(error.message);
+      const { count, error: countError } = await requireSupabase().from("wms_refill_lines").select("id", { count: "exact", head: true }).eq("mission_id", missionId).eq("stato", "da_prelevare");
+      if (countError) fail(countError.message);
+      if (!count) await requireSupabase().from("wms_refill_missions").update({ stato: "deposito", updated_at: scannedAt }).eq("id", missionId);
+    }
+  } else if (mission.stato === "deposito") {
+    if (!line.putaway_bag_scanned_at) {
+      if (!sameWmsCode(code, line.bag_code)) fail(`Bag errata. Scansiona ${line.bag_code}.`);
+      const { error } = await requireSupabase().from("wms_refill_lines").update({ putaway_bag_scanned_at: nowIso(), updated_at: nowIso() }).eq("id", line.id).is("putaway_bag_scanned_at", null);
+      if (error) fail(error.message);
+    } else {
+      if (!sameWmsCode(code, line.target?.codice)) fail(`Slot errato. Scansiona ${line.target?.codice}.`);
+      const { data, error } = await requireSupabase().rpc("complete_wms_refill_line", { p_line_id: line.id, p_slot_code: code });
+      if (error) fail(error.message);
+      if (data?.mission_completed) {
+        try {
+          await recheckWmsOrderExceptions({ include_ready: true, limit: 500 });
+        } catch (recheckError) {
+          console.warn("Ricontrollo ordini post-refill non completato:", recheckError.message);
+        }
+      }
+    }
+  } else {
+    fail("La missione refill non è in lavorazione", 409);
+  }
+  return wmsRefillMissionSnapshot(missionId);
 }
 
 async function replenishWmsSlot(payload = {}) {
@@ -5176,13 +5392,13 @@ async function listWmsMassPicking(params = new URLSearchParams()) {
   });
 }
 
-async function claimWmsBag(rawCode) {
+async function claimWmsBag(rawCode, status = "in_packing") {
   const code = String(rawCode || "").trim().toUpperCase();
   if (!/^B-[A-Z0-9]{5}$/.test(code)) fail("Scansiona una bag nel formato B-7K2Q9.");
   const { data: bag, error } = await requireSupabase().from("wms_bags").select("*").eq("codice", code).maybeSingle();
   if (error || !bag) fail(error?.message || "Bag non censita.", 404);
   if (bag.stato !== "disponibile") fail(`La bag ${code} e gia in uso.`, 409);
-  const { data: claimed, error: claimError } = await requireSupabase().from("wms_bags").update({ stato: "in_packing", updated_at: nowIso() }).eq("id", bag.id).eq("stato", "disponibile").select().maybeSingle();
+  const { data: claimed, error: claimError } = await requireSupabase().from("wms_bags").update({ stato: status, updated_at: nowIso() }).eq("id", bag.id).eq("stato", "disponibile").select().maybeSingle();
   if (claimError || !claimed) fail(claimError?.message || "La bag e stata appena usata da un altro operatore.", 409);
   return claimed;
 }
@@ -8295,6 +8511,7 @@ export const api = {
     if (path === "/wms/configurazione") return getWmsSettings();
     if (path === "/wms/ordini") return listWmsOperationalOrders(params);
     if (path === "/wms/refill") return listWmsRefillQueue(params);
+    if (path.match(/^\/wms\/refill\/[^/]+$/)) return wmsRefillMissionSnapshot(path.split("/")[3]);
     if (path === "/wms/picking-massivo") return listWmsMassPicking(params);
     if (path.match(/^\/wms\/picking-massivo\/[^/]+$/)) return wmsMassPickSnapshot(path.split("/")[3]);
     if (path === "/wms/picking-galluse") return listWmsGallusePicking(params);
@@ -8341,6 +8558,9 @@ export const api = {
     if (path === "/wms/ordini/import-csv") return importCsvWmsOrders(payload);
     if (path.match(/^\/wms\/orders\/[^/]+\/shipping-choice$/)) return confirmWmsShippingChoice(path.split("/")[3], payload);
     if (path === "/wms/rifornimenti") return replenishWmsSlot(payload);
+    if (path === "/wms/refill/avvia") return startWmsRefillMission(payload);
+    if (path.match(/^\/wms\/refill\/[^/]+\/bag$/)) return assignWmsRefillBag(path.split("/")[3], payload);
+    if (path.match(/^\/wms\/refill\/[^/]+\/scan$/)) return scanWmsRefillMission(path.split("/")[3], payload);
     if (path === "/wms/order-gate/recheck") return recheckWmsOrderExceptions(payload);
     if (path.match(/^\/wms\/order-gate\/[^/]+\/evaluate$/)) return ok(await evaluateWmsOrderGate(path.split("/")[3], { force: Boolean(payload?.force) }));
     if (path === "/wms/stock/quantita") return adjustWmsLocationQuantity(payload);
