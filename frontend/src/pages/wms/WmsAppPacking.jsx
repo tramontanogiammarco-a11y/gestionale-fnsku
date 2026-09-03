@@ -482,8 +482,8 @@ export default function WmsAppPacking() {
     try {
       const response = await api.post("/wms/packing/station/scan", {
         codice: value,
-        bag_code: currentStation?.phase === "label_history" ? null : currentStation?.bag_code || null,
-        cart_code: currentStation?.phase === "label_history" ? null : cart?.cart_code || currentStation?.cart_code || null,
+        bag_code: ["label_history", "empty_bag"].includes(currentStation?.phase) ? null : currentStation?.bag_code || null,
+        cart_code: ["label_history", "empty_bag"].includes(currentStation?.phase) ? null : cart?.cart_code || currentStation?.cart_code || null,
       });
       const next = response.data;
       if (cartIsComplete(next)) {
@@ -503,6 +503,7 @@ export default function WmsAppPacking() {
       const labelsToPrint = next.labels_to_print || [];
       if (labelsToPrint.length) await printCarrierLabels(next.bag_code, labelsToPrint);
       if (next.phase === "cart_ready") toast.success("Carrello riconosciuto: ora scansiona una bag");
+      if (next.phase === "empty_bag") toast.success(`Bag ${next.bag_code} libera e vuota.`);
       if (next.phase === "select_product" && currentStation?.phase === "scan_packaging") toast.success("Ordine imballato: scegli il prossimo prodotto");
       else if (next.phase === "select_product" && currentStation?.phase !== "select_product") toast.success("Bag mono-prodotto riconosciuta: scansiona il prodotto o seleziona la foto");
       if (next.phase === "double_check") toast.success("Bag riconosciuta: riscansionala per il doppio controllo");
@@ -511,7 +512,7 @@ export default function WmsAppPacking() {
         await printCarrierLabels(next.bag_code, next.labels.filter((label) => !label.scanned));
         toast.success("Imballaggio associato e scalato: scansiona l'etichetta corriere");
       }
-      if (next.phase === "completed") toast.success("Packing completato. Bag liberata.");
+      if (next.phase === "completed") toast.success("Packing completato. Bag libera e vuota.");
     } catch (error) {
       toast.error(error.response?.data?.detail || "Scansione non valida");
       if (navigator.vibrate) navigator.vibrate(180);
@@ -560,6 +561,8 @@ export default function WmsAppPacking() {
         ? "Scansiona un prodotto o seleziona la foto"
       : phase === "completed"
         ? "Bag liberata"
+        : phase === "empty_bag"
+          ? "Bag libera e vuota"
         : phase === "label_history"
           ? "Contenuto previsto del pacco"
         : phase === "cart_ready"
@@ -574,10 +577,10 @@ export default function WmsAppPacking() {
         </header>
         {zebra.status === "unavailable" && <div className="flex items-start gap-3 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><CircleAlert className="mt-0.5 h-5 w-5 shrink-0" /><div><strong className="block">Stampa automatica Zebra non attiva</strong><span className="mt-1 block text-xs leading-5">Controlla che Zebra Browser Print sia aperto e la stampante collegata. La station verifica il collegamento e riprende la stampa automaticamente.</span></div></div>}
 
-        <section className={`rounded-md border-2 bg-white p-5 shadow-sm ${pendingCarrierPrint ? "border-amber-500" : phase === "completed" ? "border-emerald-500" : phase === "scan_packaging" ? "border-sky-500" : phase === "scan_labels" ? "border-teal-500" : "border-slate-950"}`}>
+        <section className={`rounded-md border-2 bg-white p-5 shadow-sm ${pendingCarrierPrint ? "border-amber-500" : ["completed", "empty_bag"].includes(phase) ? "border-emerald-500" : phase === "scan_packaging" ? "border-sky-500" : phase === "scan_labels" ? "border-teal-500" : "border-slate-950"}`}>
           <div className="flex items-center gap-4">
-            <span className={`flex h-14 w-14 items-center justify-center rounded-md ${phase === "completed" ? "bg-emerald-600 text-white" : "bg-slate-950 text-white"}`}>
-              {phase === "completed" ? <CheckCircle2 className="h-7 w-7" /> : phase === "scan_labels" ? <Barcode className="h-7 w-7" /> : phase === "scan_packaging" ? <PackageCheck className="h-7 w-7" /> : <ShoppingBag className="h-7 w-7" />}
+            <span className={`flex h-14 w-14 items-center justify-center rounded-md ${["completed", "empty_bag"].includes(phase) ? "bg-emerald-600 text-white" : "bg-slate-950 text-white"}`}>
+              {["completed", "empty_bag"].includes(phase) ? <CheckCircle2 className="h-7 w-7" /> : phase === "scan_labels" ? <Barcode className="h-7 w-7" /> : phase === "scan_packaging" ? <PackageCheck className="h-7 w-7" /> : <ShoppingBag className="h-7 w-7" />}
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-xs font-black uppercase text-teal-700">Scanner pronto</p>

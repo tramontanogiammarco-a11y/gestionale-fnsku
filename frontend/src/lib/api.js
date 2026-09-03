@@ -7402,6 +7402,23 @@ async function scanWmsPackingStation(payload = {}) {
     if (/^CARRELLO-[0-9]{2}$/.test(code)) return packingCartSnapshot(code);
     if (/^(SCATOLA-(PICCOLA|MEDIA|GRANDE)|BUSTA-CORRIERE)$/.test(code)) fail("Scansiona prima la bag da imballare");
     if (!/^B-[A-Z0-9]{5}$/.test(code)) return packingLabelAuditSnapshot(code);
+    const { data: currentBag, error: currentBagError } = await requireSupabase()
+      .from("wms_bags")
+      .select("codice,stato")
+      .eq("codice", code)
+      .maybeSingle();
+    if (currentBagError) fail(currentBagError.message);
+    if (currentBag?.stato === "disponibile") {
+      return ok({
+        phase: "empty_bag",
+        bag_code: code,
+        batch: null,
+        sessions: [],
+        labels: [],
+        packaging_options: [],
+        summary: { orders: 0, completed: 0 },
+      });
+    }
     const snapshot = await recoverStalledMonoPackingSnapshot(await packingStationSnapshot(code));
     if (snapshot.data.batch?.picking_mode === "mono" && snapshot.data.phase === "select_product") return snapshot;
     if (snapshot.data.phase === "completed") {
