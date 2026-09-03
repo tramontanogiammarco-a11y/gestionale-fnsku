@@ -141,6 +141,7 @@ export default function WmsAppPacking() {
   }, []);
 
   const resetStation = useCallback(() => {
+    stationSnapshotRef.current = null;
     setStation(null);
     setCode("");
     focusScanner();
@@ -157,11 +158,13 @@ export default function WmsAppPacking() {
     const next = response.data;
     if (cartIsComplete(next)) {
       setCart(null);
+      stationSnapshotRef.current = null;
       setStation(null);
       setCode("");
       return next;
     }
     setCart((current) => cartStateFromSnapshot(next, current));
+    stationSnapshotRef.current = next;
     setStation(next);
     setCode("");
     return next;
@@ -456,17 +459,25 @@ export default function WmsAppPacking() {
   const submitScan = async (overrideCode = null) => {
     const value = normalizeScannerCode(overrideCode ?? code);
     if (!value || working || scanInFlightRef.current) return;
+    const currentStation = stationSnapshotRef.current || station;
+    const isPackagingCode = /^(SCATOLA-(PICCOLA|MEDIA|GRANDE)|BUSTA-CORRIERE)$/.test(value);
+    if (isPackagingCode && currentStation?.bag_code && currentStation.phase !== "scan_packaging") {
+      setCode("");
+      focusScanner();
+      return;
+    }
     scanInFlightRef.current = true;
     setWorking(true);
     try {
       const response = await api.post("/wms/packing/station/scan", {
         codice: value,
-        bag_code: station?.bag_code || null,
-        cart_code: cart?.cart_code || station?.cart_code || null,
+        bag_code: currentStation?.bag_code || null,
+        cart_code: cart?.cart_code || currentStation?.cart_code || null,
       });
       const next = response.data;
       if (cartIsComplete(next)) {
         setCart(null);
+        stationSnapshotRef.current = null;
         setStation(null);
         setCode("");
         if (navigator.vibrate) navigator.vibrate([55, 35, 55]);
@@ -474,17 +485,18 @@ export default function WmsAppPacking() {
         return;
       }
       if (next.phase === "cart_ready") setCart((current) => cartStateFromSnapshot(next, current));
+      stationSnapshotRef.current = next;
       setStation(next);
       setCode("");
       if (navigator.vibrate) navigator.vibrate([55, 35, 55]);
       const labelsToPrint = next.labels_to_print || [];
       if (labelsToPrint.length) await printCarrierLabels(next.bag_code, labelsToPrint);
       if (next.phase === "cart_ready") toast.success("Carrello riconosciuto: ora scansiona una bag");
-      if (next.phase === "select_product" && station?.phase === "scan_packaging") toast.success("Ordine imballato: scegli il prossimo prodotto");
-      else if (next.phase === "select_product" && station?.phase !== "select_product") toast.success("Bag mono-prodotto riconosciuta: scansiona il prodotto o seleziona la foto");
+      if (next.phase === "select_product" && currentStation?.phase === "scan_packaging") toast.success("Ordine imballato: scegli il prossimo prodotto");
+      else if (next.phase === "select_product" && currentStation?.phase !== "select_product") toast.success("Bag mono-prodotto riconosciuta: scansiona il prodotto o seleziona la foto");
       if (next.phase === "double_check") toast.success("Bag riconosciuta: riscansionala per il doppio controllo");
       if (next.phase === "scan_packaging") toast.success("Bag confermata: scansiona scatola o busta corriere");
-      if (next.phase === "scan_labels" && station?.phase === "scan_packaging") {
+      if (next.phase === "scan_labels" && currentStation?.phase === "scan_packaging") {
         await printCarrierLabels(next.bag_code, next.labels.filter((label) => !label.scanned));
         toast.success("Imballaggio associato e scalato: scansiona l'etichetta corriere");
       }
@@ -504,6 +516,7 @@ export default function WmsAppPacking() {
     setWorking(true);
     try {
       const response = await api.post("/wms/packing/mono/select", { bag_code: station.bag_code, session_id: sessionId });
+      stationSnapshotRef.current = response.data;
       setStation(response.data);
       toast.success("Prodotto riconosciuto: scansiona l'imballaggio");
       if (navigator.vibrate) navigator.vibrate([55, 35, 55]);

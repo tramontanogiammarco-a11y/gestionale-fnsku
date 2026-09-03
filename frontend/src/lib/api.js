@@ -7367,6 +7367,7 @@ async function scanWmsPackingStation(payload = {}) {
     snapshot = await packingStationSnapshotForLabel(code);
   }
   if (snapshot.data.phase === "select_product" && snapshot.data.batch?.picking_mode === "mono") {
+    if (/^(SCATOLA-(PICCOLA|MEDIA|GRANDE)|BUSTA-CORRIERE)$/.test(code)) return snapshot;
     return selectWmsMonoPackingProduct({ bag_code: activeBagCode, code });
   }
   if (code === activeBagCode) {
