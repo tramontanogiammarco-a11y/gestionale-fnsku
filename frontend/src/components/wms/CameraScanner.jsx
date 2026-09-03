@@ -13,7 +13,7 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
   const [starting, setStarting] = useState(false);
   const [previewReady, setPreviewReady] = useState(false);
   const [error, setError] = useState("");
-  const compactPicking = Boolean(context && ["location", "cart"].includes(purpose));
+  const compactPicking = Boolean(context && (context.compact || ["location", "cart"].includes(purpose)));
 
   useEffect(() => { onDetectedRef.current = onDetected; }, [onDetected]);
 
@@ -96,6 +96,10 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
               <p className="mt-1 truncate text-xs font-semibold text-slate-600">{context.title}</p>
             </div>
           </div>
+          {Number(context.recommended) > 0 && <div className="flex items-center justify-between border-t border-amber-300 bg-amber-50 px-2 py-2 text-amber-950">
+            <span className="text-[10px] font-black uppercase">Consigliato per ordini pending</span>
+            <strong className="text-lg font-black">{context.recommended} pz</strong>
+          </div>}
           {context.bagAllocations?.length > 0 && <div className="border-t border-amber-200 bg-amber-50/60 px-2 py-1.5">
             <p className="text-[9px] font-black uppercase leading-none text-amber-800">Inserisci subito nelle bag</p>
             <div className="mt-1 flex gap-1.5 overflow-x-auto pb-0.5">

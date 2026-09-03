@@ -132,6 +132,7 @@ export default function WmsAppRefill() {
   if (!queueData) return <div className="flex min-h-[65dvh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-teal-700" /></div>;
 
   const scannerContext = current && expected ? {
+    compact: true,
     eyebrow: mission.stato === "configurazione" ? "Bag temporanea" : mission.stato === "prelievo" ? "Fase pallet" : "Fase slot",
     progressText: mission.stato === "configurazione"
       ? `${missionData.summary.bags_ready}/${missionData.summary.total} bag`
@@ -140,6 +141,9 @@ export default function WmsAppRefill() {
         : `${missionData.summary.completed}/${missionData.summary.total} depositi`,
     location: expected.code,
     requested: current.quantita,
+    recommended: mission.stato === "prelievo" && current.pallet_scanned_at
+      ? Number(current.recommended_quantity || current.quantita)
+      : null,
     title: current.titolo,
   } : null;
 
@@ -196,7 +200,7 @@ function RefillSelection({ data, selected, setSelected, toggleTask, onStart, wor
             <button type="button" className="flex w-full items-start gap-3 text-left" onClick={() => toggleTask(task)}>
               <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded border ${active ? "border-teal-700 bg-teal-700 text-white" : "border-slate-300 bg-white"}`}>{active && <Check className="h-4 w-4" />}</span>
               <span className="min-w-0 flex-1"><strong className="block truncate">{task.product.titolo}</strong><span className="mt-1 block font-mono text-xs text-slate-500">{task.product.fnsku || task.product.ean}</span></span>
-              <span className="shrink-0 text-right"><strong className="block text-lg">{task.quantita} pz</strong><span className="text-[10px] font-black uppercase text-slate-500">necessari</span></span>
+              <span className="shrink-0 text-right"><strong className="block text-lg">{task.quantita} pz</strong><span className="text-[10px] font-black uppercase text-slate-500">consigliati</span></span>
             </button>
             <div className="mt-3 flex items-center gap-2 border-t border-slate-200 pt-3">
               <span className="min-w-0 flex-1 truncate font-mono text-xs font-bold">{task.source.codice} <ArrowRight className="mx-1 inline h-3 w-3" /> {task.target.codice}</span>
@@ -236,6 +240,10 @@ function ActiveMission({ data, expected, onScan, working }) {
       {current && <section className="border-2 border-slate-950 bg-white p-4">
         <p className="text-[11px] font-black uppercase text-teal-700">{expected?.label}</p>
         <div className="mt-2 flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="truncate text-lg font-black">{current.titolo}</h2><p className="mt-1 font-mono text-xs text-slate-500">{current.fnsku || current.ean}</p></div><strong className="shrink-0 text-2xl">{current.quantita} pz</strong></div>
+        {mission.stato === "prelievo" && current.pallet_scanned_at && <div className="mt-4 flex items-center justify-between border border-amber-300 bg-amber-50 p-3 text-amber-950">
+          <span><span className="block text-[10px] font-black uppercase">Fabbisogno ordini pending</span><strong className="mt-1 block text-sm">Quantità consigliata</strong></span>
+          <strong className="text-3xl font-black">{current.recommended_quantity || current.quantita} pz</strong>
+        </div>}
         <div className="mt-4 flex items-center justify-between rounded-md bg-slate-100 p-3"><span className="font-mono text-xl font-black">{expected?.code}</span><ScanLine className="h-6 w-6 text-teal-700" /></div>
         <Button type="button" className="mt-3 h-14 w-full text-base font-black" onClick={onScan} disabled={working}><ScanLine className="mr-2 h-5 w-5" /> Scansiona</Button>
       </section>}
@@ -260,7 +268,7 @@ function ActiveMission({ data, expected, onScan, working }) {
 
 function successMessage(status, line) {
   if (status === "configurazione") return "Bag associata alla referenza.";
-  if (status === "prelievo" && !line.pallet_scanned_at) return `Pallet confermato. Inserisci ${line.quantita} pezzi nella bag ${line.bag_code}.`;
+  if (status === "prelievo" && !line.pallet_scanned_at) return `Pallet confermato. Consigliato: ${line.recommended_quantity || line.quantita} pezzi. Sposta ${line.quantita} pezzi nella bag ${line.bag_code}.`;
   if (status === "prelievo") return "Prodotto confermato nella bag.";
   if (status === "deposito" && !line.putaway_bag_scanned_at) return `Bag confermata. Porta ${line.quantita} pezzi nello slot ${line.target?.codice}.`;
   return "Refill registrato e bag liberata.";

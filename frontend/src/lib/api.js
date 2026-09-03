@@ -4922,6 +4922,7 @@ async function startWmsRefillMission(payload = {}) {
     fnsku: item.product.fnsku,
     source_location_id: item.source.id,
     target_location_id: item.target.id,
+    recommended_quantity: item.quantita,
     quantita: item.selected_quantity,
     source_sequence: sourceSequence[item.source.id] || index + 1,
     target_sequence: targetSequence[item.target.id] || index + 1,
