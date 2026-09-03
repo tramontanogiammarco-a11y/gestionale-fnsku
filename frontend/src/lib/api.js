@@ -7393,7 +7393,16 @@ async function scanWmsPackingStation(payload = {}) {
       p_barcode: code,
     });
     if (error) fail(error.message);
-    return packingStationSnapshot(activeBagCode);
+    const packaged = await packingStationSnapshot(activeBagCode);
+    if (packaged.data.batch?.picking_mode !== "mono") return packaged;
+    const labelsToPrint = packaged.data.labels.filter((label) => !label.scanned);
+    const sessionIds = labelsToPrint.map((label) => label.session_id);
+    const { error: completeError } = await requireSupabase().rpc("complete_wms_mono_packaging", {
+      p_session_ids: sessionIds,
+    });
+    if (completeError) fail(completeError.message);
+    const next = await packingStationSnapshot(activeBagCode);
+    return ok({ ...next.data, labels_to_print: labelsToPrint });
   }
 
   return completePackingStationLabel(snapshot, code);

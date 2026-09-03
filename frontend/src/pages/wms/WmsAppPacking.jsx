@@ -477,8 +477,11 @@ export default function WmsAppPacking() {
       setStation(next);
       setCode("");
       if (navigator.vibrate) navigator.vibrate([55, 35, 55]);
+      const labelsToPrint = next.labels_to_print || [];
+      if (labelsToPrint.length) await printCarrierLabels(next.bag_code, labelsToPrint);
       if (next.phase === "cart_ready") toast.success("Carrello riconosciuto: ora scansiona una bag");
-      if (next.phase === "select_product" && station?.phase !== "select_product") toast.success("Bag mono-prodotto riconosciuta: scansiona il prodotto o seleziona la foto");
+      if (next.phase === "select_product" && station?.phase === "scan_packaging") toast.success("Ordine imballato: scegli il prossimo prodotto");
+      else if (next.phase === "select_product" && station?.phase !== "select_product") toast.success("Bag mono-prodotto riconosciuta: scansiona il prodotto o seleziona la foto");
       if (next.phase === "double_check") toast.success("Bag riconosciuta: riscansionala per il doppio controllo");
       if (next.phase === "scan_packaging") toast.success("Bag confermata: scansiona scatola o busta corriere");
       if (next.phase === "scan_labels" && station?.phase === "scan_packaging") {
