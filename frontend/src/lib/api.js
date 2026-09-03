@@ -7234,8 +7234,20 @@ async function selectWmsMonoPackingProduct(payload = {}) {
   await assertWmsStaff();
   const bagCode = normalizedScanCode(payload.bag_code);
   if (!bagCode) fail("Scansiona prima la bag mono-prodotto");
-  const snapshot = await packingStationSnapshot(bagCode);
+  let snapshot = await packingStationSnapshot(bagCode);
   if (snapshot.data.batch?.picking_mode !== "mono") fail("Questa bag non appartiene al picking mono-prodotto", 409);
+  const staleSessionIds = snapshot.data.sessions
+    .filter((session) => session.stato === "in_verifica_bag" && !session.packaging_code && !session.carrier_label_code)
+    .map((session) => session.id);
+  if (staleSessionIds.length) {
+    const { error: recoveryError } = await requireSupabase().from("wms_packing_sessions").update({
+      stato: "in_attesa_packing",
+      bag_first_scanned_at: null,
+      updated_at: nowIso(),
+    }).in("id", staleSessionIds);
+    if (recoveryError) fail(recoveryError.message);
+    snapshot = await packingStationSnapshot(bagCode);
+  }
   if (snapshot.data.phase !== "select_product") fail("Completa prima il prodotto già selezionato", 409);
   const { error } = await requireSupabase().rpc("claim_wms_mono_packing_item", {
     p_batch_id: snapshot.data.batch.id,

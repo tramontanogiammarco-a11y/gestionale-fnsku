@@ -61,7 +61,7 @@ function ActiveBagContents({ station, phase, working, onLabelScan, onProductSele
   const scanningLabels = phase === "scan_labels";
   const monoMode = station.batch?.picking_mode === "mono";
   const monoProducts = [...station.sessions
-    .filter((session) => session.stato === "in_attesa_packing")
+    .filter((session) => ["in_attesa_packing", "in_verifica_bag"].includes(session.stato))
     .reduce((groups, session) => {
       const line = session.lines?.[0];
       if (!line) return groups;
