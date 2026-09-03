@@ -4532,6 +4532,12 @@ function visibleWmsRouteLocations(locations = [], mapSettings = {}) {
   return locations.filter((location) => location && !hidden.has(location.id));
 }
 
+function wmsPhysicalBlockKey(location = {}) {
+  const code = String(location.codice || "").trim().toUpperCase().replace(/\s+/g, "");
+  const block = code.match(/^([SP]\d+)\+/);
+  return block?.[1] || `location:${location.id || code}`;
+}
+
 function validateWmsOrderAddressLocally(order = {}) {
   const reasons = [];
   const countryCode = normalizedText(order.ship_country_code || order.ship_country);
@@ -6186,7 +6192,8 @@ async function startWmsGallusePicking(payload = {}) {
   if (plan.errors.length) fail(plan.errors.join(" "));
   if (plan.replenishment.length) fail(`Rifornisci prima gli slot per ${plan.replenishment.length} ${plan.replenishment.length === 1 ? "prodotto" : "prodotti"}.`);
   const uniqueLocations = [...new Set(plan.allocations.map((allocation) => allocation.location_id))].map((id) => plan.locationMap[id]).filter(Boolean);
-  const route = calculateWarehouseRoute(visibleWmsRouteLocations(uniqueLocations, plan.mapSettings), plan.mapSettings);
+  const physicalStops = [...new Map(uniqueLocations.map((location) => [wmsPhysicalBlockKey(location), location])).values()];
+  const route = calculateWarehouseRoute(visibleWmsRouteLocations(physicalStops, plan.mapSettings), plan.mapSettings);
   if (route.unreachable?.length) fail(`Mappa bloccata: ${route.unreachable.map((location) => location.codice).join(", ")} non e raggiungibile.`);
   const { data: batch, error: batchError } = await requireSupabase().from("wms_galluse_batches").insert({
     cliente_id: clientId,
@@ -6204,7 +6211,8 @@ async function startWmsGallusePicking(payload = {}) {
   }))).select();
   if (linksError) fail(linksError.message);
   const linkByOrderId = Object.fromEntries((links || []).map((link) => [link.order_id, link]));
-  const sequenceMap = Object.fromEntries(route.locations.map((location, index) => [location.id, index + 1]));
+  const blockSequence = Object.fromEntries(route.locations.map((location, index) => [wmsPhysicalBlockKey(location), index + 1]));
+  const sequenceMap = Object.fromEntries(uniqueLocations.map((location) => [location.id, blockSequence[wmsPhysicalBlockKey(location)] || 9999]));
   const groupedLines = new Map();
   for (const allocation of plan.allocations) {
     const key = `${allocation.location_id}:${allocation.product_key}`;
@@ -6213,7 +6221,9 @@ async function startWmsGallusePicking(payload = {}) {
     groupedLines.set(key, current);
   }
   const { data: lines, error: linesError } = await requireSupabase().from("wms_galluse_lines").insert([...groupedLines.values()]
-    .sort((left, right) => left.sequenza - right.sequenza)
+    .sort((left, right) => left.sequenza - right.sequenza
+      || naturalLocationSort(plan.locationMap[left.location_id], plan.locationMap[right.location_id])
+      || String(left.titolo || "").localeCompare(String(right.titolo || ""), "it"))
     .map((line, index) => ({
       batch_id: batch.id,
       location_id: line.location_id,
