@@ -7183,7 +7183,7 @@ async function packingStationSnapshot(bagCode) {
     .order("name");
   if (packagingError) fail(packagingError.message);
   const labels = sessions
-    .filter((session) => session.carrier_label_code)
+    .filter((session) => session.stato !== "annullata" && session.carrier_label_code)
     .map((session) => ({
       session_id: session.id,
       order_name: session.order?.order_name || session.order_id,
@@ -7204,6 +7204,7 @@ async function packingStationSnapshot(bagCode) {
   const hasPendingPackaging = sessions.some((session) => session.stato === "in_attesa_imballaggio");
   const pendingLabels = labels.filter((label) => !label.scanned);
   const monoMode = snapshot.data.batch?.picking_mode === "mono";
+  const allSessionsFinished = sessions.length > 0 && sessions.every((session) => ["completata", "annullata"].includes(session.stato));
   return ok({
     bag_code: bagCode,
     batch: snapshot.data.batch || null,
@@ -7211,7 +7212,7 @@ async function packingStationSnapshot(bagCode) {
     summary: snapshot.data.summary,
     labels,
     packaging_options: packagingOptions || [],
-    phase: sessions.every((session) => session.stato === "completata")
+    phase: allSessionsFinished
       ? "completed"
       : monoMode && hasPendingPackaging
         ? "scan_packaging"

@@ -130,6 +130,9 @@ export default function WmsAppPacking() {
   const stationQrUrl = useMemo(() => `${window.location.origin}/wms-app/packing-remoto?station=${encodeURIComponent(printStationCode)}`, [printStationCode]);
 
   useEffect(() => { stationSnapshotRef.current = station; }, [station]);
+  useEffect(() => {
+    setCode("");
+  }, [station?.bag_code, station?.phase, station?.summary?.completed]);
 
   const openCamera = useCallback(() => {
     setCameraSession((value) => value + 1);
@@ -331,6 +334,7 @@ export default function WmsAppPacking() {
         try {
           const response = await api.post("/wms/packing/mono/select", { bag_code: current.bag_code, session_id: payload?.sessionId });
           stationSnapshotRef.current = response.data;
+          setCode("");
           setStation(response.data);
           await channel.send({ type: "broadcast", event: "mono-select-result", payload: { ok: true, requestId: payload?.requestId } });
           await channel.send({ type: "broadcast", event: "packing-state", payload: { station: response.data } });
@@ -467,6 +471,7 @@ export default function WmsAppPacking() {
       return;
     }
     scanInFlightRef.current = true;
+    setCode("");
     setWorking(true);
     try {
       const response = await api.post("/wms/packing/station/scan", {
@@ -517,6 +522,7 @@ export default function WmsAppPacking() {
     try {
       const response = await api.post("/wms/packing/mono/select", { bag_code: station.bag_code, session_id: sessionId });
       stationSnapshotRef.current = response.data;
+      setCode("");
       setStation(response.data);
       toast.success("Prodotto riconosciuto: scansiona l'imballaggio");
       if (navigator.vibrate) navigator.vibrate([55, 35, 55]);
@@ -600,6 +606,7 @@ export default function WmsAppPacking() {
       </div>
       {phase !== "completed" && <form onSubmit={(event) => { event.preventDefault(); submitScan(); }} className="mt-5 flex items-stretch gap-3">
         <Input
+          key={`${station?.bag_code || "none"}:${phase}:${station?.summary?.completed || 0}`}
           ref={scannerRef}
           value={code}
           onChange={(event) => {
@@ -607,7 +614,7 @@ export default function WmsAppPacking() {
             setCode(nextCode);
             if (isCompletePackingScan(nextCode)) window.setTimeout(() => submitScan(nextCode), 0);
           }}
-          placeholder={phase === "scan_labels" ? "Scansiona etichetta corriere" : phase === "scan_packaging" ? "SCATOLA-PICCOLA, MEDIA, GRANDE o BUSTA-CORRIERE" : phase === "cart_ready" ? "Scansiona una bag" : "CARRELLO-01 oppure bag"}
+          placeholder={phase === "scan_labels" ? "Scansiona etichetta corriere" : phase === "scan_packaging" ? "SCATOLA-PICCOLA, MEDIA, GRANDE o BUSTA-CORRIERE" : phase === "select_product" ? "Scansiona barcode prodotto" : phase === "cart_ready" ? "Scansiona una bag" : "CARRELLO-01 oppure bag"}
           className="h-16 min-w-0 flex-1 border-slate-950 bg-slate-50 text-center font-mono text-xl font-black tracking-wider sm:text-2xl"
           autoComplete="off"
           inputMode="none"
