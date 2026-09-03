@@ -557,9 +557,57 @@ export default function WmsAppPacking() {
           : "Scansiona un carrello o una bag";
 
   return <div className="wms-page mx-auto max-w-5xl pb-24" data-testid="wms-packing-station">
-    <header className="wms-page-header flex-col items-start gap-4 lg:flex-row">
-      <div className="min-w-0 flex-1"><p className="wms-eyebrow">Outbound</p><h1 className="wms-title">Packing station</h1><p className="wms-subtitle">Scanner sempre pronto. La fotocamera si apre solo quando serve.</p></div>
-      <div className="flex w-full shrink-0 flex-col items-center gap-3 lg:w-[244px] lg:items-end">
+    <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_244px]">
+      <div className="min-w-0 space-y-5">
+        <header>
+          <p className="wms-eyebrow">Outbound</p><h1 className="wms-title">Packing station</h1><p className="wms-subtitle">Scanner sempre pronto. La fotocamera si apre solo quando serve.</p>
+        </header>
+        {zebra.status === "unavailable" && <div className="flex items-start gap-3 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><CircleAlert className="mt-0.5 h-5 w-5 shrink-0" /><div><strong className="block">Stampa automatica Zebra non attiva</strong><span className="mt-1 block text-xs leading-5">Controlla che Zebra Browser Print sia aperto e la stampante collegata. La station verifica il collegamento e riprende la stampa automaticamente.</span></div></div>}
+
+        <section className={`rounded-md border-2 bg-white p-5 shadow-sm ${pendingCarrierPrint ? "border-amber-500" : phase === "completed" ? "border-emerald-500" : phase === "scan_packaging" ? "border-sky-500" : phase === "scan_labels" ? "border-teal-500" : "border-slate-950"}`}>
+          <div className="flex items-center gap-4">
+            <span className={`flex h-14 w-14 items-center justify-center rounded-md ${phase === "completed" ? "bg-emerald-600 text-white" : "bg-slate-950 text-white"}`}>
+              {phase === "completed" ? <CheckCircle2 className="h-7 w-7" /> : phase === "scan_labels" ? <Barcode className="h-7 w-7" /> : phase === "scan_packaging" ? <PackageCheck className="h-7 w-7" /> : <ShoppingBag className="h-7 w-7" />}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-black uppercase text-teal-700">Scanner pronto</p>
+              <h2 className="mt-1 text-2xl font-black">{prompt}</h2>
+              {phase === "cart_ready" && <p className="mt-1 font-mono text-sm text-slate-500">Carrello {station.cart_code}</p>}
+              {station?.bag_code && <p className="mt-1 font-mono text-sm text-slate-500">Bag {station.bag_code}</p>}
+            </div>
+            {phase === "scan_labels" && <div className="text-right"><strong className="block text-3xl font-black">{completedLabels}/{station.labels.length}</strong><span className="text-xs font-bold uppercase text-slate-500">etichette</span></div>}
+          </div>
+          {phase !== "completed" && <form onSubmit={(event) => { event.preventDefault(); submitScan(); }} className="mt-5 flex items-stretch gap-3">
+            <Input
+              key={`${station?.bag_code || "none"}:${phase}:${station?.summary?.completed || 0}`}
+              ref={scannerRef}
+              value={code}
+              onChange={(event) => {
+                const nextCode = normalizeScannerCode(event.target.value);
+                setCode(nextCode);
+                if (isCompletePackingScan(nextCode)) window.setTimeout(() => submitScan(nextCode), 0);
+              }}
+              placeholder={phase === "scan_labels" ? "Scansiona etichetta corriere" : phase === "scan_packaging" ? "SCATOLA-PICCOLA, MEDIA, GRANDE o BUSTA-CORRIERE" : phase === "select_product" ? "Scansiona barcode prodotto" : phase === "cart_ready" ? "Scansiona una bag" : "CARRELLO-01 oppure bag"}
+              className="h-16 min-w-0 flex-1 border-slate-950 bg-slate-50 text-center font-mono text-xl font-black tracking-wider sm:text-2xl"
+              autoComplete="off"
+              inputMode="none"
+              disabled={working || Boolean(pendingCarrierPrint)}
+              aria-label="Scanner packing"
+            />
+            <button
+              type="button"
+              onClick={openCamera}
+              disabled={working}
+              title="Apri fotocamera"
+              aria-label="Apri fotocamera per scansionare"
+              className="flex h-16 w-16 shrink-0 items-center justify-center rounded-md bg-teal-700 text-white hover:bg-teal-800 disabled:opacity-60"
+            >
+              <Camera className="h-7 w-7" />
+            </button>
+          </form>}
+        </section>
+      </div>
+      <aside className="flex w-full shrink-0 flex-col items-center gap-3 lg:items-end">
         <section className="w-full rounded-md border border-teal-300 bg-white p-3 shadow-sm">
           <div className="mx-auto w-fit rounded-md border border-slate-200 bg-white p-2">
             <QrCodeSvg value={stationQrUrl} size={196} className="h-[196px] w-[196px]" />
@@ -583,52 +631,8 @@ export default function WmsAppPacking() {
             <Printer className="h-4 w-4" /> Test GLS
           </button>
         </div>
-      </div>
-    </header>
-    {zebra.status === "unavailable" && <div className="mb-4 flex items-start gap-3 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><CircleAlert className="mt-0.5 h-5 w-5 shrink-0" /><div><strong className="block">Stampa automatica Zebra non attiva</strong><span className="mt-1 block text-xs leading-5">Controlla che Zebra Browser Print sia aperto e la stampante collegata. La station verifica il collegamento e riprende la stampa automaticamente.</span></div></div>}
-
-    <section className={`rounded-md border-2 bg-white p-5 shadow-sm ${pendingCarrierPrint ? "border-amber-500" : phase === "completed" ? "border-emerald-500" : phase === "scan_packaging" ? "border-sky-500" : phase === "scan_labels" ? "border-teal-500" : "border-slate-950"}`}>
-      <div className="flex items-center gap-4">
-        <span className={`flex h-14 w-14 items-center justify-center rounded-md ${phase === "completed" ? "bg-emerald-600 text-white" : "bg-slate-950 text-white"}`}>
-          {phase === "completed" ? <CheckCircle2 className="h-7 w-7" /> : phase === "scan_labels" ? <Barcode className="h-7 w-7" /> : phase === "scan_packaging" ? <PackageCheck className="h-7 w-7" /> : <ShoppingBag className="h-7 w-7" />}
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-black uppercase text-teal-700">Scanner pronto</p>
-          <h2 className="mt-1 text-2xl font-black">{prompt}</h2>
-          {phase === "cart_ready" && <p className="mt-1 font-mono text-sm text-slate-500">Carrello {station.cart_code}</p>}
-          {station?.bag_code && <p className="mt-1 font-mono text-sm text-slate-500">Bag {station.bag_code}</p>}
-        </div>
-        {phase === "scan_labels" && <div className="text-right"><strong className="block text-3xl font-black">{completedLabels}/{station.labels.length}</strong><span className="text-xs font-bold uppercase text-slate-500">etichette</span></div>}
-      </div>
-      {phase !== "completed" && <form onSubmit={(event) => { event.preventDefault(); submitScan(); }} className="mt-5 flex items-stretch gap-3">
-        <Input
-          key={`${station?.bag_code || "none"}:${phase}:${station?.summary?.completed || 0}`}
-          ref={scannerRef}
-          value={code}
-          onChange={(event) => {
-            const nextCode = normalizeScannerCode(event.target.value);
-            setCode(nextCode);
-            if (isCompletePackingScan(nextCode)) window.setTimeout(() => submitScan(nextCode), 0);
-          }}
-          placeholder={phase === "scan_labels" ? "Scansiona etichetta corriere" : phase === "scan_packaging" ? "SCATOLA-PICCOLA, MEDIA, GRANDE o BUSTA-CORRIERE" : phase === "select_product" ? "Scansiona barcode prodotto" : phase === "cart_ready" ? "Scansiona una bag" : "CARRELLO-01 oppure bag"}
-          className="h-16 min-w-0 flex-1 border-slate-950 bg-slate-50 text-center font-mono text-xl font-black tracking-wider sm:text-2xl"
-          autoComplete="off"
-          inputMode="none"
-          disabled={working || Boolean(pendingCarrierPrint)}
-          aria-label="Scanner packing"
-        />
-        <button
-          type="button"
-          onClick={openCamera}
-          disabled={working}
-          title="Apri fotocamera"
-          aria-label="Apri fotocamera per scansionare"
-          className="flex h-16 w-16 shrink-0 items-center justify-center rounded-md bg-teal-700 text-white hover:bg-teal-800 disabled:opacity-60"
-        >
-          <Camera className="h-7 w-7" />
-        </button>
-      </form>}
-    </section>
+      </aside>
+    </div>
 
     <ActiveBagContents station={station} phase={phase} working={working} onLabelScan={submitScan} onProductSelect={selectMonoProduct} sectionRef={activeBagRef} />
 
