@@ -30,10 +30,14 @@ function MassQueue({ mode }) {
     }
   }, [clientId, mode]);
   useEffect(() => { load(); }, [load]);
-  const start = async (group) => {
+  const start = async (group, selectedOrders = group.numero_ordini) => {
     setWorking(true);
     try {
-      const response = await api.post(`/wms/picking-${mode}/avvia`, { signature: group.signature, cliente_id: group.cliente_id });
+      const response = await api.post(`/wms/picking-${mode}/avvia`, {
+        signature: group.signature,
+        cliente_id: group.cliente_id,
+        ...(mode === "mono" ? { numero_ordini: selectedOrders } : {}),
+      });
       toast.success(mode === "mono" ? "Missione mono-prodotto avviata" : "Missione Massivo avviata");
       navigate(`/wms-app/picking-${mode}/${response.data.batch.id}`);
     } catch (error) { toast.error(error.response?.data?.detail || "Missione non avviata"); }
@@ -45,8 +49,27 @@ function MassQueue({ mode }) {
     <header><button type="button" onClick={() => navigate("/wms-app/ordini")} className="mb-4 flex h-10 w-10 items-center justify-center rounded-md border border-slate-200 bg-white" aria-label="Torna agli ordini"><ArrowLeft className="h-5 w-5" /></button><p className="text-xs font-black uppercase text-teal-700">Prepara ordini</p><h1 className="mt-1 text-3xl font-black">{mode === "mono" ? "Mono-prodotto" : "Massivo"}</h1><p className="mt-2 text-sm text-slate-500">{mode === "mono" ? "Ordini da un solo pezzo, anche di referenze diverse, vengono raccolti nella stessa bag." : "Ordini con la stessa distinta vengono prelevati insieme. La bag si scansiona solo alla fine."}</p></header>
     <section className="grid grid-cols-3 gap-2"><Metric label="Gruppi" value={(data.groups || []).length} /><Metric label={mode === "mono" ? "Ordini mono" : "Ordini massivi"} value={(data.groups || []).reduce((sum, group) => sum + group.numero_ordini, 0)} /><Metric label="Altri ordini" value={data.separate_orders || 0} /></section>
     {active.length > 0 && <section><h2 className="mb-3 text-xl font-black">Missioni aperte</h2><div className="space-y-3">{active.map((batch) => <button key={batch.id} type="button" onClick={() => navigate(`/wms-app/picking-${mode}/${batch.id}`)} className="flex w-full items-center gap-3 rounded-md border border-teal-200 bg-teal-50 p-4 text-left"><BagBadge code={batch.bag_code || "-"} /><span className="min-w-0 flex-1"><strong className="block">{batch.orders?.length || 0} ordini</strong><span className="mt-1 block text-xs text-teal-800">{statusLabel(batch.stato)}</span></span><ChevronRight className="h-5 w-5" /></button>)}</div></section>}
-    <section><h2 className="mb-3 text-xl font-black">Gruppi disponibili</h2>{(data.groups || []).length ? <div className="space-y-3">{data.groups.map((group) => <article key={group.key} className="rounded-md border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-start gap-3"><span className="flex h-12 w-12 items-center justify-center rounded-md bg-teal-50 text-teal-700"><Layers3 className="h-6 w-6" /></span><div className="min-w-0 flex-1"><h3 className="text-lg font-black">{group.numero_ordini} {mode === "mono" ? "ordini mono-pezzo" : "ordini identici"}</h3><p className="mt-1 text-xs text-slate-500">{group.cliente} · {group.pezzi_totali} pezzi totali</p></div></div><div className="mt-4 divide-y divide-slate-100 border-y border-slate-100">{group.products.map((product) => <div key={product.referenza_id} className="flex items-center gap-3 py-3"><span className="min-w-0 flex-1"><strong className="block truncate text-sm">{product.titolo}</strong><span className="font-mono text-[11px] text-slate-500">{product.ean || product.sku}</span></span><strong>×{product.quantita_totale}</strong></div>)}</div><Button className="mt-4 h-14 w-full text-base font-black" onClick={() => start(group)} disabled={working}><Play className="mr-2 h-5 w-5" /> Avvia picking {mode === "mono" ? "Mono" : "Massivo"}</Button></article>)}</div> : <EmptyMass mode={mode} />}</section>
+    <section><h2 className="mb-3 text-xl font-black">Gruppi disponibili</h2>{(data.groups || []).length ? <div className="space-y-3">{data.groups.map((group) => <QueueGroupCard key={group.key} group={group} mode={mode} working={working} onStart={start} />)}</div> : <EmptyMass mode={mode} />}</section>
   </div>;
+}
+
+function QueueGroupCard({ group, mode, working, onStart }) {
+  const available = Number(group.numero_ordini || 0);
+  const [selected, setSelected] = useState(mode === "mono" ? 0 : available);
+  useEffect(() => {
+    setSelected((current) => mode === "mono" ? Math.min(current, available) : available);
+  }, [available, mode]);
+  const add = (amount) => setSelected((current) => Math.min(available, current + amount));
+  return <article className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="flex items-start gap-3"><span className="flex h-12 w-12 items-center justify-center rounded-md bg-teal-50 text-teal-700"><Layers3 className="h-6 w-6" /></span><div className="min-w-0 flex-1"><h3 className="text-lg font-black">{available} {mode === "mono" ? "ordini mono-pezzo" : "ordini identici"}</h3><p className="mt-1 text-xs text-slate-500">{group.cliente} · {group.pezzi_totali} pezzi totali</p></div></div>
+    <div className="mt-4 divide-y divide-slate-100 border-y border-slate-100">{group.products.map((product) => <div key={product.referenza_id} className="flex items-center gap-3 py-3"><span className="min-w-0 flex-1"><strong className="block truncate text-sm">{product.titolo}</strong><span className="font-mono text-[11px] text-slate-500">{product.ean || product.sku}</span></span><strong>×{product.quantita_totale}</strong></div>)}</div>
+    {mode === "mono" && <div className="mt-4 rounded-md bg-slate-950 p-4 text-white">
+      <div className="flex items-end justify-between"><span className="text-xs font-black uppercase text-slate-400">Pezzi nel carrello</span><strong className="text-4xl font-black">{selected}<span className="text-lg text-slate-400">/{available}</span></strong></div>
+      <div className="mt-3 grid grid-cols-3 gap-2">{[1, 5, 10].map((amount) => <Button key={amount} type="button" variant="secondary" className="h-14 text-lg font-black" onClick={() => add(amount)} disabled={working || selected >= available}>+{amount}</Button>)}</div>
+      <button type="button" className="mt-3 h-10 w-full text-sm font-bold text-slate-300 disabled:opacity-50" onClick={() => setSelected(0)} disabled={working || selected === 0}>Azzera</button>
+    </div>}
+    <Button className="mt-4 h-14 w-full text-base font-black" onClick={() => onStart(group, selected)} disabled={working || selected < 1}><Play className="mr-2 h-5 w-5" /> Avvia picking {mode === "mono" ? `con ${selected} pezzi` : "Massivo"}</Button>
+  </article>;
 }
 
 function MassMission({ batchId, mode }) {

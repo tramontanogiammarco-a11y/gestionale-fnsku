@@ -6067,7 +6067,13 @@ async function startWmsMonoPicking(payload = {}) {
   if (activeError) fail(activeError.message);
   if ((active || []).length) fail("Completa prima la missione mono-prodotto già aperta.", 409);
 
-  const orders = group.orders;
+  const requestedOrderCount = Math.floor(Number(payload.numero_ordini ?? group.orders.length));
+  if (!Number.isFinite(requestedOrderCount) || requestedOrderCount < 1 || requestedOrderCount > group.orders.length) {
+    fail(`Seleziona da 1 a ${group.orders.length} ordini mono-prodotto.`, 422);
+  }
+  const orders = [...group.orders]
+    .sort((left, right) => new Date(left.processed_at || left.created_at || 0) - new Date(right.processed_at || right.created_at || 0))
+    .slice(0, requestedOrderCount);
   const orderIds = orders.map((order) => order.id);
   const combinedItems = orders.map((order) => order.items[0]);
   const queuedSlotReserved = await verifiedQueuedReservationsExcept(group.cliente_id, orderIds);
