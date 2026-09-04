@@ -22,6 +22,7 @@ export default function WmsAppRefill() {
   const [working, setWorking] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [scannerSession, setScannerSession] = useState(0);
+  const [pickedQuantity, setPickedQuantity] = useState(0);
 
   const loadMission = useCallback(async (missionId) => {
     const response = await api.get(`/wms/refill/${missionId}`);
@@ -103,8 +104,12 @@ export default function WmsAppRefill() {
     try {
       const response = mission.stato === "configurazione"
         ? await api.post(`/wms/refill/${mission.id}/bag`, { bag_code: code })
-        : await api.post(`/wms/refill/${mission.id}/scan`, { code });
+        : await api.post(`/wms/refill/${mission.id}/scan`, {
+          code,
+          ...(mission.stato === "prelievo" && current.pallet_scanned_at ? { quantita: pickedQuantity } : {}),
+        });
       setMissionData(response.data);
+      if (mission.stato === "prelievo") setPickedQuantity(0);
       if (navigator.vibrate) navigator.vibrate(60);
       const finished = response.data.mission.stato === "completata";
       if (finished) {
@@ -129,6 +134,11 @@ export default function WmsAppRefill() {
     }
   };
 
+  const addPickedQuantity = useCallback((amount) => {
+    const maximum = Number(current?.maximum_quantity || current?.quantita || 0);
+    setPickedQuantity((quantity) => Math.min(maximum, quantity + amount));
+  }, [current]);
+
   if (!queueData) return <div className="flex min-h-[65dvh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-teal-700" /></div>;
 
   const scannerContext = current && expected ? {
@@ -140,10 +150,17 @@ export default function WmsAppRefill() {
         ? `${missionData.summary.picked}/${missionData.summary.total} prelievi`
         : `${missionData.summary.completed}/${missionData.summary.total} depositi`,
     location: expected.code,
-    requested: current.quantita,
+    requested: mission.stato === "prelievo" && current.pallet_scanned_at ? pickedQuantity : current.quantita,
     recommended: mission.stato === "prelievo" && current.pallet_scanned_at
       ? Number(current.recommended_quantity || current.quantita)
       : null,
+    locationConfirmed: mission.stato === "prelievo" && Boolean(current.pallet_scanned_at),
+    quantityControls: mission.stato === "prelievo" && current.pallet_scanned_at ? {
+      value: pickedQuantity,
+      remaining: Number(current.maximum_quantity || current.quantita || 0),
+      working,
+      onAdd: addPickedQuantity,
+    } : null,
     title: current.titolo,
   } : null;
 

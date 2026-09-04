@@ -4988,6 +4988,7 @@ async function startWmsRefillMission(payload = {}) {
     target_location_id: item.target.id,
     recommended_quantity: item.quantita,
     quantita: item.selected_quantity,
+    maximum_quantity: item.maximum_quantity,
     source_sequence: sourceSequence[item.source.id] || index + 1,
     target_sequence: targetSequence[item.target.id] || index + 1,
   })));
@@ -5032,8 +5033,19 @@ async function scanWmsRefillMission(missionId, payload = {}) {
       if (error) fail(error.message);
     } else {
       if (!sameWmsCode(code, line.bag_code)) fail(`Bag errata. Scansiona ${line.bag_code}.`);
+      const quantity = Math.floor(Number(payload.quantita || 0));
+      const minimum = Number(line.recommended_quantity || line.quantita || 0);
+      const maximum = Number(line.maximum_quantity || line.quantita || 0);
+      if (!Number.isFinite(quantity) || quantity < minimum || quantity > maximum) {
+        fail(`Seleziona da ${minimum} a ${maximum} pezzi prima di scansionare la bag.`);
+      }
       const scannedAt = nowIso();
-      const { error } = await requireSupabase().from("wms_refill_lines").update({ pick_bag_scanned_at: scannedAt, stato: "in_bag", updated_at: scannedAt }).eq("id", line.id).eq("stato", "da_prelevare");
+      const { error } = await requireSupabase().from("wms_refill_lines").update({
+        quantita: quantity,
+        pick_bag_scanned_at: scannedAt,
+        stato: "in_bag",
+        updated_at: scannedAt,
+      }).eq("id", line.id).eq("stato", "da_prelevare");
       if (error) fail(error.message);
       const { count, error: countError } = await requireSupabase().from("wms_refill_lines").select("id", { count: "exact", head: true }).eq("mission_id", missionId).eq("stato", "da_prelevare");
       if (countError) fail(countError.message);
