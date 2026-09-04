@@ -97,7 +97,7 @@ function GalluseQueue() {
     <section className="grid grid-cols-3 gap-2">
       <Metric label="Ordini in coda" value={round?.totale_ordini || 0} />
       <Metric label="Carrello" value="Scan" />
-      <Metric label="Bag usate" value="Auto" />
+      <Metric label="In attesa refill" value={data.refill_orders || 0} />
     </section>
     {searchParams.get("demo") === "ai" && <Button type="button" variant="outline" className="h-12 w-full" onClick={seedAiDemo} disabled={working}>Ripristina prova Galluse 19 pezzi</Button>}
     {active.length > 0 && <section>

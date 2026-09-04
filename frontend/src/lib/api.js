@@ -6269,7 +6269,45 @@ function galluseCandidateOrders(orders = []) {
     && !monoCandidateOrders([order]).length
     && (order.items || []).length > 0
     && !(order.items || []).some((item) => !item.referenza_id || Number(item.quantita || 0) <= 0)
+  )).sort((left, right) => (
+    String(left.processed_at || left.created_at || "").localeCompare(String(right.processed_at || right.created_at || ""))
+    || String(left.id).localeCompare(String(right.id))
   ));
+}
+
+async function reclassifyUnavailableGalluseOrders(candidates = []) {
+  const byClient = groupBy(candidates, "cliente_id");
+  const unavailableOrders = [];
+  for (const [clientId, clientOrders] of Object.entries(byClient)) {
+    const orderIds = clientOrders.map((order) => order.id);
+    const items = clientOrders.flatMap((order) => (
+      (order.items || []).map((item) => ({ ...item, galluse_order_id: order.id }))
+    ));
+    const itemOrderMap = new Map(items.map((item) => [item.id, item.galluse_order_id]));
+    const queuedSlotReserved = await verifiedQueuedReservationsExcept(clientId, orderIds);
+    const plan = await wmsPickingPlan({ cliente_id: clientId }, items, { queuedSlotReserved });
+    const unavailableItemIds = new Set(plan.unavailableOrderItemIds || []);
+    const unavailableOrderIds = new Set(
+      [...unavailableItemIds].map((itemId) => itemOrderMap.get(itemId)).filter(Boolean),
+    );
+    unavailableOrders.push(...clientOrders.filter((order) => unavailableOrderIds.has(order.id)));
+  }
+
+  for (const order of unavailableOrders) {
+    await evaluateWmsOrderGate(order.id, { force: true });
+  }
+  return unavailableOrders;
+}
+
+async function galluseAvailableOrders(params = new URLSearchParams()) {
+  let operational = await wmsOperationalOrdersData(params);
+  let candidates = galluseCandidateOrders(operational.orders);
+  const reclassified = await reclassifyUnavailableGalluseOrders(candidates);
+  if (reclassified.length) {
+    operational = await wmsOperationalOrdersData(params);
+    candidates = galluseCandidateOrders(operational.orders);
+  }
+  return { operational, candidates, reclassified };
 }
 
 function galluseCartRound(candidates = []) {
@@ -6299,8 +6337,7 @@ function galluseCartRound(candidates = []) {
 
 async function listWmsGallusePicking(params = new URLSearchParams()) {
   await assertWmsStaff();
-  const operational = await wmsOperationalOrdersData(params);
-  const candidates = galluseCandidateOrders(operational.orders);
+  const { candidates } = await galluseAvailableOrders(params);
   const selectedClientId = optionalText(params.get("cliente_id"));
   let batchesQuery = requireSupabase()
     .from("wms_galluse_batches")
@@ -6320,9 +6357,18 @@ async function listWmsGallusePicking(params = new URLSearchParams()) {
     : { data: [], error: null };
   if (linkedOrdersError) fail(linkedOrdersError.message);
   const orderMap = Object.fromEntries((linkedOrders || []).map((order) => [order.id, order]));
+  let refillQuery = requireSupabase()
+    .from("shopify_orders")
+    .select("id", { count: "exact", head: true })
+    .eq("wms_status", "in_attesa_refill")
+    .eq("gate_status", "attesa_refill");
+  if (selectedClientId) refillQuery = refillQuery.eq("cliente_id", selectedClientId);
+  const { count: refillOrders, error: refillOrdersError } = await refillQuery;
+  if (refillOrdersError) fail(refillOrdersError.message);
   return ok({
     candidates,
     rounds: galluseCartRound(candidates),
+    refill_orders: refillOrders || 0,
     batches: (batches || []).map((batch) => ({
       ...batch,
       orders: (links || []).filter((link) => link.batch_id === batch.id).sort((left, right) => left.posizione_bag - right.posizione_bag).map((link) => ({ ...link, order: orderMap[link.order_id] || null })),
@@ -6405,8 +6451,7 @@ async function startWmsGallusePicking(payload = {}) {
   if (!capacity) fail(`Il carrello ${cart.codice} non contiene bag configurate.`, 409);
   const positionsAreContiguous = (cartPositions || []).every((position, index) => Number(position.posizione) === index + 1);
   if (!positionsAreContiguous) fail(`Configura le bag del carrello ${cart.codice} in posizioni consecutive a partire da 1.`, 409);
-  const operational = await wmsOperationalOrdersData(new URLSearchParams(requestedClientId ? { cliente_id: requestedClientId } : {}));
-  const candidates = galluseCandidateOrders(operational.orders);
+  const { candidates } = await galluseAvailableOrders(new URLSearchParams(requestedClientId ? { cliente_id: requestedClientId } : {}));
   const clientId = requestedClientId || candidates[0]?.cliente_id;
   const { data: activeBatches, error: activeBatchesError } = await requireSupabase()
     .from("wms_galluse_batches")
