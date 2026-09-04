@@ -4322,17 +4322,24 @@ async function queuedSlotReservationsBefore(order) {
   return reservationsForQueuedOrderIds(priorIds);
 }
 
-async function verifiedQueuedReservationsExcept(clienteId, excludedOrderIds = []) {
+async function verifiedQueuedReservationsExcept(clienteId, excludedOrderIds = [], options = {}) {
   const excluded = new Set(excludedOrderIds.filter(Boolean));
   const { data: queuedOrders, error } = await requireSupabase()
     .from("shopify_orders")
-    .select("id,wms_status,gate_status")
+    .select("id,processed_at,created_at,wms_status,gate_status")
     .eq("cliente_id", clienteId)
     .in("wms_status", ["da_preparare", "in_attesa_refill"]);
   if (error) fail(error.message);
+  const before = options.before || null;
+  const beforeDate = String(before?.processed_at || before?.created_at || "");
   const reservingIds = (queuedOrders || [])
     .filter(isVerifiedQueuedOrder)
     .filter((order) => !excluded.has(order.id))
+    .filter((order) => {
+      if (!before) return true;
+      const orderDate = String(order.processed_at || order.created_at || "");
+      return orderDate < beforeDate || (orderDate === beforeDate && String(order.id) < String(before.id));
+    })
     .map((order) => order.id);
   return reservationsForQueuedOrderIds(reservingIds);
 }
@@ -4508,6 +4515,7 @@ async function wmsPickingPlan(order, items, options = {}) {
       const suggestedSlot = existingSlot || availableEmptySlots.find((location) => !usedSuggestedSlots.has(location.id)) || null;
       if (suggestedSlot) usedSuggestedSlots.add(suggestedSlot.id);
       replenishment.push({
+        order_item_id: item.id,
         order_id: order.id,
         cliente_id: order.cliente_id,
         referenza_id: reference.id,
@@ -6277,26 +6285,100 @@ function galluseCandidateOrders(orders = []) {
 
 async function reclassifyUnavailableGalluseOrders(candidates = []) {
   const byClient = groupBy(candidates, "cliente_id");
-  const unavailableOrders = [];
+  const unavailable = [];
   for (const [clientId, clientOrders] of Object.entries(byClient)) {
     const orderIds = clientOrders.map((order) => order.id);
     const items = clientOrders.flatMap((order) => (
       (order.items || []).map((item) => ({ ...item, galluse_order_id: order.id }))
     ));
     const itemOrderMap = new Map(items.map((item) => [item.id, item.galluse_order_id]));
-    const queuedSlotReserved = await verifiedQueuedReservationsExcept(clientId, orderIds);
+    const queuedSlotReserved = await verifiedQueuedReservationsExcept(clientId, orderIds, { before: clientOrders[0] });
     const plan = await wmsPickingPlan({ cliente_id: clientId }, items, { queuedSlotReserved });
     const unavailableItemIds = new Set(plan.unavailableOrderItemIds || []);
     const unavailableOrderIds = new Set(
       [...unavailableItemIds].map((itemId) => itemOrderMap.get(itemId)).filter(Boolean),
     );
-    unavailableOrders.push(...clientOrders.filter((order) => unavailableOrderIds.has(order.id)));
+    unavailable.push({ clientOrders, itemOrderMap, plan, unavailableOrderIds });
   }
 
-  for (const order of unavailableOrders) {
-    await evaluateWmsOrderGate(order.id, { force: true });
+  const reclassified = [];
+  for (const group of unavailable) {
+    for (const order of group.clientOrders.filter((candidate) => group.unavailableOrderIds.has(candidate.id))) {
+      await classifyGalluseUnavailableOrder(order, group.plan, group.itemOrderMap);
+      reclassified.push(order);
+    }
   }
-  return unavailableOrders;
+  return reclassified;
+}
+
+async function classifyGalluseUnavailableOrder(order, plan, itemOrderMap) {
+  const profile = await assertWmsStaff();
+  const checkedAt = nowIso();
+  const orderReplenishment = (plan.replenishment || []).filter((row) => (
+    itemOrderMap.get(row.order_item_id) === order.id
+  ));
+  const refillRequirements = orderReplenishment.filter((row) => (
+    Number(row.pallet_available || 0) >= Number(row.quantita || 0) && row.target_slot
+  ));
+  const stockShortages = orderReplenishment
+    .filter((row) => Number(row.pallet_available || 0) < Number(row.quantita || 0) || !row.target_slot)
+    .map((row) => ({
+      referenza_id: row.referenza_id,
+      titolo: row.titolo,
+      required: Number(row.quantita || 0),
+      available: Number(row.pallet_available || 0),
+      missing: Math.max(0, Number(row.quantita || 0) - Number(row.pallet_available || 0)),
+      reason: !row.target_slot ? "Nessuno slot attivo disponibile" : "Stock pallet insufficiente",
+    }));
+  const hasUnmappedError = (plan.unavailableOrderItemIds || []).some((itemId) => (
+    itemOrderMap.get(itemId) === order.id
+    && !orderReplenishment.some((row) => row.order_item_id === itemId)
+  ));
+  if (hasUnmappedError) {
+    stockShortages.push({
+      titolo: "Stock non disponibile o referenza non configurata",
+      required: null,
+      available: null,
+      missing: null,
+      reason: "Impossibile creare il piano di picking",
+    });
+  }
+  const waitsForRefill = stockShortages.length === 0 && refillRequirements.length > 0;
+  const update = waitsForRefill ? {
+    wms_status: "in_attesa_refill",
+    gate_status: "attesa_refill",
+    exception_type: null,
+    exception_reasons: [],
+    address_validation: { ...(order.address_validation || {}), requires_replenishment: true },
+    stock_shortages: [],
+    refill_requirements: refillRequirements,
+    gate_checked_at: checkedAt,
+    unblocked_at: null,
+    updated_at: checkedAt,
+  } : {
+    wms_status: "eccezione",
+    gate_status: "eccezione_stock",
+    exception_type: "stock",
+    exception_reasons: stockShortages.map((row) => row.titolo),
+    address_validation: order.address_validation || {},
+    stock_shortages: stockShortages,
+    refill_requirements: [],
+    gate_checked_at: checkedAt,
+    unblocked_at: null,
+    updated_at: checkedAt,
+  };
+  const { error: updateError } = await requireSupabase().from("shopify_orders").update(update).eq("id", order.id);
+  if (updateError) fail(updateError.message);
+  const { error: eventError } = await requireSupabase().from("wms_order_gate_events").insert({
+    order_id: order.id,
+    cliente_id: order.cliente_id,
+    from_status: order.gate_status || "sbloccato",
+    to_status: update.gate_status,
+    reason: waitsForRefill ? "Stock disponibile a pallet: rifornimento slot richiesto" : "Stock insufficiente",
+    details: { stock_shortages: update.stock_shortages, refill_requirements: update.refill_requirements },
+    created_by: profile.id,
+  });
+  if (eventError) fail(eventError.message);
 }
 
 async function galluseAvailableOrders(params = new URLSearchParams()) {
@@ -6459,12 +6541,23 @@ async function startWmsGallusePicking(payload = {}) {
     .in("stato", ["da_associare_bag", "in_corso"]);
   if (activeBatchesError) fail(activeBatchesError.message);
   if ((activeBatches || []).length) fail("Completa prima il carrello Galluse gia in corso.", 409);
-  const orders = candidates.filter((order) => order.cliente_id === clientId).slice(0, capacity);
+  let orders = candidates.filter((order) => order.cliente_id === clientId).slice(0, capacity);
   if (!clientId || orders.length < 1) fail("Non ci sono ordini disponibili per il carrello Galluse.", 409);
-  const combinedItems = orders.flatMap((order) => (order.items || []).map((item) => ({ ...item, galluse_order_id: order.id })));
-  const itemOrderMap = Object.fromEntries(combinedItems.map((item) => [item.id, item.galluse_order_id]));
-  const queuedSlotReserved = await verifiedQueuedReservationsExcept(clientId, orders.map((order) => order.id));
-  const plan = await wmsPickingPlan({ cliente_id: clientId }, combinedItems, { queuedSlotReserved });
+  let combinedItems = orders.flatMap((order) => (order.items || []).map((item) => ({ ...item, galluse_order_id: order.id })));
+  let itemOrderMap = new Map(combinedItems.map((item) => [item.id, item.galluse_order_id]));
+  const queuedSlotReserved = await verifiedQueuedReservationsExcept(clientId, orders.map((order) => order.id), { before: orders[0] });
+  let plan = await wmsPickingPlan({ cliente_id: clientId }, combinedItems, { queuedSlotReserved });
+  const unavailableOrderIds = new Set((plan.unavailableOrderItemIds || []).map((itemId) => itemOrderMap.get(itemId)).filter(Boolean));
+  if (unavailableOrderIds.size) {
+    for (const order of orders.filter((candidate) => unavailableOrderIds.has(candidate.id))) {
+      await classifyGalluseUnavailableOrder(order, plan, itemOrderMap);
+    }
+    orders = orders.filter((order) => !unavailableOrderIds.has(order.id));
+    if (!orders.length) fail("Tutti gli ordini disponibili richiedono refill o un controllo stock.", 409);
+    combinedItems = orders.flatMap((order) => (order.items || []).map((item) => ({ ...item, galluse_order_id: order.id })));
+    itemOrderMap = new Map(combinedItems.map((item) => [item.id, item.galluse_order_id]));
+    plan = await wmsPickingPlan({ cliente_id: clientId }, combinedItems, { queuedSlotReserved });
+  }
   if (plan.errors.length) fail(plan.errors.join(" "));
   if (plan.replenishment.length) fail(`Rifornisci prima gli slot per ${plan.replenishment.length} ${plan.replenishment.length === 1 ? "prodotto" : "prodotti"}.`);
   const uniqueLocations = [...new Set(plan.allocations.map((allocation) => allocation.location_id))].map((id) => plan.locationMap[id]).filter(Boolean);
@@ -6515,7 +6608,7 @@ async function startWmsGallusePicking(payload = {}) {
   const lineByKey = Object.fromEntries((lines || []).map((line) => [`${line.location_id}:${line.product_key}`, line]));
   const { error: allocationsError } = await requireSupabase().from("wms_galluse_allocations").insert(plan.allocations.map((allocation) => ({
     galluse_line_id: lineByKey[`${allocation.location_id}:${allocation.product_key}`].id,
-    galluse_order_id: linkByOrderId[itemOrderMap[allocation.order_item_id]].id,
+    galluse_order_id: linkByOrderId[itemOrderMap.get(allocation.order_item_id)].id,
     order_item_id: allocation.order_item_id,
     quantita: allocation.quantita_attesa,
   })));
