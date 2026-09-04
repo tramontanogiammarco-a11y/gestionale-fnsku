@@ -5519,37 +5519,73 @@ function monoGroupsFromOrders(orders = []) {
 async function startableMonoGroupsFromOrders(orders = []) {
   const checkedGroups = [];
   for (const group of monoGroupsFromOrders(orders)) {
-    const sortedOrders = [...group.orders].sort((left, right) => (
-      String(left.processed_at || left.created_at || "").localeCompare(String(right.processed_at || right.created_at || ""))
-      || String(left.id).localeCompare(String(right.id))
-    ));
-    const orderIds = sortedOrders.map((order) => order.id);
-    const queuedSlotReserved = await verifiedQueuedReservationsExcept(group.cliente_id, orderIds);
-    const plan = await wmsPickingPlan(
-      { cliente_id: group.cliente_id },
-      sortedOrders.map((order) => order.items[0]),
-      { queuedSlotReserved },
-    );
-    const unavailableItems = new Set(plan.unavailableOrderItemIds || []);
-    const startableOrders = sortedOrders.filter((order) => !unavailableItems.has(order.items[0].id));
+    const { startableOrders } = await monoGroupAvailability(group);
     const [startableGroup] = monoGroupsFromOrders(startableOrders);
     if (startableGroup) {
       checkedGroups.push({
         ...startableGroup,
-        refill_orders: sortedOrders.length - startableOrders.length,
+        refill_orders: group.orders.length - startableOrders.length,
       });
     }
   }
   return checkedGroups.sort((left, right) => right.numero_ordini - left.numero_ordini);
 }
 
+async function monoGroupAvailability(group) {
+  const sortedOrders = [...(group.orders || [])].sort((left, right) => (
+    String(left.processed_at || left.created_at || "").localeCompare(String(right.processed_at || right.created_at || ""))
+    || String(left.id).localeCompare(String(right.id))
+  ));
+  const orderIds = sortedOrders.map((order) => order.id);
+  const items = sortedOrders.map((order) => ({ ...order.items[0], mono_order_id: order.id }));
+  const itemOrderMap = new Map(items.map((item) => [item.id, item.mono_order_id]));
+  const queuedSlotReserved = await verifiedQueuedReservationsExcept(
+    group.cliente_id,
+    orderIds,
+    { before: sortedOrders[0] },
+  );
+  const plan = await wmsPickingPlan({ cliente_id: group.cliente_id }, items, { queuedSlotReserved });
+  const unavailableItems = new Set(plan.unavailableOrderItemIds || []);
+  return {
+    sortedOrders,
+    startableOrders: sortedOrders.filter((order) => !unavailableItems.has(order.items[0].id)),
+    unavailableOrders: sortedOrders.filter((order) => unavailableItems.has(order.items[0].id)),
+    itemOrderMap,
+    plan,
+  };
+}
+
+async function reclassifyUnavailableMonoOrders(orders = []) {
+  const reclassified = [];
+  for (const group of monoGroupsFromOrders(orders)) {
+    const availability = await monoGroupAvailability(group);
+    for (const order of availability.unavailableOrders) {
+      await classifyUnavailableOrderFromPlan(order, availability.plan, availability.itemOrderMap);
+      reclassified.push(order);
+    }
+  }
+  return reclassified;
+}
+
 async function listWmsMonoPicking(params = new URLSearchParams()) {
   await assertWmsStaff();
-  const operational = await wmsOperationalOrdersData(params);
-  const monoCandidates = monoCandidateOrders(operational.orders);
+  let operational = await wmsOperationalOrdersData(params);
+  const reclassified = await reclassifyUnavailableMonoOrders(operational.orders);
+  if (reclassified.length) operational = await wmsOperationalOrdersData(params);
   const groups = await startableMonoGroupsFromOrders(operational.orders);
-  const startableOrderIds = new Set(groups.flatMap((group) => group.orders.map((order) => order.id)));
-  const refillOrders = monoCandidates.filter((order) => !startableOrderIds.has(order.id));
+  let refillQuery = requireSupabase()
+    .from("shopify_orders")
+    .select("*")
+    .eq("wms_status", "in_attesa_refill")
+    .eq("gate_status", "attesa_refill");
+  if (optionalText(params.get("cliente_id"))) refillQuery = refillQuery.eq("cliente_id", params.get("cliente_id"));
+  const { data: refillRows, error: refillRowsError } = await refillQuery;
+  if (refillRowsError) fail(refillRowsError.message);
+  const refillOrders = (await enrichShopifyOrders(refillRows || [])).filter((order) => (
+    (order.items || []).length === 1
+    && Boolean(order.items[0].referenza_id)
+    && Number(order.items[0].quantita || 0) === 1
+  ));
   const refillProducts = [...refillOrders.reduce((products, order) => {
     const item = order.items[0];
     const current = products.get(item.referenza_id) || {
@@ -6173,7 +6209,7 @@ async function startWmsMonoPicking(payload = {}) {
     .slice(0, requestedOrderCount);
   const orderIds = orders.map((order) => order.id);
   const combinedItems = orders.map((order) => order.items[0]);
-  const queuedSlotReserved = await verifiedQueuedReservationsExcept(group.cliente_id, orderIds);
+  const queuedSlotReserved = await verifiedQueuedReservationsExcept(group.cliente_id, orderIds, { before: orders[0] });
   const plan = await wmsPickingPlan({ cliente_id: group.cliente_id }, combinedItems, { queuedSlotReserved });
   if (plan.errors.length) fail(plan.errors.join(" "));
   if (plan.replenishment.length) fail(`Rifornisci prima gli slot per ${plan.replenishment.length} ${plan.replenishment.length === 1 ? "prodotto" : "prodotti"}.`);
@@ -6337,14 +6373,14 @@ async function reclassifyUnavailableGalluseOrders(candidates = []) {
   const reclassified = [];
   for (const group of unavailable) {
     for (const order of group.clientOrders.filter((candidate) => group.unavailableOrderIds.has(candidate.id))) {
-      await classifyGalluseUnavailableOrder(order, group.plan, group.itemOrderMap);
+      await classifyUnavailableOrderFromPlan(order, group.plan, group.itemOrderMap);
       reclassified.push(order);
     }
   }
   return reclassified;
 }
 
-async function classifyGalluseUnavailableOrder(order, plan, itemOrderMap) {
+async function classifyUnavailableOrderFromPlan(order, plan, itemOrderMap) {
   const profile = await assertWmsStaff();
   const checkedAt = nowIso();
   const orderReplenishment = (plan.replenishment || []).filter((row) => (
@@ -6583,7 +6619,7 @@ async function startWmsGallusePicking(payload = {}) {
   const unavailableOrderIds = new Set((plan.unavailableOrderItemIds || []).map((itemId) => itemOrderMap.get(itemId)).filter(Boolean));
   if (unavailableOrderIds.size) {
     for (const order of orders.filter((candidate) => unavailableOrderIds.has(candidate.id))) {
-      await classifyGalluseUnavailableOrder(order, plan, itemOrderMap);
+      await classifyUnavailableOrderFromPlan(order, plan, itemOrderMap);
     }
     orders = orders.filter((order) => !unavailableOrderIds.has(order.id));
     if (!orders.length) fail("Tutti gli ordini disponibili richiedono refill o un controllo stock.", 409);
