@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { StatusBadge } from "@/components/StatusBadge";
 import ProcessTimeline from "@/components/ProcessTimeline";
 import { STATI_PREP, SERVIZI } from "@/lib/statuses";
@@ -16,7 +17,8 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Barcode, Save, ClipboardList } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Loader2, Barcode, Save, ClipboardList, SlidersHorizontal } from "lucide-react";
 
 function azioneErrore(e) {
   if (e?.response?.status === 403)
@@ -88,32 +90,37 @@ function cleanText(value) {
 
 export default function AdminPreparazioneDetail() {
   const { id } = useParams();
+  const { user } = useAuth();
   const [prep, setPrep] = useState(null);
   const [fnskuEdit, setFnskuEdit] = useState({});
+  const [serviziEdit, setServiziEdit] = useState({});
   const [selezione, setSelezione] = useState({});
   const [formato, setFormato] = useState("50x30");
   const [formati, setFormati] = useState(["50x30"]);
   const [generando, setGenerando] = useState(false);
   const [savingFnsku, setSavingFnsku] = useState(false);
+  const [savingServizi, setSavingServizi] = useState(false);
   const [updatingRighe, setUpdatingRighe] = useState(false);
   const [statoSelezionate, setStatoSelezionate] = useState("in_lavorazione");
 
-  const load = () => {
+  const load = useCallback(() => {
     api.get(`/preparazioni/${id}`).then((r) => {
       setPrep(r.data);
-      const fe = {}, selected = {};
+      const fe = {}, se = {}, selected = {};
       r.data.righe.forEach((rg) => {
         fe[rg.id] = rg.fnsku || "";
+        se[rg.id] = [...(rg.servizi || [])];
         if (hasServizioFnsku(rg) && cleanText(rg.fnsku)) selected[rg.id] = true;
       });
       setFnskuEdit(fe);
+      setServiziEdit(se);
       setSelezione(selected);
     });
-  };
+  }, [id]);
   useEffect(() => {
     load();
     api.get("/etichette/formati").then((r) => setFormati(r.data.formati));
-  }, [id]);
+  }, [load]);
 
   const cambiaStato = async (nuovo) => {
     try {
@@ -151,6 +158,38 @@ export default function AdminPreparazioneDetail() {
   };
 
   const righeFnskuModificate = () => (prep?.righe || []).filter((riga) => cleanText(fnskuEdit[riga.id]) !== cleanText(riga.fnsku));
+  const normalizeServices = (services = []) => [...services].sort().join("|");
+  const righeServiziModificati = () => (prep?.righe || []).filter((riga) => (
+    normalizeServices(serviziEdit[riga.id] || []) !== normalizeServices(riga.servizi || [])
+  ));
+
+  const toggleServizio = (rigaId, servizio, checked) => {
+    setServiziEdit((current) => {
+      const next = new Set(current[rigaId] || []);
+      checked ? next.add(servizio) : next.delete(servizio);
+      return { ...current, [rigaId]: [...next] };
+    });
+  };
+
+  const salvaServiziModificati = async () => {
+    const righeDaSalvare = righeServiziModificati();
+    if (!righeDaSalvare.length) {
+      toast.info("Nessuna lavorazione da salvare.");
+      return;
+    }
+    setSavingServizi(true);
+    try {
+      await Promise.all(righeDaSalvare.map((riga) => (
+        api.put(`/preparazioni-righe/${riga.id}/servizi`, { servizi: serviziEdit[riga.id] || [] })
+      )));
+      toast.success(righeDaSalvare.length === 1 ? "Lavorazioni aggiornate" : `Lavorazioni aggiornate su ${righeDaSalvare.length} righe`);
+      load();
+    } catch (e) {
+      toast.error(azioneErrore(e));
+    } finally {
+      setSavingServizi(false);
+    }
+  };
 
   const salvaFnskuModificati = async () => {
     const righeDaSalvare = righeFnskuModificate();
@@ -223,6 +262,7 @@ export default function AdminPreparazioneDetail() {
   const righeSelezionabili = prep.righe;
   const allSelected = righeSelezionabili.length > 0 && righeSelezionabili.every((rg) => selezione[rg.id]);
   const changedFnskuCount = righeFnskuModificate().length;
+  const changedServicesCount = righeServiziModificati().length;
   const selectedCount = righeSelezionate().length;
   const toggleAll = (checked) => {
     setSelezione(Object.fromEntries(righeSelezionabili.map((rg) => [rg.id, Boolean(checked)])));
@@ -346,6 +386,12 @@ export default function AdminPreparazioneDetail() {
               {savingFnsku ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
               Salva FNSKU{changedFnskuCount ? ` (${changedFnskuCount})` : ""}
             </Button>
+            {user?.role === "admin" && prep.stato !== "spedito" && (
+              <Button variant="outline" onClick={salvaServiziModificati} disabled={savingServizi || changedServicesCount === 0} data-testid="save-all-prep-services-btn">
+                {savingServizi ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                Salva lavorazioni{changedServicesCount ? ` (${changedServicesCount})` : ""}
+              </Button>
+            )}
             <Button onClick={generaEtichette} disabled={generando} data-testid="genera-fnsku-btn">
               {generando ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Barcode className="h-4 w-4 mr-2" />}
               Scarica etichette
@@ -386,12 +432,36 @@ export default function AdminPreparazioneDetail() {
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-1">
-                    {(rg.servizi || []).length === 0 && <span className="text-xs text-muted-foreground">—</span>}
-                    {(rg.servizi || []).map((s) => (
+                    {(serviziEdit[rg.id] || []).length === 0 && <span className="text-xs text-muted-foreground">—</span>}
+                    {(serviziEdit[rg.id] || []).map((s) => (
                       <span key={s} className="inline-flex rounded-full bg-blue-50 border border-blue-200 text-blue-700 px-2 py-0.5 text-[10px] font-medium" data-testid={`serv-${rg.id}-${s}`}>
                         {SERVIZI[s]?.label || s}
                       </span>
                     ))}
+                    {user?.role === "admin" && prep.stato !== "spedito" && (
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" title="Modifica lavorazioni" data-testid={`edit-servizi-${rg.id}`}>
+                            <SlidersHorizontal className="h-4 w-4" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent align="start" className="w-64 p-3">
+                          <div className="mb-2 text-sm font-semibold">Lavorazioni</div>
+                          <div className="space-y-2">
+                            {Object.entries(SERVIZI).map(([key, servizio]) => (
+                              <label key={key} className="flex cursor-pointer items-center gap-2 text-sm">
+                                <Checkbox
+                                  checked={(serviziEdit[rg.id] || []).includes(key)}
+                                  onCheckedChange={(checked) => toggleServizio(rg.id, key, Boolean(checked))}
+                                  data-testid={`admin-prep-serv-${rg.id}-${key}`}
+                                />
+                                {servizio.label}
+                              </label>
+                            ))}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    )}
                   </div>
                 </TableCell>
                 <TableCell>

@@ -27,6 +27,7 @@ export const SERVIZI = {
   busta: { label: "Busta trasparente" },
   nastratura: { label: "Nastratura" },
   pluriball: { label: "Pluriball" },
+  bundle: { label: "Creazione bundle" },
 };
 
 export const FLUSSO_PREP = ["richiesta", "in_lavorazione", "pronto", "spedito"];

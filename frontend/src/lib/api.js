@@ -126,6 +126,7 @@ const SERVICE_LABELS = {
   busta: "Busta trasparente",
   nastratura: "Nastratura",
   pluriball: "Pluriball",
+  bundle: "Creazione bundle",
 };
 
 function boxScatolaCodice(box = {}) {
@@ -3609,6 +3610,38 @@ async function updatePreparazioneRiga(id, payload) {
     .single();
   if (error) fail(error.message);
   if (Object.prototype.hasOwnProperty.call(payload, "stato")) await syncPreparazioneFromRighe(current.preparazione_id);
+  return ok(data);
+}
+
+async function updatePreparazioneRigaServiziAdmin(id, payload = {}) {
+  await assertWmsAdmin();
+  const servizi = [...new Set((Array.isArray(payload.servizi) ? payload.servizi : [])
+    .map((servizio) => optionalText(servizio))
+    .filter(Boolean))];
+  const invalidServices = servizi.filter((servizio) => !Object.prototype.hasOwnProperty.call(SERVICE_LABELS, servizio));
+  if (invalidServices.length) fail(`Lavorazioni non valide: ${invalidServices.join(", ")}`);
+
+  const { data: row, error: rowError } = await requireSupabase()
+    .from("preparazioni_righe")
+    .select("id,preparazione_id")
+    .eq("id", id)
+    .single();
+  if (rowError || !row) fail(rowError?.message || "Riga preparazione non trovata", 404);
+  const { data: prep, error: prepError } = await requireSupabase()
+    .from("preparazioni")
+    .select("id,stato")
+    .eq("id", row.preparazione_id)
+    .single();
+  if (prepError || !prep) fail(prepError?.message || "Preparazione non trovata", 404);
+  if (prep.stato === "spedito") fail("Le lavorazioni di una preparazione completata non possono essere modificate.", 409);
+
+  const { data, error } = await requireSupabase()
+    .from("preparazioni_righe")
+    .update({ servizi })
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) fail(error.message);
   return ok(data);
 }
 
@@ -8575,7 +8608,7 @@ async function fatturazione(params) {
     };
   });
 
-  for (const codice of ["fnsku", "busta", "nastratura", "pluriball"]) {
+  for (const codice of ["fnsku", "busta", "nastratura", "pluriball", "bundle"]) {
     addRiga(codice, SERVICE_LABELS[codice], servizioQty[codice], price(codice));
   }
 
@@ -9147,6 +9180,7 @@ export const api = {
     if (path.match(/^\/preparazioni\/[^/]+\/stato$/)) return updatePreparazioneStato(path.split("/")[2], payload.stato);
     if (path.match(/^\/preparazioni\/[^/]+\/righe-stato$/)) return updatePreparazioneRigheStato(path.split("/")[2], payload);
     if (path.match(/^\/preparazioni\/[^/]+$/)) return updatePreparazione(path.split("/")[2], payload);
+    if (path.match(/^\/preparazioni-righe\/[^/]+\/servizi$/)) return updatePreparazioneRigaServiziAdmin(path.split("/")[2], payload);
     if (path.match(/^\/preparazioni-righe\/[^/]+$/)) return updatePreparazioneRiga(path.split("/")[2], payload);
     if (path.match(/^\/shopify\/orders\/[^/]+\/stato$/)) return updateShopifyOrderStatus(path.split("/")[3], payload);
     if (path.match(/^\/shopify\/orders\/[^/]+$/)) return updateClientOrder(path.split("/")[3], payload);

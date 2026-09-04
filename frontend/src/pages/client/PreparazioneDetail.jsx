@@ -241,7 +241,13 @@ export default function ClientPreparazioneDetail({ basePath = "/app" }) {
                   <div className="flex flex-wrap gap-3">
                     {Object.keys(SERVIZI).map((key) => (
                       <label key={key} className="flex items-center gap-1.5 text-xs cursor-pointer">
-                        <Checkbox checked={(row.servizi || []).includes(key)} onCheckedChange={() => toggleServ(index, key)} data-testid={`cprep-serv-${row.id || index}-${key}`} />
+                        <Checkbox
+                          checked={(row.servizi || []).includes(key)}
+                          onCheckedChange={() => toggleServ(index, key)}
+                          disabled={Boolean(row.id)}
+                          title={row.id ? "Le lavorazioni inviate possono essere corrette dall'amministratore" : undefined}
+                          data-testid={`cprep-serv-${row.id || index}-${key}`}
+                        />
                         {SERVIZI[key].label}
                       </label>
                     ))}
