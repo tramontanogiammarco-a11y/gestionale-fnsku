@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import Papa from "papaparse";
 import { requireSupabase, supabase, supabaseAnonKey, supabaseUrl } from "@/lib/supabase";
 import { calculateWarehouseRoute, normalizeAisles } from "@/lib/wmsRouting";
+import { buildWmsDiagnostics } from "@/lib/wmsDiagnostics";
 
 const BUCKET = "gestionale-files";
 const PROFILE_CACHE_MS = 30_000;
@@ -480,7 +481,7 @@ async function getWmsControlRoom(params = new URLSearchParams()) {
     .order("created_at", { ascending: false })
     .limit(eventLimit);
   let ordersQuery = sb.from("shopify_orders")
-    .select("id,cliente_id,order_name,wms_status,gate_status,exception_type,exception_reasons,stock_shortages,updated_at,created_at")
+    .select("id,cliente_id,order_name,wms_status,gate_status,exception_type,exception_reasons,stock_shortages,refill_requirements,updated_at,created_at")
     .not("wms_status", "in", "(spedito,annullato)")
     .order("updated_at", { ascending: false })
     .limit(300);
@@ -489,19 +490,39 @@ async function getWmsControlRoom(params = new URLSearchParams()) {
     ordersQuery = ordersQuery.eq("cliente_id", requestedClient);
   }
 
+  let slotAssignmentsQuery = sb.from("wms_slot_assignments").select("location_id,cliente_id,product_key");
+  if (requestedClient) slotAssignmentsQuery = slotAssignmentsQuery.eq("cliente_id", requestedClient);
+
   const results = await Promise.all([
     eventsQuery,
     ordersQuery,
-    sb.from("wms_pick_tasks").select("id,order_id,operatore_id,stato,started_at,created_at").in("stato", ["da_prelevare", "in_corso"]).order("created_at", { ascending: false }),
+    sb.from("wms_pick_tasks").select("id,order_id,bag_code,operatore_id,stato,started_at,created_at").in("stato", ["da_prelevare", "in_corso"]).order("created_at", { ascending: false }),
     sb.from("wms_mass_pick_batches").select("id,cliente_id,bag_code,operatore_id,stato,started_at,created_at").in("stato", ["in_corso", "in_packing"]).order("created_at", { ascending: false }),
     sb.from("wms_galluse_batches").select("id,cliente_id,numero_bag,operatore_id,stato,started_at,created_at").in("stato", ["da_associare_bag", "in_corso"]).order("created_at", { ascending: false }),
     sb.from("wms_packing_sessions").select("id,order_id,bag_code,station_code,operatore_id,stato,started_at,created_at").in("stato", ["da_imballare", "in_attesa_packing", "in_verifica_bag", "in_attesa_imballaggio", "in_attesa_etichetta", "in_corso"]).order("created_at", { ascending: false }),
     sb.from("wms_inbound_sessions").select("id,entrata_id,operatore_id,stato,started_at").eq("stato", "in_corso").order("started_at", { ascending: false }),
     sb.from("wms_inventory_sessions").select("id,location_id,operatore_id,stato,started_at").eq("stato", "in_corso").order("started_at", { ascending: false }),
+    sb.from("wms_bags").select("id,codice,stato,updated_at").order("codice"),
+    sb.from("wms_refill_missions").select("id,operatore_id,stato,started_at,created_at,updated_at").in("stato", ["configurazione", "prelievo", "deposito"]).order("created_at", { ascending: false }),
+    slotAssignmentsQuery,
   ]);
   const firstError = results.find((result) => result.error)?.error;
   if (firstError) fail(firstError.message);
-  const [events, orders, picks, massPicks, gallusePicks, packing, inbound, inventories] = results.map((result) => result.data || []);
+  const [events, orders, picks, massPicks, gallusePicks, packing, inbound, inventories, bags, refillMissions, slotAssignments] = results.map((result) => result.data || []);
+
+  const [galluseOrdersResult, refillLinesResult, stockResponse] = await Promise.all([
+    gallusePicks.length
+      ? sb.from("wms_galluse_orders").select("batch_id,bag_code").in("batch_id", gallusePicks.map((row) => row.id)).not("bag_code", "is", null)
+      : Promise.resolve({ data: [], error: null }),
+    refillMissions.length
+      ? sb.from("wms_refill_lines").select("id,mission_id,cliente_id,bag_code,stato").in("mission_id", refillMissions.map((row) => row.id)).in("stato", ["da_associare_bag", "da_prelevare", "in_bag"])
+      : Promise.resolve({ data: [], error: null }),
+    wmsStock(requestedClient ? new URLSearchParams({ cliente_id: requestedClient }) : new URLSearchParams()),
+  ]);
+  const relatedError = galluseOrdersResult.error || refillLinesResult.error;
+  if (relatedError) fail(relatedError.message);
+  const galluseOrders = galluseOrdersResult.data || [];
+  const refillLines = refillLinesResult.data || [];
 
   const orderIds = [...new Set([
     ...orders.map((row) => row.id),
@@ -514,6 +535,7 @@ async function getWmsControlRoom(params = new URLSearchParams()) {
     ...massPicks.map((row) => row.operatore_id),
     ...gallusePicks.map((row) => row.operatore_id),
     ...packing.map((row) => row.operatore_id),
+    ...refillMissions.map((row) => row.operatore_id),
     ...inbound.map((row) => row.operatore_id),
     ...inventories.map((row) => row.operatore_id),
   ].filter(Boolean))];
@@ -537,6 +559,10 @@ async function getWmsControlRoom(params = new URLSearchParams()) {
     ...massPicks.map((row) => ({ ...row, kind: "picking_massivo", label: "Picking massivo", detail: row.bag_code ? `Bag ${row.bag_code}` : "Lotto massivo" })),
     ...gallusePicks.map((row) => ({ ...row, kind: "picking_galluse", label: "Picking Galluse", detail: `${row.numero_bag || 0} bag` })),
     ...packing.map((row) => ({ ...row, kind: "packing", label: "Packing", cliente_id: orderMap.get(row.order_id)?.cliente_id, detail: [orderMap.get(row.order_id)?.order_name, row.bag_code && `Bag ${row.bag_code}`].filter(Boolean).join(" · ") })),
+    ...refillMissions.map((row) => {
+      const lines = refillLines.filter((line) => line.mission_id === row.id);
+      return { ...row, kind: "refill", label: "Refill", cliente_id: lines[0]?.cliente_id || null, detail: `${lines.length} referenze` };
+    }),
     ...inbound.map((row) => ({ ...row, kind: "inbound", label: "Ricezione", detail: `Entrata ${String(row.entrata_id || "").slice(0, 8)}` })),
     ...inventories.map((row) => ({ ...row, kind: "inventory", label: "Inventario", detail: locationMap.get(row.location_id) || "Ubicazione" })),
   ].filter((row) => !requestedClient || row.cliente_id === requestedClient)
@@ -548,7 +574,7 @@ async function getWmsControlRoom(params = new URLSearchParams()) {
         operator: profileMap.get(row.operatore_id) || null,
         client_name: clientMap.get(row.cliente_id) || null,
         age_minutes: ageMinutes,
-        stalled: row.stato === "in_corso" && ageMinutes >= 45,
+        stalled: ageMinutes >= 45,
       };
     }).sort((left, right) => Number(right.stalled) - Number(left.stalled) || new Date(left.started_at || left.created_at) - new Date(right.started_at || right.created_at));
 
@@ -563,6 +589,23 @@ async function getWmsControlRoom(params = new URLSearchParams()) {
   const exceptions = orders.filter((row) => row.wms_status === "eccezione" || row.exception_type);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const activeBagCodes = [
+    ...picks.map((row) => row.bag_code),
+    ...massPicks.map((row) => row.bag_code),
+    ...packing.map((row) => row.bag_code),
+    ...galluseOrders.map((row) => row.bag_code),
+    ...refillLines.map((row) => row.bag_code),
+  ].filter(Boolean);
+  const diagnostics = buildWmsDiagnostics({
+    orders,
+    bags: requestedClient ? [] : bags,
+    activeBagCodes,
+    locations: stockResponse.data.locations || [],
+    slotAssignments,
+    stockIntegrityIssues: stockResponse.data.integrity_issues || [],
+    work,
+    products: stockResponse.data.products || [],
+  });
 
   return ok({
     summary: {
@@ -571,10 +614,13 @@ async function getWmsControlRoom(params = new URLSearchParams()) {
       stalled: work.filter((row) => row.stalled).length,
       active_operators: new Set(work.map((row) => row.operatore_id).filter(Boolean)).size,
       events_today: enrichedEvents.filter((row) => new Date(row.created_at) >= today).length,
+      integrity_issues: diagnostics.summary.total,
+      critical_issues: diagnostics.summary.critical,
     },
     exceptions,
     work,
     events: enrichedEvents,
+    diagnostics,
   });
 }
 
@@ -3997,6 +4043,7 @@ async function wmsStock(params) {
 
   const locationContents = new Map();
   const locationById = new Map((locations || []).map((location) => [location.id, location]));
+  const integrityIssues = [];
   const inventoryDeltas = new Map();
   const outboundByProduct = new Map();
   const transfersByProduct = new Map();
@@ -4045,7 +4092,20 @@ async function wmsStock(params) {
 
     for (const [locationId, delta] of inventoryDeltas.get(key) || []) {
       const current = Number(totalsByLocation.get(locationId) || 0);
-      const next = Math.max(0, current + Number(delta || 0));
+      const rawNext = current + Number(delta || 0);
+      const next = Math.max(0, rawNext);
+      if (rawNext < 0) {
+        integrityIssues.push({
+          id: `inventory:${locationId}:${key}`,
+          kind: "inventory_negative",
+          title: `${locationById.get(locationId)?.codice || "Ubicazione"}: rettifica sotto zero`,
+          detail: `Il conteggio richiede ${Math.abs(rawNext)} pezzi in meno rispetto al saldo fisico calcolato.`,
+          location_id: locationId,
+          location_code: locationById.get(locationId)?.codice || null,
+          product_key: wmsInventoryKey(product),
+          cliente_id: product.cliente_id,
+        });
+      }
       product.rettifica_inventario += next - current;
       if (next > 0) totalsByLocation.set(locationId, next);
       else totalsByLocation.delete(locationId);
@@ -4053,7 +4113,20 @@ async function wmsStock(params) {
 
     for (const transfer of transfersByProduct.get(key) || []) {
       const sourceQuantity = Number(totalsByLocation.get(transfer.source_location_id) || 0);
-      const moved = Math.min(sourceQuantity, Number(transfer.quantita || 0));
+      const requestedQuantity = Number(transfer.quantita || 0);
+      const moved = Math.min(sourceQuantity, requestedQuantity);
+      if (requestedQuantity > sourceQuantity) {
+        integrityIssues.push({
+          id: `transfer:${transfer.id}`,
+          kind: "transfer_overdraw",
+          title: `${locationById.get(transfer.source_location_id)?.codice || "Ubicazione"}: trasferimento oltre saldo`,
+          detail: `Movimento da ${requestedQuantity} pezzi registrato con ${sourceQuantity} disponibili alla sorgente.`,
+          location_id: transfer.source_location_id,
+          location_code: locationById.get(transfer.source_location_id)?.codice || null,
+          product_key: wmsInventoryKey(product),
+          cliente_id: product.cliente_id,
+        });
+      }
       if (moved <= 0) continue;
       const sourceRemaining = sourceQuantity - moved;
       if (sourceRemaining > 0) totalsByLocation.set(transfer.source_location_id, sourceRemaining);
@@ -4063,7 +4136,21 @@ async function wmsStock(params) {
 
     for (const [locationId, quantity] of outboundByProduct.get(key) || []) {
       const current = Number(totalsByLocation.get(locationId) || 0);
-      const next = Math.max(0, current - Number(quantity || 0));
+      const outboundQuantity = Number(quantity || 0);
+      const rawNext = current - outboundQuantity;
+      const next = Math.max(0, rawNext);
+      if (rawNext < 0) {
+        integrityIssues.push({
+          id: `outbound:${locationId}:${key}`,
+          kind: "outbound_overdraw",
+          title: `${locationById.get(locationId)?.codice || "Ubicazione"}: prelievo oltre saldo`,
+          detail: `Sono stati scaricati ${outboundQuantity} pezzi con ${current} disponibili nell'ubicazione.`,
+          location_id: locationId,
+          location_code: locationById.get(locationId)?.codice || null,
+          product_key: wmsInventoryKey(product),
+          cliente_id: product.cliente_id,
+        });
+      }
       if (next > 0) totalsByLocation.set(locationId, next);
       else totalsByLocation.delete(locationId);
     }
@@ -4171,6 +4258,7 @@ async function wmsStock(params) {
     },
     locations: locationRows,
     products,
+    integrity_issues: integrityIssues,
   });
 }
 

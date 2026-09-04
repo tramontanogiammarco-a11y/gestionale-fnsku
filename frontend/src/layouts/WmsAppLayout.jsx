@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import {
   Archive, ArrowLeftRight, Barcode, ChevronRight, History, Home, PackageCheck,
   LogOut, Menu, PackageOpen, Search, Settings, ShoppingCart,
-  SlidersHorizontal, UserRound, Warehouse, RefreshCcw,
+  ShieldCheck, SlidersHorizontal, UserRound, Warehouse, RefreshCcw,
 } from "lucide-react";
 import {
   Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle,
@@ -140,6 +140,7 @@ export default function WmsAppLayout() {
             </div>
           </SheetHeader>
           <nav className="flex-1 space-y-1 px-4 py-5">
+            {isAdmin && <MenuLink icon={ShieldCheck} label="Diagnostica" active={false} onClick={() => { setMenuOpen(false); navigate("/wms/control-room"); }} />}
             <MenuLink icon={ArrowLeftRight} label="Movimenta stock" active={location.pathname.includes("/movimenta-stock")} onClick={() => { setMenuOpen(false); navigate("/wms-app/movimenta-stock"); }} />
             <MenuLink icon={RefreshCcw} label="Refill" active={location.pathname.includes("/refill")} onClick={() => { setMenuOpen(false); navigate("/wms-app/refill"); }} />
             <MenuLink icon={Archive} label="Inventario" active={location.pathname.includes("/inventario")} onClick={() => { setMenuOpen(false); navigate("/wms-app/inventario"); }} />

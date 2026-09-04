@@ -14,7 +14,7 @@ Il prodotto e in una fase avanzata di prototipo operativo: molti flussi sono uti
 - Progetto Vercel: `aimago-prep-wms`
 - Vercel project ID: `prj_WfKHjZoPtaIzGktp1rHdDC01CK2O`
 - Vercel org ID: `team_6L8NmbyP5T1oDOVT5Wd6BMKs`
-- Ultimo deployment verificato: `dpl_2FCtoQ9PU2jP9LKHawvoKDM7W1wi`
+- Ultimo deployment verificato: `dpl_57tvKgEnLs3WKgvdBXFri8dfj8cg`
 - Supabase project ref: `ryprjuqfervusppnedsz`
 - Migrazioni repository: `001` - `107`
 
@@ -55,6 +55,7 @@ La baseline Git e completata e non costituisce piu un task aperto:
 - Foto prodotto durante il picking.
 - Comandi rapidi quantita e avanzamento automatico.
 - Riepilogo mono-prodotto coerente con le quantita reali degli ordini selezionati.
+- Accesso amministratore alla diagnostica operativa direttamente dal menu mobile.
 - Gestione carrelli/bag e layout visuale.
 - Generazione e stampa ubicazioni, bag e barcode imballaggi.
 - Storico bag, ricerca prodotto e strumenti operativi.
@@ -91,6 +92,16 @@ La baseline Git e completata e non costituisce piu un task aperto:
 - Segnalazione di stock in ubicazioni non presenti nella mappa.
 - Snapshot e ripristino layout.
 - Percorso breve calcolato sugli spazi liberi tra ostacoli.
+
+### Diagnostica operativa `/wms/control-room`
+
+- Controllo automatico della coerenza tra stato ordine e gate.
+- Segnalazione degli ordini fermi in verifica e dei refill senza dettaglio.
+- Rilevazione di bag occupate senza lavorazioni attive o liberate troppo presto.
+- Rilevazione di slot con piu referenze, assegnazioni mancanti o incompatibili.
+- Evidenza di trasferimenti, rettifiche e prelievi superiori al saldo calcolato.
+- Segnalazione di missioni ferme e stock storico ancora non ubicato.
+- Ricontrollo manuale centralizzato degli ordini dalla stessa schermata.
 
 ## Flusso ordini corrente
 
@@ -142,6 +153,8 @@ Il modello corrente separa stock fisico, impegnato, disponibile ATP, ubicato e n
 Il piano picking considera le prenotazioni dei task attivi e delle code precedenti. Lo stock su pallet puo generare refill invece di mandare l'operatore verso uno slot vuoto.
 
 Il gate operativo attivo e ora centralizzato nella Edge Function di ricontrollo. Un saldo fisico negativo non viene piu trasformato silenziosamente in zero: l'ordine resta bloccato e richiede riconciliazione. Le proposte refill riservano slot distinti e impediscono missioni concorrenti verso la stessa destinazione. La migrazione `107` mantiene inoltre un'assegnazione persistente slot-referenza e impedisce a entrate, trasferimenti, refill, ubicazioni iniziali e inventari di inserire una referenza diversa in uno slot gia assegnato.
+
+La Control Room espone ora anche le anomalie del registro stock che in precedenza venivano assorbite dalla rappresentazione non negativa dell'interfaccia. I dati non vengono corretti automaticamente: la schermata indica l'ubicazione e il percorso operativo da verificare.
 
 Per Relifebattery sono stati importati catalogo, immagini e giacenze di test. Gli ultimi dati storici non ubicati sono stati collocati fino a 100 pezzi per referenza su pallet tramite il backfill della migrazione `076`; la logica frontend consuma prima le collocazioni senza duplicare la disponibilita.
 

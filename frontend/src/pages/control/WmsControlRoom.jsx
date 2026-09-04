@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 import { toast } from "sonner";
 import {
-  Activity, AlertTriangle, Boxes, CheckCircle2, Clock3, PackageCheck,
-  RefreshCw, ScanLine, TriangleAlert, UserRoundCheck, Warehouse,
+  Activity, AlertOctagon, AlertTriangle, Boxes, CheckCircle2, Clock3, DatabaseZap,
+  PackageCheck, RefreshCw, ScanLine, ShieldCheck, TriangleAlert, UserRoundCheck, Warehouse,
 } from "lucide-react";
 import { api, formatApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -38,7 +38,10 @@ const WORK_ICONS = {
   packing: PackageCheck,
   inbound: Warehouse,
   inventory: CheckCircle2,
+  refill: RefreshCw,
 };
+
+const ISSUE_ICONS = { order: AlertTriangle, bag: Boxes, stock: DatabaseZap, mission: Clock3 };
 
 function dateTime(value) {
   if (!value) return "-";
@@ -76,6 +79,7 @@ export default function WmsControlRoom() {
   const { clientId } = useOutletContext();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [rechecking, setRechecking] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(null);
 
   const load = useCallback(async ({ quiet = false } = {}) => {
@@ -98,6 +102,24 @@ export default function WmsControlRoom() {
     return () => window.clearInterval(timer);
   }, [load]);
 
+  const recheckOrders = async () => {
+    setRechecking(true);
+    try {
+      const response = await api.post("/wms/order-gate/recheck", {
+        cliente_id: clientId || null,
+        pending_only: false,
+        include_ready: true,
+        limit: 500,
+      });
+      toast.success(`${response.data?.checked || 0} ordini ricontrollati, ${response.data?.unblocked || 0} sbloccati.`);
+      await load({ quiet: true });
+    } catch (error) {
+      toast.error(formatApiError(error.response?.data?.detail || error.message));
+    } finally {
+      setRechecking(false);
+    }
+  };
+
   const urgentWork = useMemo(() => (data?.work || []).filter((row) => row.stalled), [data]);
   if (loading && !data) return <PageLoader />;
 
@@ -105,17 +127,29 @@ export default function WmsControlRoom() {
     <PageIntro
       eyebrow="Regia operativa"
       title="Control Room"
-      description="Una sola coda per anomalie, lavorazioni attive e responsabilità. Lo storico è registrato automaticamente e non può essere riscritto."
-      action={<div className="flex items-center gap-3"><span className="hidden text-xs text-slate-500 sm:inline">Aggiornata {lastRefresh ? dateTime(lastRefresh) : "-"}</span><Button variant="outline" className="h-10 rounded-md" onClick={() => load()}><RefreshCw className="mr-2 h-4 w-4" />Aggiorna</Button></div>}
+      description="Controlla ordini, stock, bag e missioni con una sola lettura dello stato operativo corrente."
+      action={<div className="flex flex-wrap items-center gap-2"><span className="hidden text-xs text-slate-500 xl:inline">Aggiornata {lastRefresh ? dateTime(lastRefresh) : "-"}</span><Button variant="outline" className="h-10 rounded-md" disabled={rechecking} onClick={recheckOrders}><ShieldCheck className="mr-2 h-4 w-4" />{rechecking ? "Controllo..." : "Ricontrolla ordini"}</Button><Button variant="outline" className="h-10 rounded-md" onClick={() => load()}><RefreshCw className="mr-2 h-4 w-4" />Aggiorna</Button></div>}
     />
 
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+      <Metric label="Incoerenze" value={data?.summary?.integrity_issues || 0} hint={`${data?.summary?.critical_issues || 0} critiche`} icon={AlertOctagon} tone={(data?.summary?.critical_issues || 0) ? "rose" : "emerald"} />
       <Metric label="Eccezioni" value={data?.summary?.exceptions || 0} hint="Da risolvere" icon={AlertTriangle} tone={(data?.summary?.exceptions || 0) ? "rose" : "emerald"} />
       <Metric label="Lavorazioni attive" value={data?.summary?.active_work || 0} hint="In tutte le aree" icon={Activity} tone="sky" />
       <Metric label="Fermate oltre 45 min" value={data?.summary?.stalled || 0} hint="Priorità operativa" icon={Clock3} tone={(data?.summary?.stalled || 0) ? "amber" : "emerald"} />
       <Metric label="Operatori al lavoro" value={data?.summary?.active_operators || 0} hint="Con attività aperta" icon={UserRoundCheck} tone="teal" />
       <Metric label="Eventi oggi" value={data?.summary?.events_today || 0} hint="Azioni tracciate" icon={CheckCircle2} tone="violet" />
     </div>
+
+    <Panel
+      className="mt-4"
+      title="Integrità del WMS"
+      description="Controlli automatici su gate ordini, bag, missioni e ubicazioni"
+      action={<StatusPill tone={(data?.diagnostics?.summary?.critical || 0) ? "rose" : (data?.diagnostics?.summary?.warning || 0) ? "amber" : "emerald"}>{(data?.diagnostics?.summary?.total || 0) ? `${data.diagnostics.summary.total} da verificare` : "Tutto coerente"}</StatusPill>}
+    >
+      {(data?.diagnostics?.issues || []).length
+        ? <div className="divide-y divide-slate-100">{data.diagnostics.issues.slice(0, 30).map((row) => <IssueRow key={row.id} issue={row} />)}</div>
+        : <div className="flex min-h-32 items-center gap-4 px-5 py-6"><span className="flex h-11 w-11 items-center justify-center rounded-md bg-emerald-100 text-emerald-800"><ShieldCheck className="h-6 w-6" /></span><div><strong className="text-sm">Nessuna incoerenza rilevata</strong><p className="mt-1 text-xs text-slate-500">Ordini, bag, missioni e assegnazioni slot risultano coerenti.</p></div></div>}
+    </Panel>
 
     {(data?.summary?.exceptions || urgentWork.length) > 0 && <section className="mt-4 border border-rose-200 bg-rose-50">
       <div className="flex items-center gap-3 border-b border-rose-200 px-5 py-4"><TriangleAlert className="h-5 w-5 text-rose-700" /><div><h3 className="font-extrabold text-rose-950">Da gestire adesso</h3><p className="text-xs text-rose-700">Prima le eccezioni, poi le lavorazioni ferme.</p></div></div>
@@ -158,5 +192,15 @@ function EventRow({ event }) {
     <span className={cn("mt-1 h-2.5 w-2.5 rounded-full", event.event_type.includes("exception") ? "bg-rose-500" : negative ? "bg-amber-500" : "bg-teal-500")} />
     <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><strong className="text-sm">{EVENT_LABELS[event.event_type] || humanStatus(event.event_type)}</strong>{event.client_name && <span className="text-[10px] font-bold uppercase text-slate-400">{event.client_name}</span>}</div><p className="mt-1 text-sm text-slate-600">{eventDetail(event)}</p><p className="mt-1 text-xs font-semibold text-teal-800">{event.operator?.name || event.operator?.email || "Sistema"}</p></div>
     <time className="text-xs text-slate-500 sm:text-right">{dateTime(event.created_at)}</time>
+  </div>;
+}
+
+function IssueRow({ issue }) {
+  const Icon = ISSUE_ICONS[issue.kind] || AlertTriangle;
+  const critical = issue.severity === "critical";
+  return <div className="grid gap-3 px-5 py-4 sm:grid-cols-[42px_minmax(0,1fr)_auto] sm:items-center">
+    <span className={cn("flex h-10 w-10 items-center justify-center rounded-md", critical ? "bg-rose-100 text-rose-800" : "bg-amber-100 text-amber-800")}><Icon className="h-5 w-5" /></span>
+    <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><strong className="text-sm">{issue.title}</strong><StatusPill tone={critical ? "rose" : "amber"}>{critical ? "Critica" : "Attenzione"}</StatusPill></div><p className="mt-1 text-xs leading-5 text-slate-600">{issue.detail}</p></div>
+    <Link to={issue.to || "/wms"} className="text-sm font-extrabold text-teal-800 hover:underline">{issue.action || "Apri"}</Link>
   </div>;
 }

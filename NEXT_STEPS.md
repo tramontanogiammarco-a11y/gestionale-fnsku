@@ -9,7 +9,7 @@ Portare l'attuale prototipo operativo a una piattaforma stabile, verificabile e 
 ## Priorita 0 - Supabase e stato dati
 
 - Esportare schema e backup Supabase prima di nuovi backfill o cambi di stato massivi.
-- Verificare che tutte le migrazioni `001`-`106` risultino applicate e nello stesso ordine in produzione.
+- Verificare che tutte le migrazioni `001`-`107` risultino applicate e nello stesso ordine in produzione.
 - Allineare Supabase Auth Site URL e redirect URL al dominio canonico `aimago-prep-wms.vercel.app`.
 - Eseguire una riconciliazione stock per tutti i clienti:
   - ricevuto;
@@ -23,6 +23,8 @@ Portare l'attuale prototipo operativo a una piattaforma stabile, verificabile e 
 - Verificare che il ricontrollo manuale processi anche ordini gia in eccezione e attesa refill.
 
 ## Priorita 1 - Test end-to-end dei flussi critici
+
+Primo avanzamento completato: sono presenti test automatici sulle invarianti della diagnostica WMS, oltre ai test del routing basato sulla mappa. Restano da automatizzare i percorsi completi elencati sotto con un dataset fisso e ripristinabile.
 
 Creare test automatici e una checklist manuale ripetibile per:
 
@@ -53,7 +55,7 @@ Una release non dovrebbe essere promossa se fallisce uno di questi percorsi.
 - Validare i nuovi vincoli sulle quantita storiche e aggiungere un vincolo esplicito contro saldi fisici negativi dopo la riconciliazione.
 - Definire una fonte unica per il saldo fisico per referenza/ubicazione.
 - Automatizzare il ricalcolo degli ordini interessati dopo entrate, rettifiche, conteggi e refill.
-- Aggiungere una vista amministrativa di riconciliazione con differenze spiegate.
+- Estendere la Control Room appena introdotta con riconciliazione quantitativa completa e azioni di correzione controllate.
 - Estendere il backfill di `wms_stock_placements` a tutti i clienti solo dopo un report di anteprima.
 
 ## Priorita 1 - Corrieri reali
@@ -178,7 +180,7 @@ La release puo essere considerata stabile quando:
 ## Ordine consigliato di esecuzione
 
 1. Backup e verifica schema Supabase.
-2. Verifica allineamento migrazioni `001`-`106`.
+2. Verifica allineamento migrazioni `001`-`107`.
 3. Verifica redirect/Auth Supabase.
 4. Riconciliazione stock multi-cliente.
 5. Test end-to-end dei flussi critici.
