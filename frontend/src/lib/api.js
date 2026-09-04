@@ -5438,7 +5438,6 @@ function massGroupsFromOrders(orders = []) {
     if (!isVerifiedQueuedOrder(order) || order.wms_status !== "da_preparare" || !(order.items || []).length) continue;
     if (order.raw?.preparation_method === "galluse") continue;
     if ((order.items || []).some((item) => !item.referenza_id || Number(item.quantita || 0) <= 0)) continue;
-    if ((order.items || []).length === 1 && Number(order.items[0].quantita || 0) === 1) continue;
     const signature = massOrderSignature(order);
     const key = `${order.cliente_id}:${signature}`;
     if (!groups.has(key)) groups.set(key, { key, signature, cliente_id: order.cliente_id, cliente: order.cliente_ragione_sociale, orders: [], products: [] });
@@ -5494,10 +5493,15 @@ async function listWmsMassPicking(params = new URLSearchParams()) {
   });
 }
 
-function monoCandidateOrders(orders = []) {
+function massGroupedOrderIds(orders = []) {
+  return new Set(massGroupsFromOrders(orders).flatMap((group) => group.orders.map((order) => order.id)));
+}
+
+function monoCandidateOrders(orders = [], excludedOrderIds = new Set()) {
   return (orders || []).filter((order) => (
     isVerifiedQueuedOrder(order)
     && order.wms_status === "da_preparare"
+    && !excludedOrderIds.has(order.id)
     && (order.items || []).length === 1
     && Boolean(order.items[0].referenza_id)
     && Number(order.items[0].quantita || 0) === 1
@@ -5506,7 +5510,8 @@ function monoCandidateOrders(orders = []) {
 
 function monoGroupsFromOrders(orders = []) {
   const byClient = new Map();
-  for (const order of monoCandidateOrders(orders)) {
+  const massOrderIds = massGroupedOrderIds(orders);
+  for (const order of monoCandidateOrders(orders, massOrderIds)) {
     const group = byClient.get(order.cliente_id) || {
       key: `mono:${order.cliente_id}`,
       signature: `mono:${order.cliente_id}`,
@@ -5633,7 +5638,7 @@ async function listWmsMonoPicking(params = new URLSearchParams()) {
     batches: (batches || []).map((batch) => ({ ...batch, orders: (links || []).filter((link) => link.batch_id === batch.id) })),
     refill_orders: refillOrders.length,
     refill_products: refillProducts,
-    separate_orders: operational.orders.filter((order) => order.wms_status === "da_preparare" && !monoCandidateOrders([order]).length).length,
+    separate_orders: operational.orders.filter((order) => order.wms_status === "da_preparare" && !groups.some((group) => group.orders.some((candidate) => candidate.id === order.id))).length,
   });
 }
 
