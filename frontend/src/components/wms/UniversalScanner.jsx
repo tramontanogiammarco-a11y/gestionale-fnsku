@@ -6,6 +6,7 @@ import {
   Camera,
   ChevronRight,
   Edit3,
+  History,
   Loader2,
   MapPin,
   Minus,
@@ -16,6 +17,7 @@ import {
   Search,
   ShoppingBag,
   ShoppingCart,
+  Tag,
   Warehouse,
 } from "lucide-react";
 import { api } from "@/lib/api";
@@ -66,7 +68,9 @@ export default function UniversalScanner({ open, onOpenChange, clientId, onViewL
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Scansione non riuscita");
     } finally {
+      setCode("");
       setLoading(false);
+      window.setTimeout(() => inputRef.current?.focus(), 35);
     }
   };
 
@@ -227,7 +231,7 @@ export default function UniversalScanner({ open, onOpenChange, clientId, onViewL
         <SheetContent side="bottom" className="mx-auto max-h-[88dvh] w-full max-w-3xl overflow-y-auto rounded-t-lg border-0 bg-white p-0">
           <SheetHeader className="border-b border-slate-100 px-5 pb-4 pt-6 text-left">
             <SheetTitle className="flex items-center gap-2 text-xl font-black"><Barcode className="h-5 w-5 text-teal-700" /> Scanner universale</SheetTitle>
-            <SheetDescription>Leggi una posizione, un prodotto, un pallet o un carrello.</SheetDescription>
+            <SheetDescription>Leggi bag, etichette, slot, pallet, prodotti o carrelli.</SheetDescription>
           </SheetHeader>
 
           <div className="space-y-4 p-5 pb-[max(24px,env(safe-area-inset-bottom))]">
@@ -273,6 +277,8 @@ export default function UniversalScanner({ open, onOpenChange, clientId, onViewL
                 onView={() => onViewLocation(result.location.codice)}
               />
             )}
+            {!loading && result?.kind === "bag" && <BagHistoryResult result={result} />}
+            {!loading && result?.kind === "label" && <LabelResult label={result.label} />}
             {!loading && result?.kind === "product" && <ProductResult products={result.products} onViewLocation={onViewLocation} />}
             {!loading && result?.kind === "cart" && <CartResult result={result} onOpenBag={openBag} />}
             {!loading && result?.kind === "unknown" && (
@@ -334,6 +340,43 @@ function CartResult({ result, onOpenBag }) {
   );
 }
 
+function BagHistoryResult({ result }) {
+  const current = result.current || {};
+  const currentPieces = Number(current.summary?.pieces || 0);
+  return <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
+    <div className="flex items-start gap-3 bg-slate-950 p-4 text-white">
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-white/10"><ShoppingBag className="h-6 w-6" /></span>
+      <div className="min-w-0 flex-1"><div className="text-xs font-bold uppercase text-teal-300">Bag</div><h3 className="mt-1 font-mono text-2xl font-black">{result.bag.codice}</h3></div>
+      <span className={`rounded-md px-2 py-1 text-[10px] font-black uppercase ${result.bag.stato === "disponibile" ? "bg-emerald-100 text-emerald-900" : "bg-rose-100 text-rose-900"}`}>{result.bag.stato === "disponibile" ? "Libera" : "In uso"}</span>
+    </div>
+    {currentPieces > 0 && <section className="border-b border-slate-200 bg-amber-50 p-4"><p className="text-[10px] font-black uppercase text-amber-800">Contenuto attuale</p><strong className="mt-1 block text-xl text-amber-950">{currentPieces} pezzi · {current.summary?.orders || 0} ordini</strong><div className="mt-3 divide-y divide-amber-200 border-t border-amber-200">{(current.orders || []).flatMap((order) => order.items || []).map((item, index) => <ProductLine key={item.id || index} item={item} />)}</div></section>}
+    <div className="p-4"><div className="mb-3 flex items-center gap-2"><History className="h-5 w-5 text-teal-700" /><h4 className="font-black">Ultime 48 ore</h4></div>
+      {result.history?.length ? <div className="space-y-3">{result.history.map((entry) => <HistoryEntry key={entry.id} entry={entry} />)}</div> : <p className="rounded-md bg-slate-50 p-4 text-sm text-slate-500">Nessun utilizzo registrato nelle ultime 48 ore.</p>}
+    </div>
+  </div>;
+}
+
+function HistoryEntry({ entry }) {
+  return <section className="rounded-md border border-slate-200 p-3">
+    <div className="flex items-start justify-between gap-3"><div><span className="text-[10px] font-black uppercase text-teal-700">{entry.type === "packing" ? "Packing" : "Refill"}</span><strong className="mt-1 block">{entry.order_name || `${entry.source_code || "Pallet"} → ${entry.target_code || "Slot"}`}</strong>{entry.label_code && <span className="mt-1 block break-all font-mono text-[10px] text-slate-500">{entry.label_code}</span>}</div><time className="shrink-0 text-[10px] font-bold text-slate-500">{formatScannerDate(entry.occurred_at)}</time></div>
+    <div className="mt-3 divide-y divide-slate-100 border-t border-slate-100">{(entry.items || []).map((item, index) => <ProductLine key={item.id || index} item={{ ...item, quantita: item.quantita_attesa }} />)}</div>
+  </section>;
+}
+
+function LabelResult({ label }) {
+  const items = Array.isArray(label.items) ? label.items : [];
+  const pieces = items.reduce((sum, item) => sum + Number(item.quantita_attesa || 0), 0);
+  return <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
+    <div className="flex items-start gap-3 bg-slate-950 p-4 text-white"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-white/10"><Tag className="h-6 w-6" /></span><div className="min-w-0 flex-1"><div className="text-xs font-bold uppercase text-teal-300">Etichetta {String(label.carrier || "corriere").toUpperCase()}</div><h3 className="mt-1 break-all font-mono text-lg font-black">{label.label_code}</h3><p className="mt-1 text-xs text-slate-300">{label.order_name} · {label.recipient_name}</p></div><strong className="shrink-0 text-xl">{pieces} pz</strong></div>
+    <div className="divide-y divide-slate-100">{items.map((item, index) => <ProductLine key={item.id || index} item={{ ...item, quantita: item.quantita_attesa }} />)}</div>
+    <div className="border-t border-slate-100 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-600">Bag {label.bag_code || "non associata"} · Imballaggio {label.packaging_code || "non registrato"}</div>
+  </div>;
+}
+
+function formatScannerDate(value) {
+  return value ? new Date(value).toLocaleString("it-IT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+}
+
 function BagContentsDialog({ bag, detail, loading, onOpenChange }) {
   const summary = detail?.summary || {};
   return (
@@ -381,7 +424,7 @@ function LocationResult({ location, action, draft, working, canConfirm, onDraftC
       <div className="flex items-start gap-3 bg-slate-950 p-4 text-white">
         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-white/10"><MapPin className="h-6 w-6" /></span>
         <div className="min-w-0 flex-1"><div className="text-xs font-bold uppercase text-teal-300">{location.tipo}</div><h3 className="mt-1 font-mono text-2xl font-black">{location.codice}</h3></div>
-        <span className={`rounded-md px-2 py-1 text-[10px] font-black uppercase ${location.occupata ? "bg-teal-100 text-teal-900" : "bg-white/10 text-white"}`}>{location.occupata ? "Occupata" : "Libera"}</span>
+        <span className={`rounded-md px-2 py-1 text-sm font-black ${location.occupata ? "bg-teal-100 text-teal-900" : "bg-white/10 text-white"}`}>{Number(location.quantita || 0)} pz</span>
       </div>
       {location.contenuto.length ? (
         <div className="divide-y divide-slate-100">
@@ -506,7 +549,7 @@ function ProductResult({ products, onViewLocation }) {
 }
 
 function ProductLine({ item }) {
-  return <div className="flex items-start gap-3 p-4"><div className="min-w-0 flex-1"><div className="font-bold">{item.titolo}</div><div className="mt-1 text-xs text-slate-500">{item.cliente}</div><div className="mt-1 break-all font-mono text-xs text-slate-500">{item.ean || "EAN assente"} · {item.fnsku || "FNSKU assente"}</div></div><strong className="shrink-0 text-lg">{item.quantita} pz</strong></div>;
+  return <div className="flex items-start gap-3 p-4"><div className="min-w-0 flex-1"><div className="font-bold">{item.titolo}</div>{item.cliente && <div className="mt-1 text-xs text-slate-500">{item.cliente}</div>}<div className="mt-1 break-all font-mono text-xs text-slate-500">{item.ean || "EAN assente"} · {item.fnsku || "FNSKU assente"}</div></div><strong className="shrink-0 text-lg">{item.quantita} pz</strong></div>;
 }
 
 function actionCameraLabel(type) {

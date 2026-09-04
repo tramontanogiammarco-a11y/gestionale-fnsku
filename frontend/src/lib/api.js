@@ -8249,6 +8249,17 @@ async function wmsScan(params) {
     const snapshot = await wmsCartSnapshotFromCart(cart);
     return ok({ kind: "cart", code, ...snapshot.data });
   }
+  if (/^B-[A-Z0-9]{5}$/.test(normalizedScan)) {
+    const { data: bag, error: bagError } = await requireSupabase()
+      .from("wms_bags")
+      .select("id,codice,stato,updated_at")
+      .eq("codice", normalizedScan)
+      .maybeSingle();
+    if (bagError) fail(bagError.message);
+    if (bag) return wmsUniversalBagSnapshot(bag);
+  }
+  const labelSnapshot = await wmsUniversalLabelSnapshot(normalizedScan);
+  if (labelSnapshot) return ok(labelSnapshot);
   const response = await wmsStock(params);
   const stock = response.data;
   const normalizedCode = normalizedText(code).replace(/\s+/g, "");
@@ -8259,6 +8270,85 @@ async function wmsScan(params) {
     .some((value) => normalizedText(value).replace(/\s+/g, "") === normalizedCode));
   if (products.length) return ok({ kind: "product", code, products, generated_at: stock.generated_at });
   return ok({ kind: "unknown", code, generated_at: stock.generated_at });
+}
+
+async function wmsUniversalBagSnapshot(bag) {
+  const sb = requireSupabase();
+  const since = new Date(Date.now() - (48 * 60 * 60 * 1000)).toISOString();
+  const [currentResponse, { data: audits, error: auditsError }, { data: refillLines, error: refillError }] = await Promise.all([
+    wmsBagContents(bag.codice),
+    sb.from("wms_packing_label_audits").select("*").eq("bag_code", bag.codice).gt("expires_at", nowIso()).order("completed_at", { ascending: false }),
+    sb.from("wms_refill_lines").select("id,titolo,ean,fnsku,quantita,stato,source_location_id,target_location_id,created_at,moved_at").eq("bag_code", bag.codice).gte("created_at", since).order("created_at", { ascending: false }),
+  ]);
+  if (auditsError || refillError) fail((auditsError || refillError).message);
+  const locationIds = [...new Set((refillLines || []).flatMap((line) => [line.source_location_id, line.target_location_id]).filter(Boolean))];
+  const { data: locations, error: locationsError } = locationIds.length
+    ? await sb.from("wms_locations").select("id,codice").in("id", locationIds)
+    : { data: [], error: null };
+  if (locationsError) fail(locationsError.message);
+  const locationMap = Object.fromEntries((locations || []).map((location) => [location.id, location.codice]));
+  const history = [
+    ...(audits || []).map((audit) => ({
+      type: "packing",
+      id: `packing-${audit.label_code}`,
+      occurred_at: audit.completed_at,
+      order_name: audit.order_name,
+      label_code: audit.label_code,
+      carrier: audit.carrier,
+      packaging_code: audit.packaging_code,
+      items: Array.isArray(audit.items) ? audit.items : [],
+    })),
+    ...(refillLines || []).map((line) => ({
+      type: "refill",
+      id: `refill-${line.id}`,
+      occurred_at: line.moved_at || line.created_at,
+      stato: line.stato,
+      source_code: locationMap[line.source_location_id] || null,
+      target_code: locationMap[line.target_location_id] || null,
+      items: [{ id: line.id, titolo: line.titolo, ean: line.ean, fnsku: line.fnsku, quantita_attesa: Number(line.quantita || 0) }],
+    })),
+  ].sort((left, right) => String(right.occurred_at || "").localeCompare(String(left.occurred_at || "")));
+  return ok({ kind: "bag", code: bag.codice, bag, current: currentResponse.data, history, retention_hours: 48 });
+}
+
+async function wmsUniversalLabelSnapshot(code) {
+  const sb = requireSupabase();
+  const { data: activeSession, error: sessionError } = await sb.from("wms_packing_sessions")
+    .select("id,order_id,bag_code,packaging_code,carrier_label_code,created_at")
+    .ilike("carrier_label_code", code)
+    .not("stato", "in", "(completata,annullata)")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (sessionError) fail(sessionError.message);
+  if (activeSession) {
+    const [{ data: order, error: orderError }, { data: lines, error: linesError }] = await Promise.all([
+      sb.from("shopify_orders").select("order_name,ship_name,selected_carrier").eq("id", activeSession.order_id).single(),
+      sb.from("wms_packing_lines").select("id,titolo,ean,fnsku,sku,foto_url,quantita_attesa").eq("session_id", activeSession.id).order("created_at"),
+    ]);
+    if (orderError || linesError) fail((orderError || linesError).message);
+    return {
+      kind: "label",
+      code,
+      label: {
+        label_code: activeSession.carrier_label_code,
+        carrier: order.selected_carrier,
+        order_name: order.order_name,
+        recipient_name: order.ship_name,
+        bag_code: activeSession.bag_code,
+        packaging_code: activeSession.packaging_code,
+        completed_at: null,
+        items: lines || [],
+      },
+    };
+  }
+  const { data: audit, error: auditError } = await sb.from("wms_packing_label_audits")
+    .select("*")
+    .ilike("label_code", code)
+    .gt("expires_at", nowIso())
+    .maybeSingle();
+  if (auditError) fail(auditError.message);
+  return audit ? { kind: "label", code, label: audit } : null;
 }
 
 function shortCode(id) {
