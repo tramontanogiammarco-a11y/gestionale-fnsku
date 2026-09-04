@@ -7609,6 +7609,24 @@ async function packingStationSnapshotForLabel(labelCode) {
 
 async function packingLabelAuditSnapshot(labelCode) {
   const normalizedLabel = normalizedScanCode(labelCode);
+  const testCarrier = normalizedLabel.match(/^PK-(BRT|GLS)-TEST-001$/)?.[1]?.toLowerCase();
+  if (testCarrier) {
+    return ok({
+      phase: "label_test",
+      bag_code: null,
+      batch: null,
+      sessions: [],
+      labels: [],
+      packaging_options: [],
+      summary: { orders: 0, completed: 0 },
+      inspected_label: {
+        label_code: normalizedLabel,
+        scanned_code: normalizedLabel,
+        carrier: testCarrier,
+        is_test: true,
+      },
+    });
+  }
   const { data: audit, error } = await requireSupabase().rpc("lookup_wms_packing_label_audit", {
     p_label_code: normalizedLabel,
   });
@@ -8320,12 +8338,10 @@ async function wmsUniversalLabelSnapshot(code) {
       },
     };
   }
-  const { data: audit, error: auditError } = await sb.from("wms_packing_label_audits")
-    .select("*")
-    .ilike("label_code", code)
-    .gt("expires_at", nowIso())
-    .maybeSingle();
-  if (auditError) fail(auditError.message);
+  const { data: audit, error: auditError } = await sb.rpc("lookup_wms_packing_label_audit", {
+    p_label_code: code,
+  });
+  if (auditError) return null;
   return audit ? { kind: "label", code, label: audit } : null;
 }
 

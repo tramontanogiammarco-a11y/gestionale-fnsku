@@ -9,7 +9,7 @@ Portare l'attuale prototipo operativo a una piattaforma stabile, verificabile e 
 ## Priorita 0 - Supabase e stato dati
 
 - Esportare schema e backup Supabase prima di nuovi backfill o cambi di stato massivi.
-- Verificare che tutte le migrazioni `001`-`103` risultino applicate e nello stesso ordine in produzione.
+- Verificare che tutte le migrazioni `001`-`104` risultino applicate e nello stesso ordine in produzione.
 - Allineare Supabase Auth Site URL e redirect URL al dominio canonico `aimago-prep-wms.vercel.app`.
 - Eseguire una riconciliazione stock per tutti i clienti:
   - ricevuto;
@@ -178,7 +178,7 @@ La release puo essere considerata stabile quando:
 ## Ordine consigliato di esecuzione
 
 1. Backup e verifica schema Supabase.
-2. Verifica allineamento migrazioni `001`-`103`.
+2. Verifica allineamento migrazioni `001`-`104`.
 3. Verifica redirect/Auth Supabase.
 4. Riconciliazione stock multi-cliente.
 5. Test end-to-end dei flussi critici.

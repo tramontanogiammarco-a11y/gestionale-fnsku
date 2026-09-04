@@ -19,6 +19,7 @@ function isCompletePackingScan(value) {
   return /^CARRELLO-[0-9]{2}$/.test(code)
     || /^B-[A-Z0-9]{5}$/.test(code)
     || /^PK-[A-F0-9]{12}$/.test(code)
+    || /^PK-(BRT|GLS)-TEST-001$/.test(code)
     || /^(SCATOLA-(PICCOLA|MEDIA|GRANDE)|BUSTA-CORRIERE)$/.test(code);
 }
 
@@ -465,7 +466,7 @@ export default function WmsAppPacking() {
     try {
       const printer = await printZebraPackingLabels([testLabel]);
       setZebra({ status: "ready", name: printer.name || "Zebra predefinita" });
-      toast.success(`Etichetta ${carrierName} stampata su ${printer.name || "Zebra"}`);
+      toast.success(`Test stampante ${carrierName} riuscito: questa etichetta non contiene un ordine.`);
       return;
     } catch {
       setZebra({ status: "unavailable", name: "" });
@@ -496,8 +497,8 @@ export default function WmsAppPacking() {
     try {
       const response = await api.post("/wms/packing/station/scan", {
         codice: value,
-        bag_code: ["label_history", "empty_bag"].includes(currentStation?.phase) ? null : currentStation?.bag_code || null,
-        cart_code: ["label_history", "empty_bag"].includes(currentStation?.phase) ? null : cart?.cart_code || currentStation?.cart_code || null,
+        bag_code: ["label_history", "label_test", "empty_bag"].includes(currentStation?.phase) ? null : currentStation?.bag_code || null,
+        cart_code: ["label_history", "label_test", "empty_bag"].includes(currentStation?.phase) ? null : cart?.cart_code || currentStation?.cart_code || null,
       });
       const next = response.data;
       if (cartIsComplete(next)) {
@@ -578,6 +579,8 @@ export default function WmsAppPacking() {
           ? "Bag libera e vuota"
         : phase === "label_history"
           ? "Contenuto previsto del pacco"
+        : phase === "label_test"
+          ? "Etichetta di prova riconosciuta"
         : phase === "cart_ready"
           ? "Scansiona una bag del carrello"
           : "Scansiona un carrello o una bag";
@@ -613,7 +616,7 @@ export default function WmsAppPacking() {
                 setCode(nextCode);
                 if (isCompletePackingScan(nextCode)) window.setTimeout(() => submitScan(nextCode), 0);
               }}
-              placeholder={phase === "label_history" ? "Scansiona un'altra etichetta o bag" : phase === "scan_labels" ? "Scansiona etichetta corriere" : phase === "scan_packaging" ? "SCATOLA-PICCOLA, MEDIA, GRANDE o BUSTA-CORRIERE" : phase === "select_product" ? "Scansiona barcode prodotto" : phase === "cart_ready" ? "Scansiona una bag" : "CARRELLO-01 oppure bag o etichetta"}
+              placeholder={["label_history", "label_test"].includes(phase) ? "Scansiona un'altra etichetta o bag" : phase === "scan_labels" ? "Scansiona etichetta corriere" : phase === "scan_packaging" ? "SCATOLA-PICCOLA, MEDIA, GRANDE o BUSTA-CORRIERE" : phase === "select_product" ? "Scansiona barcode prodotto" : phase === "cart_ready" ? "Scansiona una bag" : "CARRELLO-01 oppure bag o etichetta"}
               className="h-16 min-w-0 flex-1 border-slate-950 bg-slate-50 text-center font-mono text-xl font-black tracking-wider sm:text-2xl"
               autoComplete="off"
               inputMode="none"
@@ -632,6 +635,13 @@ export default function WmsAppPacking() {
             </button>
           </form>}
         </section>
+        {phase === "label_test" && <section className="flex items-start gap-3 rounded-md border-2 border-amber-400 bg-amber-50 p-4 text-amber-950 shadow-sm">
+          <Printer className="mt-0.5 h-6 w-6 shrink-0" />
+          <div>
+            <strong className="block text-base">Etichetta di prova stampante</strong>
+            <p className="mt-1 text-sm leading-5">Il codice {station.inspected_label?.label_code} verifica soltanto la stampa Zebra e non e associato a un ordine. Per vedere il contenuto del pacco scansiona il tracking della vera etichetta BRT o GLS.</p>
+          </div>
+        </section>}
       </div>
       <aside className="flex w-full shrink-0 flex-col items-center gap-3 lg:items-end">
         <section className="w-full rounded-md border border-teal-300 bg-white p-3 shadow-sm">
@@ -651,10 +661,10 @@ export default function WmsAppPacking() {
         </button>
         <div className="flex gap-2">
           <button type="button" onClick={() => printTestLabel("brt")} className="flex h-10 shrink-0 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-xs font-black text-slate-800 hover:border-red-600 hover:text-red-700">
-            <Printer className="h-4 w-4" /> Test BRT
+            <Printer className="h-4 w-4" /> Test stampante BRT
           </button>
           <button type="button" onClick={() => printTestLabel("gls")} className="flex h-10 shrink-0 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-xs font-black text-slate-800 hover:border-amber-500 hover:text-amber-700">
-            <Printer className="h-4 w-4" /> Test GLS
+            <Printer className="h-4 w-4" /> Test stampante GLS
           </button>
         </div>
       </aside>
