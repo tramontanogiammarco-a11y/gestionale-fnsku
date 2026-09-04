@@ -14,7 +14,7 @@ Il prodotto e in una fase avanzata di prototipo operativo: molti flussi sono uti
 - Progetto Vercel: `aimago-prep-wms`
 - Vercel project ID: `prj_WfKHjZoPtaIzGktp1rHdDC01CK2O`
 - Vercel org ID: `team_6L8NmbyP5T1oDOVT5Wd6BMKs`
-- Ultimo deployment verificato: `dpl_4LmMeyit5nEf4sDMSx1w5HbXke8V`
+- Ultimo deployment verificato: `dpl_AurzChYpPDqD7Ho9Dk5Eoe9i5CbU`
 - Supabase project ref: `ryprjuqfervusppnedsz`
 - Migrazioni repository: `001` - `107`
 
@@ -48,7 +48,7 @@ La baseline Git e completata e non costituisce piu un task aperto:
 
 - Ricezione e put-away.
 - Inventario e conteggi.
-- Scanner universale.
+- Scanner universale con apertura immediata della fotocamera.
 - Modifica quantita, scambio slot e spostamenti parziali.
 - Trasferimenti pallet-slot e refill.
 - Picking singolo, massivo e metodo Galluse.

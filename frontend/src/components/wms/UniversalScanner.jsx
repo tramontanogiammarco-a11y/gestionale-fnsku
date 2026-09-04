@@ -42,13 +42,17 @@ export default function UniversalScanner({ open, onOpenChange, clientId, onViewL
   const [bagDetailLoading, setBagDetailLoading] = useState(false);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setCameraOpen(false);
+      return;
+    }
     setResult(null);
     setAction(null);
     setDraft({ quantity: "1", targetCode: "", sourceCode: "" });
     setSelectedBag(null);
     setBagDetail(null);
     setCode("");
+    setCameraOpen(true);
     window.setTimeout(() => inputRef.current?.focus(), 35);
   }, [open]);
 
