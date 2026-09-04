@@ -4403,13 +4403,15 @@ async function wmsPickingPlan(order, items, options = {}) {
     stockResponse,
     { data: activeTasks, error: activeTasksError },
     { data: mapSettings, error: mapError },
+    { data: slotAssignments, error: slotAssignmentsError },
   ] = await Promise.all([
     requireSupabase().from("referenze").select("id,cliente_id,titolo,ean,fnsku,sku").in("id", referenceIds),
     wmsStock(new URLSearchParams({ cliente_id: order.cliente_id })),
     requireSupabase().from("wms_pick_tasks").select("id,order_id").in("stato", ["da_prelevare", "in_corso"]),
     requireSupabase().from("wms_warehouse_map").select("*").eq("id", true).single(),
+    requireSupabase().from("wms_slot_assignments").select("location_id,cliente_id,product_key"),
   ]);
-  const firstError = referencesError || activeTasksError || mapError;
+  const firstError = referencesError || activeTasksError || mapError || slotAssignmentsError;
   if (firstError) fail(firstError.message);
 
   const referenceMap = Object.fromEntries((references || []).map((reference) => [reference.id, reference]));
@@ -4479,8 +4481,17 @@ async function wmsPickingPlan(order, items, options = {}) {
   const allLocations = stockResponse.data.locations || [];
   const hiddenLocationIds = new Set(Array.isArray(mapSettings.hidden_location_ids) ? mapSettings.hidden_location_ids : []);
   const locationMap = Object.fromEntries(allLocations.map((location) => [location.id, location]));
+  const persistentSlotAssignments = new Map((slotAssignments || []).map((assignment) => [
+    assignment.location_id,
+    `${assignment.cliente_id}:${normalizedText(assignment.product_key)}`,
+  ]));
   const availableEmptySlots = allLocations
-    .filter((location) => location.tipo === "slot" && location.stato === "attiva" && !location.occupata)
+    .filter((location) => (
+      location.tipo === "slot"
+      && location.stato === "attiva"
+      && !location.occupata
+      && !persistentSlotAssignments.has(location.id)
+    ))
     .sort(naturalLocationSort);
   const usedSuggestedSlots = new Set();
   const refillTargetAssignments = options.refillTargetAssignments instanceof Map
@@ -4558,14 +4569,21 @@ async function wmsPickingPlan(order, items, options = {}) {
         && location.stato === "attiva"
         && refillTargetAssignments.get(location.id) === targetAssignmentKey
       )) || null;
+      const persistentAssignedSlot = allLocations.find((location) => (
+        location.tipo === "slot"
+        && location.stato === "attiva"
+        && persistentSlotAssignments.get(location.id) === targetAssignmentKey
+      )) || null;
       const existingSlot = (product.ubicazioni || [])
         .filter((location) => location.tipo === "slot")
         .map((location) => locationMap[location.id])
         .find((location) => (
           location?.stato === "attiva"
+          && (!persistentSlotAssignments.has(location.id) || persistentSlotAssignments.get(location.id) === targetAssignmentKey)
           && (!refillTargetAssignments.has(location.id) || refillTargetAssignments.get(location.id) === targetAssignmentKey)
         )) || null;
       const suggestedSlot = assignedSlot
+        || persistentAssignedSlot
         || existingSlot
         || availableEmptySlots.find((location) => (
           !usedSuggestedSlots.has(location.id) && !refillTargetAssignments.has(location.id)

@@ -14,9 +14,9 @@ Il prodotto e in una fase avanzata di prototipo operativo: molti flussi sono uti
 - Progetto Vercel: `aimago-prep-wms`
 - Vercel project ID: `prj_WfKHjZoPtaIzGktp1rHdDC01CK2O`
 - Vercel org ID: `team_6L8NmbyP5T1oDOVT5Wd6BMKs`
-- Ultimo deployment verificato: `dpl_BPzbdQqirav9aEgoMZeUXnLq2EFa`
+- Ultimo deployment verificato: `dpl_4LmMeyit5nEf4sDMSx1w5HbXke8V`
 - Supabase project ref: `ryprjuqfervusppnedsz`
-- Migrazioni repository: `001` - `106`
+- Migrazioni repository: `001` - `107`
 
 Le route SPA vengono riscritte verso `index.html`, quindi i link diretti alle aree React devono funzionare su Vercel.
 
@@ -140,7 +140,7 @@ Il modello corrente separa stock fisico, impegnato, disponibile ATP, ubicato e n
 
 Il piano picking considera le prenotazioni dei task attivi e delle code precedenti. Lo stock su pallet puo generare refill invece di mandare l'operatore verso uno slot vuoto.
 
-Il gate operativo attivo e ora centralizzato nella Edge Function di ricontrollo. Un saldo fisico negativo non viene piu trasformato silenziosamente in zero: l'ordine resta bloccato e richiede riconciliazione. Le proposte refill riservano slot distinti e impediscono missioni concorrenti verso la stessa destinazione.
+Il gate operativo attivo e ora centralizzato nella Edge Function di ricontrollo. Un saldo fisico negativo non viene piu trasformato silenziosamente in zero: l'ordine resta bloccato e richiede riconciliazione. Le proposte refill riservano slot distinti e impediscono missioni concorrenti verso la stessa destinazione. La migrazione `107` mantiene inoltre un'assegnazione persistente slot-referenza e impedisce a entrate, trasferimenti, refill, ubicazioni iniziali e inventari di inserire una referenza diversa in uno slot gia assegnato.
 
 Per Relifebattery sono stati importati catalogo, immagini e giacenze di test. Gli ultimi dati storici non ubicati sono stati collocati fino a 100 pezzi per referenza su pallet tramite il backfill della migrazione `076`; la logica frontend consuma prima le collocazioni senza duplicare la disponibilita.
 
@@ -338,7 +338,7 @@ Correzione recente verificata in produzione:
 - Baseline Git completata su `main`, allineata a `origin/main`, con working tree pulito.
 - Build frontend completata con successo.
 - Deploy Vercel completato e alias canonico aggiornato.
-- Migrazioni remote verificate e applicate fino alla `106`.
+- Migrazioni remote verificate e applicate fino alla `107`.
 - Ricontrollo live degli ordini con precedente eccezione stock completato.
 - Test automatici iniziali del routing fisico completati.
 
