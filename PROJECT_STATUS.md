@@ -14,7 +14,7 @@ Il prodotto e in una fase avanzata di prototipo operativo: molti flussi sono uti
 - Progetto Vercel: `aimago-prep-wms`
 - Vercel project ID: `prj_WfKHjZoPtaIzGktp1rHdDC01CK2O`
 - Vercel org ID: `team_6L8NmbyP5T1oDOVT5Wd6BMKs`
-- Ultimo deployment verificato: `dpl_57tvKgEnLs3WKgvdBXFri8dfj8cg`
+- Ultimo deployment verificato: `dpl_P4i5fSJTnH4wythnntbWjhoZutda`
 - Supabase project ref: `ryprjuqfervusppnedsz`
 - Migrazioni repository: `001` - `107`
 
@@ -154,7 +154,7 @@ Il piano picking considera le prenotazioni dei task attivi e delle code preceden
 
 Il gate operativo attivo e ora centralizzato nella Edge Function di ricontrollo. Un saldo fisico negativo non viene piu trasformato silenziosamente in zero: l'ordine resta bloccato e richiede riconciliazione. Le proposte refill riservano slot distinti e impediscono missioni concorrenti verso la stessa destinazione. La migrazione `107` mantiene inoltre un'assegnazione persistente slot-referenza e impedisce a entrate, trasferimenti, refill, ubicazioni iniziali e inventari di inserire una referenza diversa in uno slot gia assegnato.
 
-La Control Room espone ora anche le anomalie del registro stock che in precedenza venivano assorbite dalla rappresentazione non negativa dell'interfaccia. I dati non vengono corretti automaticamente: la schermata indica l'ubicazione e il percorso operativo da verificare.
+La Control Room espone ora anche le anomalie del registro stock che in precedenza venivano assorbite dalla rappresentazione non negativa dell'interfaccia. I dati non vengono corretti automaticamente: la schermata indica l'ubicazione e il percorso operativo da verificare. Il saldo storico del modulo Amazon Prep non viene piu presentato come stock WMS non ubicato: la giacenza operativa comprende esclusivamente quantita tracciate in slot o pallet.
 
 Per Relifebattery sono stati importati catalogo, immagini e giacenze di test. Gli ultimi dati storici non ubicati sono stati collocati fino a 100 pezzi per referenza su pallet tramite il backfill della migrazione `076`; la logica frontend consuma prima le collocazioni senza duplicare la disponibilita.
 

@@ -4161,7 +4161,9 @@ async function wmsStock(params) {
         ? sum + Math.max(0, Number(quantity || 0))
         : sum;
     }, 0);
-    product.non_ubicato = Math.max(0, Number(product.base_disponibile || 0) - operationalQuantity);
+    // La giacenza WMS esiste solo quando il registro fisico la collega a slot o pallet.
+    // I saldi storici Amazon Prep restano consultabili nel modulo Prep, ma non sono stock WMS.
+    product.non_ubicato = 0;
     product.disponibile = operationalQuantity;
     product.ubicazioni = [...totalsByLocation.entries()].map(([locationId, quantita]) => {
       const location = locationById.get(locationId);
