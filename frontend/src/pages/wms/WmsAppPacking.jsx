@@ -523,7 +523,6 @@ export default function WmsAppPacking() {
       if (next.phase === "double_check") toast.success("Bag riconosciuta: riscansionala per il doppio controllo");
       if (next.phase === "scan_packaging") toast.success("Bag confermata: scansiona scatola o busta corriere");
       if (next.phase === "scan_labels" && currentStation?.phase === "scan_packaging") {
-        await printCarrierLabels(next.bag_code, next.labels.filter((label) => !label.scanned));
         toast.success("Imballaggio associato e scalato: scansiona l'etichetta corriere");
       }
       if (next.phase === "completed") toast.success("Packing completato. Bag libera e vuota.");

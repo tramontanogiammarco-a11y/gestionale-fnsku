@@ -14,9 +14,9 @@ Il prodotto e in una fase avanzata di prototipo operativo: molti flussi sono uti
 - Progetto Vercel: `aimago-prep-wms`
 - Vercel project ID: `prj_WfKHjZoPtaIzGktp1rHdDC01CK2O`
 - Vercel org ID: `team_6L8NmbyP5T1oDOVT5Wd6BMKs`
-- Ultimo deployment verificato: `dpl_4kMRL8bm9PsmU7SYdQztivp86n3b`
+- Ultimo deployment verificato: `dpl_BPzbdQqirav9aEgoMZeUXnLq2EFa`
 - Supabase project ref: `ryprjuqfervusppnedsz`
-- Migrazioni repository: `001` - `102`
+- Migrazioni repository: `001` - `103`
 
 Le route SPA vengono riscritte verso `index.html`, quindi i link diretti alle aree React devono funzionare su Vercel.
 
@@ -308,6 +308,7 @@ Segreti server-side tipici:
 - `077`-`100`: refill, picking massivo/Galluse/mono-prodotto, packing, scanner e dati operativi.
 - `101`: hardening autorizzazioni, vincoli quantita, picking atomico, slot refill esclusivi e completamento packing transazionale.
 - `102`: ordine operativo di test Toyota Prius II 2004-2009 con classificazione basata sull'ATP corrente.
+- `103`: recupero stato stampa etichetta e coda di ristampa packing autoripristinante.
 
 Hardening del 4 settembre 2026:
 
@@ -333,7 +334,7 @@ Correzione recente verificata in produzione:
 - Baseline Git completata su `main`, allineata a `origin/main`, con working tree pulito.
 - Build frontend completata con successo.
 - Deploy Vercel completato e alias canonico aggiornato.
-- Migrazioni remote verificate e applicate fino alla `102`.
+- Migrazioni remote verificate e applicate fino alla `103`.
 - Ricontrollo live degli ordini con precedente eccezione stock completato.
 - Test automatici iniziali del routing fisico completati.
 

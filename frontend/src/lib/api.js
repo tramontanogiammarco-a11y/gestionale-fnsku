@@ -7492,6 +7492,7 @@ async function packingStationSnapshot(bagCode) {
       province: session.order?.ship_province,
       country: session.order?.ship_country,
       weight: session.order?.shipping_billable_weight,
+      printed: Boolean(session.carrier_label_printed_at),
       scanned: Boolean(session.carrier_label_scanned_at),
     }));
   const hasPendingBagCheck = sessions.some((session) => session.stato === "in_verifica_bag");
@@ -7505,6 +7506,7 @@ async function packingStationSnapshot(bagCode) {
     sessions,
     summary: snapshot.data.summary,
     labels,
+    labels_to_print: labels.filter((label) => !label.printed && !label.scanned),
     packaging_options: packagingOptions || [],
     phase: allSessionsFinished
       ? "completed"
