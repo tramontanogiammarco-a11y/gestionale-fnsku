@@ -14,7 +14,7 @@ Il prodotto e in una fase avanzata di prototipo operativo: molti flussi sono uti
 - Progetto Vercel: `aimago-prep-wms`
 - Vercel project ID: `prj_WfKHjZoPtaIzGktp1rHdDC01CK2O`
 - Vercel org ID: `team_6L8NmbyP5T1oDOVT5Wd6BMKs`
-- Ultimo deployment verificato: `dpl_AurzChYpPDqD7Ho9Dk5Eoe9i5CbU`
+- Ultimo deployment verificato: `dpl_2FCtoQ9PU2jP9LKHawvoKDM7W1wi`
 - Supabase project ref: `ryprjuqfervusppnedsz`
 - Migrazioni repository: `001` - `107`
 
@@ -54,6 +54,7 @@ La baseline Git e completata e non costituisce piu un task aperto:
 - Picking singolo, massivo e metodo Galluse.
 - Foto prodotto durante il picking.
 - Comandi rapidi quantita e avanzamento automatico.
+- Riepilogo mono-prodotto coerente con le quantita reali degli ordini selezionati.
 - Gestione carrelli/bag e layout visuale.
 - Generazione e stampa ubicazioni, bag e barcode imballaggi.
 - Storico bag, ricerca prodotto e strumenti operativi.
