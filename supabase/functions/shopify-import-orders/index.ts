@@ -80,11 +80,14 @@ Deno.serve(async (req) => {
 
     const { data: profile, error: profileError } = await userClient
       .from("profiles")
-      .select("role,cliente_id")
+      .select("role,cliente_id,is_operator,operator_active")
       .eq("id", authData.user.id)
       .single();
     if (profileError || !["admin", "staff", "cliente"].includes(profile?.role)) {
       return json({ detail: "Profilo non autorizzato" }, 403);
+    }
+    if (profile.is_operator && profile.operator_active === false) {
+      return json({ detail: "Account operatore disattivato" }, 403);
     }
 
     const payload: Payload = await req.json().catch(() => ({ cliente_id: "", shop_domain: "" }));
@@ -119,7 +122,9 @@ Deno.serve(async (req) => {
 
     const shopifyOrders = await fetchShopifyOrders(shopDomain, token);
     const referenceMap = await buildReferenceMap(adminClient, clienteId);
-    const mapped = shopifyOrders.map((order) => mapOrder(order, clienteId, shopDomain, referenceMap));
+    const mapped = shopifyOrders
+      .map((order) => mapOrder(order, clienteId, shopDomain, referenceMap))
+      .filter((order) => order.items.length > 0);
 
     if (payload.dry_run) {
       return json({
@@ -142,6 +147,21 @@ Deno.serve(async (req) => {
 
     for (const order of mapped) {
       const { items, ...orderRow } = order;
+      const { data: existingOrder, error: existingOrderError } = await adminClient
+        .from("shopify_orders")
+        .select("id,wms_status")
+        .eq("cliente_id", clienteId)
+        .eq("shop_domain", shopDomain)
+        .eq("shopify_order_id", order.shopify_order_id)
+        .maybeSingle();
+      if (existingOrderError) {
+        errors.push(`${order.order_name}: ${existingOrderError.message}`);
+        continue;
+      }
+      if (existingOrder && !["in_verifica", "eccezione", "in_attesa_refill", "da_preparare", "hold"].includes(existingOrder.wms_status)) {
+        update += 1;
+        continue;
+      }
       const { data: savedOrder, error: orderError } = await adminClient
         .from("shopify_orders")
         .upsert(orderRow, { onConflict: "cliente_id,shop_domain,shopify_order_id" })
@@ -152,7 +172,7 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      const wasCreated = savedOrder.created_at === savedOrder.updated_at;
+      const wasCreated = !existingOrder;
       if (wasCreated) create += 1;
       else update += 1;
 
@@ -285,7 +305,9 @@ async function fetchShopifyOrders(shopDomain: string, token: string) {
     orders.push(...(body.data?.orders?.nodes || []));
     cursor = body.data?.orders?.pageInfo?.hasNextPage ? body.data.orders.pageInfo.endCursor : null;
     pages += 1;
-  } while (cursor && pages < 8);
+  } while (cursor && pages < 100);
+
+  if (cursor) throw new Error("Import interrotto dopo 5.000 ordini: restringi l'intervallo Shopify");
 
   return orders;
 }
@@ -316,19 +338,20 @@ function mapOrder(
   const items = (order.lineItems?.nodes || []).map((item) => {
     const sku = String(item.variant?.sku || item.sku || "").trim();
     const ean = String(item.variant?.barcode || "").trim();
+    const remaining = Math.max(0, Number(item.fulfillableQuantity ?? item.quantity ?? 0));
     return {
       shopify_line_item_id: item.id,
       referenza_id: (ean && referenceMap.byEan.get(ean)) || (sku && referenceMap.bySku.get(sku)) || null,
       sku: sku || null,
       ean: ean || null,
       titolo: String(item.title || sku || ean || "Riga Shopify"),
-      quantita: Math.max(1, Number(item.quantity || 0)),
-      fulfillable_quantity: Math.max(0, Number(item.fulfillableQuantity || 0)),
+      quantita: remaining,
+      fulfillable_quantity: remaining,
       fulfillment_status: item.fulfillmentStatus || null,
       raw: item,
       updated_at: new Date().toISOString(),
     };
-  });
+  }).filter((item) => item.quantita > 0);
 
   return {
     cliente_id: clienteId,

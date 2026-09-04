@@ -160,12 +160,11 @@ async function physicalBalances(admin: SupabaseAdmin, clienteId: string, referen
   for (const count of inventory as any[]) add(balance, balanceKey(count.location_id, count.product_key), Number(count.quantita_contata || 0) - Number(count.quantita_attesa || 0));
   for (const transfer of transfers as any[]) {
     const sourceKey = balanceKey(transfer.source_location_id, transfer.product_key);
-    const moved = Math.min(Math.max(0, Number(balance.get(sourceKey) || 0)), Number(transfer.quantita || 0));
+    const moved = Number(transfer.quantita || 0);
     add(balance, sourceKey, -moved);
     add(balance, balanceKey(transfer.target_location_id, transfer.product_key), moved);
   }
   for (const movement of outbound as any[]) add(balance, balanceKey(movement.location_id, movement.product_key), -Number(movement.quantita || 0));
-  for (const [key, quantity] of balance) balance.set(key, Math.max(0, quantity));
   return { balance, locationMap: new Map(locations.map((location) => [location.id, location])) };
 }
 
@@ -207,8 +206,27 @@ export async function evaluateWmsOrderGate(admin: SupabaseAdmin, orderId: string
       required.set(key, current);
     }
     const refillRequirements: any[] = [];
-    const activeEmptySlot = locations.find((location: any) => location.tipo === "slot" && location.stato === "attiva" && ![...balance.keys()].some((key) => key.startsWith(`${location.id}:`) && Number(balance.get(key) || 0) > 0));
+    const activeEmptySlots = locations.filter((location: any) => (
+      location.tipo === "slot"
+      && location.stato === "attiva"
+      && ![...balance.keys()].some((key) => key.startsWith(`${location.id}:`) && Number(balance.get(key) || 0) > 0)
+    ));
+    const usedSuggestedSlots = new Set<string>();
     for (const [key, demand] of required) {
+      const negativeBalances = [...balance.entries()].filter(([locationProductKey, quantity]) => (
+        locationProductKey.endsWith(`:${key}`) && Number(quantity || 0) < 0
+      ));
+      if (negativeBalances.length) {
+        stockShortages.push({
+          referenza_id: demand.reference.id,
+          titolo: demand.title,
+          required: demand.quantity,
+          available: 0,
+          missing: demand.quantity,
+          reason: "Saldo fisico negativo: riconciliazione stock necessaria",
+        });
+        continue;
+      }
       let slotAvailable = 0;
       let palletAvailable = 0;
       let existingSlot: any = null;
@@ -228,7 +246,8 @@ export async function evaluateWmsOrderGate(admin: SupabaseAdmin, orderId: string
       palletAvailable = Math.max(0, palletAvailable - queueRemaining);
       if (slotAvailable >= demand.quantity) continue;
       const remaining = demand.quantity - slotAvailable;
-      const targetSlot = existingSlot || activeEmptySlot || null;
+      const targetSlot = existingSlot || activeEmptySlots.find((slot: any) => !usedSuggestedSlots.has(slot.id)) || null;
+      if (targetSlot) usedSuggestedSlots.add(targetSlot.id);
       if (palletAvailable >= remaining && targetSlot) {
         refillRequirements.push({ order_id: order.id, cliente_id: order.cliente_id, referenza_id: demand.reference.id, product_key: key, titolo: demand.title, quantita: remaining, pallet_available: palletAvailable, target_slot: { id: targetSlot.id, codice: targetSlot.codice } });
       } else {
@@ -260,6 +279,7 @@ export async function recheckWmsOrderGates(
   actorId: string | null,
   limit = 500,
   includeReady = false,
+  orderId: string | null = null,
 ) {
   const gateStatuses = includeReady ? [...ACTIVE_GATE_STATUSES, "sbloccato"] : ACTIVE_GATE_STATUSES;
   let query = admin.from("shopify_orders")
@@ -269,6 +289,7 @@ export async function recheckWmsOrderGates(
     .order("created_at", { ascending: true })
     .limit(Math.min(500, Math.max(1, limit)));
   if (clienteId) query = query.eq("cliente_id", clienteId);
+  if (orderId) query = query.eq("id", orderId);
   const pending = await rows(query);
   const results: any[] = [];
   for (const order of pending as any[]) {

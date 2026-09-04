@@ -19,8 +19,13 @@ Deno.serve(async (req) => {
   const userClient = createClient(url, anon, { global: { headers: { Authorization: authHeader } } });
   const { data: authData, error: authError } = await userClient.auth.getUser(jwt);
   if (authError || !authData.user) return json({ detail: "Sessione non valida" }, 401);
-  const { data: profile, error: profileError } = await userClient.from("profiles").select("role,cliente_id").eq("id", authData.user.id).single();
+  const { data: profile, error: profileError } = await userClient
+    .from("profiles")
+    .select("role,cliente_id,is_operator,operator_active")
+    .eq("id", authData.user.id)
+    .single();
   if (profileError || !["admin", "staff", "cliente"].includes(profile?.role)) return json({ detail: "Profilo non autorizzato" }, 403);
+  if (profile.is_operator && profile.operator_active === false) return json({ detail: "Account operatore disattivato" }, 403);
 
   const payload = await req.json().catch(() => ({}));
   const clienteId = profile.role === "cliente" ? String(profile.cliente_id || "") : String(payload.cliente_id || "").trim() || null;
@@ -33,6 +38,7 @@ Deno.serve(async (req) => {
       authData.user.id,
       Number(payload.limit || 500),
       Boolean(payload.include_ready),
+      String(payload.order_id || "").trim() || null,
     );
     const failed = result.results.filter((row: any) => row.error);
     if (failed.length) {

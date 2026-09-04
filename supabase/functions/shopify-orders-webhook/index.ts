@@ -53,6 +53,16 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (existingError) throw existingError;
 
+    const mutableStatuses = ["in_verifica", "eccezione", "in_attesa_refill", "da_preparare", "hold"];
+    if (existing && !mutableStatuses.includes(existing.wms_status)) {
+      return json({
+        ok: true,
+        order_id: existing.id,
+        ignored: true,
+        reason: "Ordine gia entrato nel flusso operativo: dati e righe congelati",
+      });
+    }
+
     const shipping = payload.shipping_address || {};
     const orderRow = {
       cliente_id: connection.cliente_id,
@@ -89,10 +99,12 @@ Deno.serve(async (req) => {
     if (orderError || !savedOrder) throw orderError || new Error("Ordine non salvato");
 
     // Dopo l'avvio del picking le righe restano congelate per non cambiare una missione in corso.
-    if (!existing || ["in_verifica", "eccezione", "da_preparare"].includes(existing.wms_status)) {
+    if (!existing || mutableStatuses.includes(existing.wms_status)) {
       const referenceMap = await buildReferenceMap(admin, connection.cliente_id);
       const itemIds: string[] = [];
       for (const item of payload.line_items || []) {
+        const remainingQuantity = Math.max(0, Number(item.fulfillable_quantity ?? item.quantity ?? 0));
+        if (remainingQuantity <= 0) continue;
         const itemId = `gid://shopify/LineItem/${item.id}`;
         const sku = clean(item.sku);
         const ean = clean(item.barcode) || await fetchVariantBarcode(shopDomain, clean(connection.access_token), item.variant_id);
@@ -104,8 +116,8 @@ Deno.serve(async (req) => {
           sku: sku || null,
           ean: ean || null,
           titolo: clean(item.title) || sku || ean || "Riga Shopify",
-          quantita: Math.max(1, Number(item.quantity || 0)),
-          fulfillable_quantity: Math.max(0, Number(item.fulfillable_quantity ?? item.quantity ?? 0)),
+          quantita: remainingQuantity,
+          fulfillable_quantity: remainingQuantity,
           fulfillment_status: clean(item.fulfillment_status) || null,
           raw: item,
           updated_at: new Date().toISOString(),
@@ -121,7 +133,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (payload.cancelled_at && (!existing || ["in_verifica", "eccezione", "da_preparare"].includes(existing.wms_status))) {
+    if (payload.cancelled_at && (!existing || mutableStatuses.includes(existing.wms_status))) {
       await admin.from("shopify_orders").update({ wms_status: "annullato", gate_status: "ignorato", updated_at: new Date().toISOString() }).eq("id", savedOrder.id);
     } else {
       await evaluateWmsOrderGate(admin, savedOrder.id, null);

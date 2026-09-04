@@ -1,6 +1,6 @@
 # NEXT_STEPS.md
 
-Aggiornato al 2 settembre 2026.
+Aggiornato al 4 settembre 2026.
 
 ## Obiettivo
 
@@ -9,7 +9,7 @@ Portare l'attuale prototipo operativo a una piattaforma stabile, verificabile e 
 ## Priorita 0 - Supabase e stato dati
 
 - Esportare schema e backup Supabase prima di nuovi backfill o cambi di stato massivi.
-- Verificare che tutte le migrazioni `001`-`076` risultino applicate e nello stesso ordine in produzione.
+- Verificare che tutte le migrazioni `001`-`101` risultino applicate e nello stesso ordine in produzione. L'allineamento `001`-`100` e stato verificato; la `101` appartiene alla release di hardening corrente.
 - Allineare Supabase Auth Site URL e redirect URL al dominio canonico `aimago-prep-wms.vercel.app`.
 - Eseguire una riconciliazione stock per tutti i clienti:
   - ricevuto;
@@ -49,8 +49,8 @@ Una release non dovrebbe essere promossa se fallisce uno di questi percorsi.
 ## Priorita 1 - Rendere affidabile la logica stock
 
 - Spostare il calcolo ATP e l'allocazione ordine in una RPC transazionale Supabase.
-- Rendere atomici prenotazione, rilascio, refill e completamento picking.
-- Aggiungere vincoli per impedire quantita negative e doppie allocazioni.
+- Estendere l'atomicita gia applicata agli incrementi picking e al completamento packing anche a prenotazione, rilascio e completamento refill.
+- Validare i nuovi vincoli sulle quantita storiche e aggiungere un vincolo esplicito contro saldi fisici negativi dopo la riconciliazione.
 - Definire una fonte unica per il saldo fisico per referenza/ubicazione.
 - Automatizzare il ricalcolo degli ordini interessati dopo entrate, rettifiche, conteggi e refill.
 - Aggiungere una vista amministrativa di riconciliazione con differenze spiegate.
@@ -178,11 +178,11 @@ La release puo essere considerata stabile quando:
 ## Ordine consigliato di esecuzione
 
 1. Backup e verifica schema Supabase.
-2. Verifica allineamento migrazioni `001`-`076`.
+2. Verifica allineamento migrazioni `001`-`101`.
 3. Verifica redirect/Auth Supabase.
 4. Riconciliazione stock multi-cliente.
 5. Test end-to-end dei flussi critici.
-6. Consolidamento delle operazioni stock tramite RPC transazionali.
+6. Completamento delle operazioni stock tramite RPC transazionali; picking e chiusura packing sono gia stati consolidati nella `101`.
 7. Stabilizzazione Zebra/Packing Station.
 8. Integrazione corrieri reali.
 9. Dettaglio costi e fatturazione riconciliabile.

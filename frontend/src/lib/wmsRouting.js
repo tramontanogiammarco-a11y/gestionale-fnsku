@@ -160,29 +160,6 @@ function optimizedVisitOrder(locations = [], distanceFor) {
   return order.map((id) => byId.get(id)).filter(Boolean);
 }
 
-function linearSlotCode(location = {}) {
-  const match = String(location.codice || "").toUpperCase().match(/^([A-Z]+[0-9]*\+A)([0-9]+)$/);
-  if (!match) return null;
-  return { rack: match[1], position: Number(match[2]) };
-}
-
-function linearRackSweepOrder(locations = [], map = {}) {
-  if (locations.length < 2) return null;
-  const decorated = locations.map((location) => ({ location, slot: linearSlotCode(location) }));
-  if (decorated.some((item) => !item.slot)) return null;
-  const rack = decorated[0].slot.rack;
-  if (decorated.some((item) => item.slot.rack !== rack)) return null;
-
-  const entrance = { x: Number(map.entrance_x || 0), z: Number(map.entrance_z || 0) };
-  const endpoints = [...decorated].sort((left, right) => left.slot.position - right.slot.position);
-  const first = endpoints[0];
-  const last = endpoints[endpoints.length - 1];
-  const ascending = distance(entrance, locationAccessPoint(first.location)) <= distance(entrance, locationAccessPoint(last.location));
-  return [...decorated]
-    .sort((left, right) => ascending ? left.slot.position - right.slot.position : right.slot.position - left.slot.position)
-    .map((item) => item.location);
-}
-
 function gridRoute(locations, map) {
   const cellSize = Math.max(0.05, Number(map.grid_size || 0.1));
   const width = Number(map.width || 18);
@@ -398,7 +375,7 @@ export function calculateWarehouseRoute(locations = [], map = {}) {
   const pending = [...allLocations];
   const entrance = { x: Number(map.entrance_x || 0), z: Number(map.entrance_z || 0) };
   const fallback = () => {
-    const planned = linearRackSweepOrder(allLocations, map) || optimizedVisitOrder(allLocations, (fromId, toId) => {
+    const planned = optimizedVisitOrder(allLocations, (fromId, toId) => {
       const from = fromId === "__entrance__" ? entrance : locationAccessPoint(allLocations.find((location) => String(location.id) === fromId));
       const to = locationAccessPoint(allLocations.find((location) => String(location.id) === toId));
       return distance(from, to);
@@ -429,7 +406,7 @@ export function calculateWarehouseRoute(locations = [], map = {}) {
     if (!routeCache.has(key)) routeCache.set(key, dijkstra(network.graph, fromId, toId));
     return routeCache.get(key);
   };
-  const planned = linearRackSweepOrder(pending, map) || optimizedVisitOrder(pending, (fromId, toId) => routeBetween(
+  const planned = optimizedVisitOrder(pending, (fromId, toId) => routeBetween(
     fromId === "__entrance__" ? "attach:entrance" : `attach:${fromId}`,
     `attach:${toId}`,
   )?.distance);

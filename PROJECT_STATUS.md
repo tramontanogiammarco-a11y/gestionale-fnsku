@@ -1,6 +1,6 @@
 # PROJECT_STATUS.md
 
-Aggiornato al 2 settembre 2026.
+Aggiornato al 4 settembre 2026.
 
 ## Sintesi
 
@@ -14,21 +14,21 @@ Il prodotto e in una fase avanzata di prototipo operativo: molti flussi sono uti
 - Progetto Vercel: `aimago-prep-wms`
 - Vercel project ID: `prj_WfKHjZoPtaIzGktp1rHdDC01CK2O`
 - Vercel org ID: `team_6L8NmbyP5T1oDOVT5Wd6BMKs`
-- Ultimo deployment verificato: `dpl_4svwTyZ6QcxRNLZXvmAt1418bGi5`
+- Ultimo deployment verificato: `dpl_4kMRL8bm9PsmU7SYdQztivp86n3b`
 - Supabase project ref: `ryprjuqfervusppnedsz`
-- Migrazioni repository: `001` - `076`
+- Migrazioni repository: `001` - `101`
 
 Le route SPA vengono riscritte verso `index.html`, quindi i link diretti alle aree React devono funzionare su Vercel.
 
 ## Baseline Git
 
-La baseline Git e completata:
+La baseline Git e completata e non costituisce piu un task aperto:
 
 - repository corretto verificato: `gestionale-fnsku-wms`;
 - branch corrente: `main`;
 - branch allineato a `origin/main`;
-- working tree pulito;
-- ultimo commit funzionale: `49a1406 checkpoint WMS functional development`.
+- branch allineato prima dell'intervento di hardening;
+- baseline funzionale storica verificata: `49a1406 checkpoint WMS functional development`.
 
 ## Aree disponibili
 
@@ -140,6 +140,8 @@ Il modello corrente separa stock fisico, impegnato, disponibile ATP, ubicato e n
 
 Il piano picking considera le prenotazioni dei task attivi e delle code precedenti. Lo stock su pallet puo generare refill invece di mandare l'operatore verso uno slot vuoto.
 
+Il gate operativo attivo e ora centralizzato nella Edge Function di ricontrollo. Un saldo fisico negativo non viene piu trasformato silenziosamente in zero: l'ordine resta bloccato e richiede riconciliazione. Le proposte refill riservano slot distinti e impediscono missioni concorrenti verso la stessa destinazione.
+
 Per Relifebattery sono stati importati catalogo, immagini e giacenze di test. Gli ultimi dati storici non ubicati sono stati collocati fino a 100 pezzi per referenza su pallet tramite il backfill della migrazione `076`; la logica frontend consuma prima le collocazioni senza duplicare la disponibilita.
 
 ## Catalogo e prodotti
@@ -184,6 +186,8 @@ La scansione in packing associa l'imballaggio all'ordine, scala il materiale e r
 - Codice univoco, attivazione immediata e stampa singola.
 - QR e barcode contengono lo stesso codice bag.
 - Le bag completate vengono liberate e riutilizzate.
+- Il packing mono-prodotto non completa piu l'ordine alla sola scansione dell'imballaggio: serve la scansione dell'etichetta prevista.
+- Conferma etichetta, avanzamento ordine, aggiornamento batch e liberazione bag vengono eseguiti in una singola RPC.
 
 ## Autenticazione
 
@@ -269,6 +273,7 @@ Layout, prezzi e audit:
 - `shopify-import-orders`
 - `shopify-oauth-start`, `shopify-oauth-callback`, `shopify-orders-webhook`
 - `wms-import-csv-orders`
+- `wms-recheck-order-gate`
 - `wms-update-client-order`
 - `wms-validate-address`
 
@@ -300,6 +305,19 @@ Segreti server-side tipici:
 - `074`: lettura cliente degli imballaggi associati.
 - `075`: stato HOLD cliente.
 - `076`: collocazioni stock e backfill stock storico Relifebattery.
+- `077`-`100`: refill, picking massivo/Galluse/mono-prodotto, packing, scanner e dati operativi.
+- `101`: hardening autorizzazioni, vincoli quantita, picking atomico, slot refill esclusivi e completamento packing transazionale.
+
+Hardening del 4 settembre 2026:
+
+- le azioni globali di reset dati sono riservate agli amministratori;
+- gli operatori disattivati sono rifiutati anche dalle Edge Functions operative;
+- gli incrementi picking singolo, massivo e Galluse sono atomici e non possono superare il residuo;
+- il routing usa le coordinate del magazzino virtuale, non l'ordine numerico dei codici ubicazione;
+- il picking massivo permette di scegliere quanti ordini caricare nella missione;
+- gli ordini mono-prodotto esplicitamente assegnati a Galluse non vengono riclassificati come mono;
+- gli aggiornamenti Shopify non riscrivono righe o quantita di ordini che hanno gia iniziato il picking;
+- la conferma di stampa Zebra e distinta dalla creazione dell'etichetta e il packing si chiude solo con scansione etichetta.
 
 Correzione recente verificata in produzione:
 
@@ -314,18 +332,19 @@ Correzione recente verificata in produzione:
 - Baseline Git completata su `main`, allineata a `origin/main`, con working tree pulito.
 - Build frontend completata con successo.
 - Deploy Vercel completato e alias canonico aggiornato.
-- Migrazione `076` applicata al progetto Supabase collegato.
+- Migrazioni remote verificate e applicate fino alla `101`.
 - Ricontrollo live degli ordini con precedente eccezione stock completato.
+- Test automatici iniziali del routing fisico completati.
 
 ## Bug e rischi aperti
 
-1. **URL Auth Supabase non allineato.** `supabase/config.toml` contiene ancora `https://gestionale-fnsku-web.vercel.app` come `site_url` e redirect localhost. Verificare anche il dashboard Supabase e allineare reset password/OAuth a `https://aimago-prep-wms.vercel.app`.
-2. **Corrieri reali non certificati.** Quotazioni e layout demo funzionano, ma GLS/BRT reali richiedono credenziali, mapping servizi, error handling e test con etichette vere.
-3. **Zebra dipende dal computer locale.** La stampa diretta richiede Browser Print attivo, stampante predefinita, certificato/host autorizzato e rete locale funzionante.
-4. **Logica concentrata nel frontend.** `frontend/src/lib/api.js` e molto grande e contiene logica critica che dovrebbe migrare gradualmente verso RPC/Edge Functions transazionali.
-5. **Copertura test insufficiente.** Non e presente una suite automatica completa per gate ordini, RLS, refill, picking, packing e costi.
-6. **Bundle frontend grande.** La build segnala un bundle principale di circa 644 KB gzip; servono code splitting e lazy loading.
-7. **Warning build.** ZXing genera warning sulle source map; `PreparazioneDetail.jsx` segnala una dipendenza hook mancante (`load`).
-8. **Dipendenze npm.** L'audit installazione ha rilevato 34 vulnerabilita (12 low, 6 moderate, 16 high). Aggiornare in modo controllato, evitando `force` senza regressioni testate.
-9. **Documentazione storica obsoleta.** Alcuni file in `docs/` descrivono ancora il vecchio backend.
-10. **Dati storici stock.** La migrazione `076` sistema il caso noto Relifebattery, ma serve una riconciliazione generale per tutti i clienti tra ricevuto, spedito, riservato, ubicato e disponibile.
+1. **Backup e restore non ancora provati.** Prima di backfill o correzioni massive serve un export valido e una prova di ripristino; l'ambiente locale non dispone ancora delle credenziali database necessarie all'export diretto.
+2. **Redirect Auth remoto da verificare.** La configurazione repository usa ora il dominio canonico, ma Site URL e redirect del progetto Supabase devono essere controllati anche nel dashboard.
+3. **Corrieri reali non certificati.** Quotazioni e layout demo funzionano, ma GLS/BRT reali richiedono credenziali, mapping servizi, error handling e test con etichette vere.
+4. **Zebra dipende dal computer locale.** La stampa diretta richiede Browser Print attivo, stampante predefinita, certificato/host autorizzato e rete locale funzionante.
+5. **Riconciliazione stock incompleta.** I saldi negativi vengono ora bloccati e segnalati, ma occorre una riconciliazione generale multi-cliente tra ricevuto, spedito, riservato, ubicato e disponibile.
+6. **Copertura test insufficiente.** Esistono test iniziali sul routing, ma manca una suite automatica completa per gate ordini, RLS, refill, picking, packing e costi.
+7. **Logica concentrata nel frontend.** `frontend/src/lib/api.js` resta molto grande; le operazioni piu critiche stanno migrando verso RPC ed Edge Functions transazionali.
+8. **Bundle frontend grande.** La build segnala un bundle principale elevato; servono code splitting e lazy loading.
+9. **Dipendenze npm.** Le vulnerabilita vanno aggiornate in modo controllato, evitando aggiornamenti forzati senza regressione.
+10. **Documentazione storica obsoleta.** Alcuni file in `docs/` descrivono ancora il vecchio backend.

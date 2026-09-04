@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import { Archive, ArrowLeftRight, ChevronRight, DatabaseZap, Printer, ShoppingBag, ShoppingCart, SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -7,10 +7,11 @@ import { api } from "@/lib/api";
 export default function WmsAppTools() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { isAdmin } = useOutletContext();
   const [resettingStock, setResettingStock] = useState(false);
   const [emptyingBags, setEmptyingBags] = useState(false);
-  const showStockReset = new URLSearchParams(location.search).get("stock") === "home";
-  const showBagEmpty = new URLSearchParams(location.search).get("bags") === "empty";
+  const showStockReset = isAdmin && new URLSearchParams(location.search).get("stock") === "home";
+  const showBagEmpty = isAdmin && new URLSearchParams(location.search).get("bags") === "empty";
   const tools = [
     { icon: ArrowLeftRight, title: "Movimenta stock", subtitle: "Sposta quantita, rifornisci slot o svuota una posizione", action: () => navigate("/wms-app/movimenta-stock") },
     { icon: ShoppingCart, title: "Carrelli / Bag", subtitle: "Scansiona un carrello e configura la griglia delle bag", action: () => navigate("/wms-app/carrelli-bag") },

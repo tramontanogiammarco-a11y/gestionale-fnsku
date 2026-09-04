@@ -4664,7 +4664,7 @@ async function validateWmsOrderAddress(order = {}) {
   }
 }
 
-async function evaluateWmsOrderGate(orderId, options = {}) {
+async function evaluateWmsOrderGateLegacy(orderId, options = {}) {
   const profile = await assertWmsStaff();
   const { data: order, error: orderError } = await requireSupabase()
     .from("shopify_orders")
@@ -4796,6 +4796,27 @@ async function evaluateWmsOrderGate(orderId, options = {}) {
     }
   }
   return saved;
+}
+
+async function evaluateWmsOrderGate(orderId, options = {}) {
+  const { data: order, error } = await requireSupabase()
+    .from("shopify_orders")
+    .select("*")
+    .eq("id", orderId)
+    .single();
+  if (error || !order) fail(error?.message || "Ordine non trovato", 404);
+  const lockedStatuses = ["in_preparazione", "in_attesa_packing", "in_packing", "imballato", "spedito", "annullato"];
+  if (lockedStatuses.includes(order.wms_status) && !options.force) return { ...order, skipped: true };
+
+  const response = await recheckWmsOrderExceptions({
+    order_id: orderId,
+    include_ready: Boolean(options.force),
+    limit: 1,
+  });
+  const result = response.data?.results?.find((row) => row.id === orderId);
+  if (result?.error) fail(result.error);
+  if (!result?.order) fail("L'ordine non e in uno stato ricontrollabile", 409);
+  return result.order;
 }
 
 async function recheckWmsOrderExceptions(payload = {}) {
@@ -5501,6 +5522,7 @@ function monoCandidateOrders(orders = [], excludedOrderIds = new Set()) {
   return (orders || []).filter((order) => (
     isVerifiedQueuedOrder(order)
     && order.wms_status === "da_preparare"
+    && order.raw?.preparation_method !== "galluse"
     && !excludedOrderIds.has(order.id)
     && (order.items || []).length === 1
     && Boolean(order.items[0].referenza_id)
@@ -5974,7 +5996,7 @@ async function removeWmsCartBag(rawCode, payload = {}) {
 }
 
 async function emptyAllWmsBags() {
-  await assertWmsStaff();
+  await assertWmsAdmin();
   const sb = requireSupabase();
   const resetAt = nowIso();
   const [
@@ -6161,16 +6183,27 @@ async function startWmsMassPicking(payload = {}) {
   const operational = await wmsOperationalOrdersData(new URLSearchParams(payload.cliente_id ? { cliente_id: payload.cliente_id } : {}));
   const group = massGroupsFromOrders(operational.orders).find((candidate) => candidate.signature === signature && (!payload.cliente_id || candidate.cliente_id === payload.cliente_id));
   if (!group) fail("Il gruppo Massivo non e piu disponibile. Aggiorna la lista.", 409);
-  const orderIds = group.orders.map((order) => order.id);
-  const firstOrder = group.orders[0];
-  const combinedItems = (firstOrder.items || []).map((item) => ({ ...item, quantita: Number(item.quantita || 0) * group.numero_ordini }));
+  const requestedOrderCount = Math.floor(Number(payload.numero_ordini ?? group.numero_ordini));
+  if (!Number.isFinite(requestedOrderCount) || requestedOrderCount < 2 || requestedOrderCount > group.numero_ordini) {
+    fail(`Seleziona da 2 a ${group.numero_ordini} ordini identici.`, 422);
+  }
+  const selectedOrders = [...group.orders]
+    .sort((left, right) => (
+      String(left.processed_at || left.created_at || "").localeCompare(String(right.processed_at || right.created_at || ""))
+      || String(left.id).localeCompare(String(right.id))
+    ))
+    .slice(0, requestedOrderCount);
+  const orderIds = selectedOrders.map((order) => order.id);
+  const firstOrder = selectedOrders[0];
+  const combinedItems = (firstOrder.items || []).map((item) => ({ ...item, quantita: Number(item.quantita || 0) * selectedOrders.length }));
   const queuedSlotReserved = await verifiedQueuedReservationsExcept(group.cliente_id, orderIds);
   const plan = await wmsPickingPlan(firstOrder, combinedItems, { queuedSlotReserved });
   if (plan.errors.length) fail(plan.errors.join(" "));
   if (plan.replenishment.length) fail(`Rifornisci prima gli slot per ${plan.replenishment.length} ${plan.replenishment.length === 1 ? "prodotto" : "prodotti"}.`);
 
   const uniqueLocations = [...new Set(plan.allocations.map((allocation) => allocation.location_id))].map((id) => plan.locationMap[id]).filter(Boolean);
-  const route = calculateWarehouseRoute(visibleWmsRouteLocations(uniqueLocations, plan.mapSettings), plan.mapSettings);
+  const physicalStops = [...new Map(uniqueLocations.map((location) => [wmsPhysicalBlockKey(location), location])).values()];
+  const route = calculateWarehouseRoute(visibleWmsRouteLocations(physicalStops, plan.mapSettings), plan.mapSettings);
   if (route.unreachable?.length) fail(`Mappa bloccata: ${route.unreachable.map((location) => location.codice).join(", ")} non e raggiungibile. Lascia almeno una casella libera di passaggio.`);
   const { data: batch, error: batchError } = await requireSupabase().from("wms_mass_pick_batches").insert({
     cliente_id: group.cliente_id,
@@ -6179,7 +6212,8 @@ async function startWmsMassPicking(payload = {}) {
     operatore_id: profile.id,
   }).select().single();
   if (batchError || !batch) fail(batchError?.message || "Missione Massivo non creata");
-  const sequenceMap = Object.fromEntries(route.locations.map((location, index) => [location.id, index + 1]));
+  const blockSequence = Object.fromEntries(route.locations.map((location, index) => [wmsPhysicalBlockKey(location), index + 1]));
+  const sequenceMap = Object.fromEntries(uniqueLocations.map((location) => [location.id, blockSequence[wmsPhysicalBlockKey(location)] || 9999]));
   const referenceByItem = Object.fromEntries(combinedItems.map((item) => [item.id, item.referenza_id]));
   const perOrderByReference = Object.fromEntries((firstOrder.items || []).map((item) => [item.referenza_id, Number(item.quantita || 0)]));
   const lines = plan.allocations.sort((a, b) => sequenceMap[a.location_id] - sequenceMap[b.location_id]).map((allocation, index) => {
@@ -6194,7 +6228,7 @@ async function startWmsMassPicking(payload = {}) {
       fnsku: allocation.fnsku,
       sku: allocation.sku,
       quantita_per_ordine: perOrderByReference[referenzaId],
-      numero_ordini: group.numero_ordini,
+      numero_ordini: selectedOrders.length,
       quantita_attesa: allocation.quantita_attesa,
       sequenza: index + 1,
     };
@@ -6220,6 +6254,7 @@ async function startWmsMonoPicking(payload = {}) {
     .from("wms_mass_pick_batches")
     .select("id")
     .eq("picking_mode", "mono")
+    .eq("operatore_id", profile.id)
     .in("stato", ["in_corso", "da_confermare_bag"])
     .limit(1);
   if (activeError) fail(activeError.message);
@@ -6297,7 +6332,7 @@ async function startWmsMonoPicking(payload = {}) {
 }
 
 async function scanWmsMassPicking(batchId, payload = {}) {
-  const profile = await assertWmsStaff();
+  await assertWmsStaff();
   const snapshot = await wmsMassPickSnapshot(batchId);
   const batch = snapshot.data.batch;
   const code = normalizedText(payload.codice || payload.code);
@@ -6333,24 +6368,10 @@ async function scanWmsMassPicking(batchId, payload = {}) {
   const remaining = Number(current.quantita_attesa || 0) - Number(current.quantita_prelevata || 0);
   const quantity = batch.picking_mode === "mono" ? remaining : Math.floor(Number(payload.quantita || 0));
   if (!Number.isFinite(quantity) || quantity <= 0 || quantity > remaining) fail(`Seleziona da 1 a ${remaining} pezzi.`);
-  const next = Number(current.quantita_prelevata || 0) + quantity;
-  const { error: lineError } = await requireSupabase().from("wms_mass_pick_lines").update({
-    quantita_prelevata: next,
-    picked_at: next === Number(current.quantita_attesa) ? nowIso() : null,
-  }).eq("id", current.id);
-  if (lineError) fail(lineError.message);
-  const firstOrderId = snapshot.data.orders[0]?.order_id || null;
-  const { error: movementError } = await requireSupabase().from("wms_outbound_movements").upsert({
-    mass_pick_line_id: current.id,
-    mass_batch_id: batchId,
-    order_id: firstOrderId,
-    cliente_id: snapshot.data.batch.cliente_id,
-    location_id: current.location_id,
-    product_key: current.product_key,
-    quantita: next,
-    operatore_id: profile.id,
-    updated_at: nowIso(),
-  }, { onConflict: "mass_pick_line_id" });
+  const { error: movementError } = await requireSupabase().rpc("record_wms_mass_pick_quantity", {
+    p_line_id: current.id,
+    p_quantity: quantity,
+  });
   if (movementError) fail(movementError.message);
 
   const updated = await wmsMassPickSnapshot(batchId);
@@ -6632,6 +6653,7 @@ async function startWmsGallusePicking(payload = {}) {
   const { data: activeBatches, error: activeBatchesError } = await requireSupabase()
     .from("wms_galluse_batches")
     .select("id")
+    .eq("operatore_id", profile.id)
     .in("stato", ["da_associare_bag", "in_corso"]);
   if (activeBatchesError) fail(activeBatchesError.message);
   if ((activeBatches || []).length) fail("Completa prima il carrello Galluse gia in corso.", 409);
@@ -6744,7 +6766,7 @@ async function assignWmsGalluseBag(batchId, payload = {}) {
 }
 
 async function scanWmsGallusePicking(batchId, payload = {}) {
-  const profile = await assertWmsStaff();
+  await assertWmsStaff();
   const snapshot = await wmsGalluseSnapshot(batchId);
   const code = normalizedText(payload.codice || payload.code);
   if (snapshot.data.batch.stato === "da_associare_bag") {
@@ -6770,19 +6792,10 @@ async function scanWmsGallusePicking(batchId, payload = {}) {
   const remaining = Number(current.quantita_attesa || 0) - Number(current.quantita_prelevata || 0);
   const quantity = Math.floor(Number(payload.quantita || 0));
   if (!Number.isFinite(quantity) || quantity <= 0 || quantity > remaining) fail(`Puoi prelevare da 1 a ${remaining} pezzi.`);
-  const nextPicked = Number(current.quantita_prelevata || 0) + quantity;
-  const { error: lineError } = await requireSupabase().from("wms_galluse_lines").update({ quantita_prelevata: nextPicked, picked_at: nextPicked === Number(current.quantita_attesa) ? nowIso() : null }).eq("id", current.id);
-  if (lineError) fail(lineError.message);
-  const { error: movementError } = await requireSupabase().from("wms_outbound_movements").upsert({
-    galluse_line_id: current.id,
-    galluse_batch_id: batchId,
-    cliente_id: snapshot.data.batch.cliente_id,
-    location_id: current.location_id,
-    product_key: current.product_key,
-    quantita: nextPicked,
-    operatore_id: profile.id,
-    updated_at: nowIso(),
-  }, { onConflict: "galluse_line_id" });
+  const { error: movementError } = await requireSupabase().rpc("record_wms_galluse_pick_quantity", {
+    p_line_id: current.id,
+    p_quantity: quantity,
+  });
   if (movementError) fail(movementError.message);
   const updated = await wmsGalluseSnapshot(batchId);
   if (updated.data.current_line) return updated;
@@ -6828,7 +6841,7 @@ async function cancelWmsGallusePicking(batchId) {
 }
 
 async function resetGalluseAiDemo() {
-  await assertWmsStaff();
+  await assertWmsAdmin();
   let { data: demoClient, error: clientError } = await requireSupabase()
     .from("clienti")
     .select("id,ragione_sociale")
@@ -7028,7 +7041,7 @@ async function resetGalluseAiDemo() {
 }
 
 async function resetWmsHomeStockCatalog() {
-  const profile = await assertWmsStaff();
+  const profile = await assertWmsAdmin();
   let { data: demoClient, error: clientError } = await requireSupabase()
     .from("clienti")
     .select("id,ragione_sociale")
@@ -7279,10 +7292,15 @@ async function startWmsPicking(orderId) {
   const { allocations, locationMap, mapSettings } = plan;
 
   const uniqueLocations = [...new Set(allocations.map((allocation) => allocation.location_id))].map((id) => locationMap[id]).filter(Boolean);
-  const route = calculateWarehouseRoute(visibleWmsRouteLocations(uniqueLocations, mapSettings), mapSettings);
+  const physicalStops = [...new Map(uniqueLocations.map((location) => [wmsPhysicalBlockKey(location), location])).values()];
+  const route = calculateWarehouseRoute(visibleWmsRouteLocations(physicalStops, mapSettings), mapSettings);
   if (route.unreachable?.length) fail(`Mappa bloccata: ${route.unreachable.map((location) => location.codice).join(", ")} non e raggiungibile. Lascia almeno una casella libera di passaggio.`);
-  const sequenceMap = Object.fromEntries(route.locations.map((location, index) => [location.id, index + 1]));
-  allocations.sort((left, right) => sequenceMap[left.location_id] - sequenceMap[right.location_id]);
+  const blockSequence = Object.fromEntries(route.locations.map((location, index) => [wmsPhysicalBlockKey(location), index + 1]));
+  const sequenceMap = Object.fromEntries(uniqueLocations.map((location) => [location.id, blockSequence[wmsPhysicalBlockKey(location)] || 9999]));
+  allocations.sort((left, right) => (
+    sequenceMap[left.location_id] - sequenceMap[right.location_id]
+    || naturalLocationSort(locationMap[left.location_id], locationMap[right.location_id])
+  ));
 
   const { data: task, error: taskError } = await requireSupabase().from("wms_pick_tasks").insert({
     order_id: orderId,
@@ -7336,22 +7354,10 @@ async function scanWmsPicking(taskId, payload = {}) {
   const remaining = Number(current.quantita_attesa || 0) - Number(current.quantita_prelevata || 0);
   const quantity = Math.floor(Number(payload.quantita || remaining));
   if (!Number.isFinite(quantity) || quantity <= 0 || quantity > remaining) fail(`Puoi prelevare da 1 a ${remaining} pezzi.`);
-  const nextPicked = Number(current.quantita_prelevata || 0) + quantity;
-  const { error } = await requireSupabase().from("wms_pick_lines").update({
-    quantita_prelevata: nextPicked,
-    picked_at: nextPicked === Number(current.quantita_attesa) ? nowIso() : null,
-  }).eq("id", current.id);
-  if (error) fail(error.message);
-  const { error: movementError } = await requireSupabase().from("wms_outbound_movements").upsert({
-    pick_line_id: current.id,
-    order_id: task.order_id,
-    cliente_id: snapshot.data.order.cliente_id,
-    location_id: current.location_id,
-    product_key: current.product_key,
-    quantita: nextPicked,
-    operatore_id: (await currentProfile()).id,
-    updated_at: nowIso(),
-  }, { onConflict: "pick_line_id" });
+  const { error: movementError } = await requireSupabase().rpc("record_wms_pick_quantity", {
+    p_line_id: current.id,
+    p_quantity: quantity,
+  });
   if (movementError) fail(movementError.message);
 
   const updated = await wmsPickSnapshot(task.order_id);
@@ -7566,48 +7572,22 @@ async function selectWmsMonoPackingProduct(payload = {}) {
 }
 
 async function completePackingLabel(session) {
-  const completedAt = nowIso();
-  const { error: orderError } = await requireSupabase()
-    .from("shopify_orders")
-    .update({ wms_status: "imballato", updated_at: completedAt })
-    .eq("id", session.order_id);
-  if (orderError) fail(orderError.message);
+  const { error } = await requireSupabase().rpc("complete_wms_packing_label", {
+    p_session_id: session.id,
+    p_label_code: session.carrier_label_code,
+  });
+  if (error) fail(error.message);
+}
 
-  const { error: sessionError } = await requireSupabase().from("wms_packing_sessions").update({
-    stato: "completata",
-    carrier_label_scanned_at: completedAt,
-    completed_at: completedAt,
-    updated_at: completedAt,
-  }).eq("id", session.id);
-  if (sessionError) fail(sessionError.message);
-
-  if (!session.mass_batch_id) {
-    await releaseWmsBag(session.bag_id);
-    return;
-  }
-
-  const { error: linkError } = await requireSupabase()
-    .from("wms_mass_pick_orders")
-    .update({ stato: "completato" })
-    .eq("batch_id", session.mass_batch_id)
-    .eq("order_id", session.order_id);
-  if (linkError) fail(linkError.message);
-
-  const { data: pending, error: pendingError } = await requireSupabase()
-    .from("wms_packing_sessions")
-    .select("id")
-    .eq("mass_batch_id", session.mass_batch_id)
-    .neq("stato", "completata")
-    .limit(1);
-  if (pendingError) fail(pendingError.message);
-
-  const allPacked = !(pending || []).length;
-  const { error: batchError } = await requireSupabase()
-    .from("wms_mass_pick_batches")
-    .update({ stato: allPacked ? "completata_packing" : "in_packing", updated_at: completedAt })
-    .eq("id", session.mass_batch_id);
-  if (batchError) fail(batchError.message);
-  if (allPacked) await releaseWmsBag(session.bag_id);
+async function markWmsPackingLabelsPrinted(payload = {}) {
+  await assertWmsStaff();
+  const sessionIds = [...new Set((payload.session_ids || []).filter(Boolean))];
+  if (!sessionIds.length) fail("Nessuna etichetta da confermare");
+  const { data, error } = await requireSupabase().rpc("mark_wms_packing_labels_printed", {
+    p_session_ids: sessionIds,
+  });
+  if (error) fail(error.message);
+  return ok({ printed: Number(data || 0) });
 }
 
 async function packingStationSnapshotForLabel(labelCode) {
@@ -7768,16 +7748,7 @@ async function scanWmsPackingStation(payload = {}) {
       p_barcode: code,
     });
     if (error) fail(error.message);
-    const packaged = await packingStationSnapshot(activeBagCode);
-    if (packaged.data.batch?.picking_mode !== "mono") return packaged;
-    const labelsToPrint = packaged.data.labels.filter((label) => !label.scanned);
-    const sessionIds = labelsToPrint.map((label) => label.session_id);
-    const { error: completeError } = await requireSupabase().rpc("complete_wms_mono_packaging", {
-      p_session_ids: sessionIds,
-    });
-    if (completeError) fail(completeError.message);
-    const next = await packingStationSnapshot(activeBagCode);
-    return ok({ ...next.data, labels_to_print: labelsToPrint });
+    return packingStationSnapshot(activeBagCode);
   }
 
   return completePackingStationLabel(snapshot, code);
@@ -9278,6 +9249,7 @@ export const api = {
     if (path.match(/^\/wms\/picking-galluse\/[^/]+\/annulla$/)) return cancelWmsGallusePicking(path.split("/")[3]);
     if (path === "/wms/picking-galluse/demo-a-i") return resetGalluseAiDemo();
     if (path === "/wms/packing/station/scan") return scanWmsPackingStation(payload);
+    if (path === "/wms/packing/labels/printed") return markWmsPackingLabelsPrinted(payload);
     if (path === "/wms/packaging/stock") return setWmsPackagingStock(payload);
     if (path === "/shopify/oauth/start") return startShopifyOAuth(payload);
     if (path === "/shippypro/label") return createShippyProLabel(payload);

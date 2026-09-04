@@ -65,6 +65,7 @@ export default function WmsAppLayout() {
   const filteredEntries = clientId === "all"
     ? (entries || [])
     : (entries || []).filter((entry) => entry.cliente_id === clientId);
+  const isAdmin = user?.role === "admin";
 
   const focusScanner = () => {
     if (location.pathname.includes("/wms-app/inbound/") || location.pathname.includes("/wms-app/picking/") || location.pathname.includes("/wms-app/picking-massivo/") || /^\/wms-app\/picking-galluse\/[^/]+$/.test(location.pathname) || location.pathname.includes("/wms-app/packing/") || location.pathname.includes("/wms-app/movimenta-stock") || /^\/wms-app\/inventario\/[^/]+$/.test(location.pathname)) {
@@ -102,7 +103,7 @@ export default function WmsAppLayout() {
         </header>
 
         <main className="px-3 pb-24 pt-5 sm:px-5 sm:pt-6">
-          <Outlet context={{ entries: filteredEntries, allEntries: entries, clientId, clients, loadEntries }} />
+          <Outlet context={{ entries: filteredEntries, allEntries: entries, clientId, clients, loadEntries, isAdmin }} />
         </main>
 
         <BottomNavigation />

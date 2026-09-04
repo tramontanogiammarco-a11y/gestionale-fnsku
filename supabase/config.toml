@@ -9,8 +9,8 @@ max_rows = 10000
 
 [auth]
 enabled = true
-site_url = "https://gestionale-fnsku-web.vercel.app"
-additional_redirect_urls = ["http://localhost:3000", "http://localhost:3001"]
+site_url = "https://aimago-prep-wms.vercel.app"
+additional_redirect_urls = ["https://aimago-prep-wms.vercel.app/**", "http://localhost:3000/**", "http://localhost:3001/**", "http://localhost:5173/**"]
 
 [storage]
 enabled = true

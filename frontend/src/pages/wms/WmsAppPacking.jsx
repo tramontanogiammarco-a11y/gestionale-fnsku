@@ -403,6 +403,13 @@ export default function WmsAppPacking() {
       const printer = await printZebraPackingLabels(labels);
       setZebra({ status: "ready", name: printer.name || "Zebra predefinita" });
       setPendingCarrierPrint(null);
+      try {
+        await api.post("/wms/packing/labels/printed", {
+          session_ids: labels.map((label) => label.session_id),
+        });
+      } catch {
+        toast.error("Etichetta stampata, ma la conferma di stampa non e stata registrata.");
+      }
       toast.success(`${labels.length} etichette stampate su ${printer.name || "Zebra"}`);
       return true;
     } catch (zebraError) {
@@ -418,10 +425,17 @@ export default function WmsAppPacking() {
     let cancelled = false;
     printRetryInFlightRef.current = true;
     printZebraPackingLabels(pendingCarrierPrint.labels)
-      .then((printer) => {
+      .then(async (printer) => {
         if (cancelled) return;
         setZebra({ status: "ready", name: printer.name || "Zebra predefinita" });
         setPendingCarrierPrint(null);
+        try {
+          await api.post("/wms/packing/labels/printed", {
+            session_ids: pendingCarrierPrint.labels.map((label) => label.session_id),
+          });
+        } catch {
+          toast.error("Etichetta stampata, ma la conferma di stampa non e stata registrata.");
+        }
         toast.success("Zebra ripristinata: etichetta stampata automaticamente");
       })
       .catch(() => {

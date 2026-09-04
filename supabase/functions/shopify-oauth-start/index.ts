@@ -33,12 +33,13 @@ Deno.serve(async (req) => {
 
     const { data: profile, error: profileError } = await userClient
       .from("profiles")
-      .select("role,cliente_id")
+      .select("role,cliente_id,is_operator,operator_active")
       .eq("id", authData.user.id)
       .single();
     if (profileError || !["admin", "staff", "cliente"].includes(profile?.role)) {
       return json({ detail: "Profilo non autorizzato" }, 403);
     }
+    if (profile.is_operator && profile.operator_active === false) return json({ detail: "Account operatore disattivato" }, 403);
 
     const payload = await req.json().catch(() => ({}));
     const requestedClienteId = String(payload.cliente_id || "").trim();

@@ -36,7 +36,7 @@ function MassQueue({ mode }) {
       const response = await api.post(`/wms/picking-${mode}/avvia`, {
         signature: group.signature,
         cliente_id: group.cliente_id,
-        ...(mode === "mono" ? { numero_ordini: selectedOrders } : {}),
+        numero_ordini: selectedOrders,
       });
       toast.success(mode === "mono" ? "Missione mono-prodotto avviata" : "Missione Massivo avviata");
       navigate(`/wms-app/picking-${mode}/${response.data.batch.id}`);
@@ -56,20 +56,21 @@ function MassQueue({ mode }) {
 
 function QueueGroupCard({ group, mode, working, onStart }) {
   const available = Number(group.numero_ordini || 0);
-  const [selected, setSelected] = useState(mode === "mono" ? 0 : available);
+  const minimum = mode === "mono" ? 1 : 2;
+  const [selected, setSelected] = useState(0);
   useEffect(() => {
-    setSelected((current) => mode === "mono" ? Math.min(current, available) : available);
-  }, [available, mode]);
+    setSelected((current) => Math.min(current, available));
+  }, [available]);
   const add = (amount) => setSelected((current) => Math.min(available, current + amount));
   return <article className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
     <div className="flex items-start gap-3"><span className="flex h-12 w-12 items-center justify-center rounded-md bg-teal-50 text-teal-700"><Layers3 className="h-6 w-6" /></span><div className="min-w-0 flex-1"><h3 className="text-lg font-black">{available} {mode === "mono" ? "ordini mono-pezzo" : "ordini identici"}</h3><p className="mt-1 text-xs text-slate-500">{group.cliente} · {group.pezzi_totali} pezzi totali</p></div></div>
-    <div className="mt-4 divide-y divide-slate-100 border-y border-slate-100">{group.products.map((product) => <div key={product.referenza_id} className="flex items-center gap-3 py-3"><span className="min-w-0 flex-1"><strong className="block truncate text-sm">{product.titolo}</strong><span className="font-mono text-[11px] text-slate-500">{product.ean || product.sku}</span></span><strong>×{product.quantita_totale}</strong></div>)}</div>
-    {mode === "mono" && <div className="mt-4 rounded-md bg-slate-950 p-4 text-white">
-      <div className="flex items-end justify-between"><span className="text-xs font-black uppercase text-slate-400">Pezzi nel carrello</span><strong className="text-4xl font-black">{selected}<span className="text-lg text-slate-400">/{available}</span></strong></div>
+    <div className="mt-4 divide-y divide-slate-100 border-y border-slate-100">{group.products.map((product) => <div key={product.referenza_id} className="flex items-center gap-3 py-3"><span className="min-w-0 flex-1"><strong className="block truncate text-sm">{product.titolo}</strong><span className="font-mono text-[11px] text-slate-500">{product.ean || product.sku}</span></span><strong>×{selected * Number(product.quantita_per_ordine || 1)}</strong></div>)}</div>
+    <div className="mt-4 rounded-md bg-slate-950 p-4 text-white">
+      <div className="flex items-end justify-between"><span className="text-xs font-black uppercase text-slate-400">Ordini nel carrello</span><strong className="text-4xl font-black">{selected}<span className="text-lg text-slate-400">/{available}</span></strong></div>
       <div className="mt-3 grid grid-cols-3 gap-2">{[1, 5, 10].map((amount) => <Button key={amount} type="button" variant="secondary" className="h-14 text-lg font-black" onClick={() => add(amount)} disabled={working || selected >= available}>+{amount}</Button>)}</div>
       <button type="button" className="mt-3 h-10 w-full text-sm font-bold text-slate-300 disabled:opacity-50" onClick={() => setSelected(0)} disabled={working || selected === 0}>Azzera</button>
-    </div>}
-    <Button className="mt-4 h-14 w-full text-base font-black" onClick={() => onStart(group, selected)} disabled={working || selected < 1}><Play className="mr-2 h-5 w-5" /> Avvia picking {mode === "mono" ? `con ${selected} pezzi` : "Massivo"}</Button>
+    </div>
+    <Button className="mt-4 h-14 w-full text-base font-black" onClick={() => onStart(group, selected)} disabled={working || selected < minimum}><Play className="mr-2 h-5 w-5" /> Avvia con {selected} {selected === 1 ? "ordine" : "ordini"}</Button>
   </article>;
 }
 
