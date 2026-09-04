@@ -4483,6 +4483,9 @@ async function wmsPickingPlan(order, items, options = {}) {
     .filter((location) => location.tipo === "slot" && location.stato === "attiva" && !location.occupata)
     .sort(naturalLocationSort);
   const usedSuggestedSlots = new Set();
+  const refillTargetAssignments = options.refillTargetAssignments instanceof Map
+    ? options.refillTargetAssignments
+    : new Map();
   const queuedSlotReserved = new Map(options.queuedSlotReserved || []);
   const allocations = [];
   const replenishment = [];
@@ -4549,11 +4552,25 @@ async function wmsPickingPlan(order, items, options = {}) {
         })
         .filter((location) => location.quantita > 0);
       const palletAvailable = palletSources.reduce((sum, location) => sum + location.quantita, 0);
+      const targetAssignmentKey = `${order.cliente_id}:${productKey}`;
+      const assignedSlot = allLocations.find((location) => (
+        location.tipo === "slot"
+        && location.stato === "attiva"
+        && refillTargetAssignments.get(location.id) === targetAssignmentKey
+      )) || null;
       const existingSlot = (product.ubicazioni || [])
         .filter((location) => location.tipo === "slot")
         .map((location) => locationMap[location.id])
-        .find((location) => location?.stato === "attiva") || null;
-      const suggestedSlot = existingSlot || availableEmptySlots.find((location) => !usedSuggestedSlots.has(location.id)) || null;
+        .find((location) => (
+          location?.stato === "attiva"
+          && (!refillTargetAssignments.has(location.id) || refillTargetAssignments.get(location.id) === targetAssignmentKey)
+        )) || null;
+      const suggestedSlot = assignedSlot
+        || existingSlot
+        || availableEmptySlots.find((location) => (
+          !usedSuggestedSlots.has(location.id) && !refillTargetAssignments.has(location.id)
+        ))
+        || null;
       if (suggestedSlot) usedSuggestedSlots.add(suggestedSlot.id);
       replenishment.push({
         order_item_id: item.id,
@@ -4846,10 +4863,13 @@ async function listWmsRefillQueue(params = new URLSearchParams()) {
   const sourceReserved = new Map();
   const { data: activeTargets, error: activeTargetsError } = await requireSupabase()
     .from("wms_refill_lines")
-    .select("target_location_id,product_key")
+    .select("target_location_id,cliente_id,product_key")
     .in("stato", ["da_associare_bag", "da_prelevare", "in_bag"]);
   if (activeTargetsError) fail(activeTargetsError.message);
-  const targetAssignments = new Map((activeTargets || []).map((line) => [line.target_location_id, line.product_key]));
+  const targetAssignments = new Map((activeTargets || []).map((line) => [
+    line.target_location_id,
+    `${line.cliente_id}:${line.product_key}`,
+  ]));
 
   let query = requireSupabase()
     .from("shopify_orders")
@@ -4864,7 +4884,10 @@ async function listWmsRefillQueue(params = new URLSearchParams()) {
   const grouped = new Map();
   for (const order of orders) {
     const queuedSlotReserved = await queuedSlotReservationsBefore(order);
-    const plan = await wmsPickingPlan(order, order.items || [], { queuedSlotReserved });
+    const plan = await wmsPickingPlan(order, order.items || [], {
+      queuedSlotReserved,
+      refillTargetAssignments: targetAssignments,
+    });
     const refill = (plan.replenishment || []).find((item) => item.can_replenish);
     if (!refill) continue;
     const source = (refill.pallet_sources || []).map((item) => {
@@ -4874,9 +4897,10 @@ async function listWmsRefillQueue(params = new URLSearchParams()) {
     if (!source || !refill.target_slot) continue;
     const required = Math.min(Number(refill.quantita || 0), Number(source.available || 0));
     if (required <= 0) continue;
+    const targetAssignmentKey = `${order.cliente_id}:${refill.product_key}`;
     const assignedTargetProduct = targetAssignments.get(refill.target_slot.id);
-    if (assignedTargetProduct && assignedTargetProduct !== refill.product_key) continue;
-    targetAssignments.set(refill.target_slot.id, refill.product_key);
+    if (assignedTargetProduct && assignedTargetProduct !== targetAssignmentKey) continue;
+    targetAssignments.set(refill.target_slot.id, targetAssignmentKey);
     const reservationKey = `${order.cliente_id}:${refill.product_key}:${source.id}`;
     sourceReserved.set(reservationKey, Number(sourceReserved.get(reservationKey) || 0) + required);
     const taskKey = [order.cliente_id, refill.product_key, source.id, refill.target_slot.id].join("|");

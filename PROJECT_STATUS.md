@@ -323,6 +323,7 @@ Hardening del 4 settembre 2026:
 - gli ordini mono-prodotto esplicitamente assegnati a Galluse non vengono riclassificati come mono;
 - gli aggiornamenti Shopify non riscrivono righe o quantita di ordini che hanno gia iniziato il picking;
 - la conferma di stampa Zebra e distinta dalla creazione dell'etichetta e il packing si chiude solo con scansione etichetta.
+- la coda refill assegna slot distinti a referenze diverse e non nasconde le righe quando il primo slot libero e gia prenotato nella stessa pianificazione.
 
 Correzione recente verificata in produzione:
 
