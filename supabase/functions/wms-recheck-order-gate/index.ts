@@ -27,7 +27,13 @@ Deno.serve(async (req) => {
   if (profile.role === "cliente" && !clienteId) return json({ detail: "Profilo cliente non associato" }, 403);
   try {
     const admin = createClient(url, service);
-    const result = await recheckWmsOrderGates(admin, clienteId, authData.user.id, Number(payload.limit || 500));
+    const result = await recheckWmsOrderGates(
+      admin,
+      clienteId,
+      authData.user.id,
+      Number(payload.limit || 500),
+      Boolean(payload.include_ready),
+    );
     const failed = result.results.filter((row: any) => row.error);
     if (failed.length) {
       return json({ ...result, detail: failed[0].error }, 500);

@@ -254,8 +254,20 @@ export async function evaluateWmsOrderGate(admin: SupabaseAdmin, orderId: string
   return saved.data;
 }
 
-export async function recheckWmsOrderGates(admin: SupabaseAdmin, clienteId: string | null, actorId: string | null, limit = 500) {
-  let query = admin.from("shopify_orders").select("id").in("gate_status", ACTIVE_GATE_STATUSES).order("created_at", { ascending: true }).limit(Math.min(500, Math.max(1, limit)));
+export async function recheckWmsOrderGates(
+  admin: SupabaseAdmin,
+  clienteId: string | null,
+  actorId: string | null,
+  limit = 500,
+  includeReady = false,
+) {
+  const gateStatuses = includeReady ? [...ACTIVE_GATE_STATUSES, "sbloccato"] : ACTIVE_GATE_STATUSES;
+  let query = admin.from("shopify_orders")
+    .select("id")
+    .in("wms_status", ["in_verifica", "eccezione", "in_attesa_refill", "da_preparare"])
+    .in("gate_status", gateStatuses)
+    .order("created_at", { ascending: true })
+    .limit(Math.min(500, Math.max(1, limit)));
   if (clienteId) query = query.eq("cliente_id", clienteId);
   const pending = await rows(query);
   const results: any[] = [];

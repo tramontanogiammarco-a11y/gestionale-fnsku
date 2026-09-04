@@ -4027,25 +4027,20 @@ async function wmsStock(params) {
   }
 
   for (const product of products) {
-    let remaining = product.base_disponibile;
     const key = `${product.cliente_id}:${wmsInventoryKey(product)}`;
     const batches = (movementsByProduct.get(key) || [])
       .sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")));
     const totalsByLocation = new Map();
     for (const batch of batches) {
-      if (remaining <= 0) break;
-      const assigned = Math.min(remaining, Number(batch.quantita || 0));
-      if (assigned <= 0 || !batch.location_id) continue;
-      remaining -= assigned;
-      totalsByLocation.set(batch.location_id, Number(totalsByLocation.get(batch.location_id) || 0) + assigned);
+      const quantity = Number(batch.quantita || 0);
+      if (quantity <= 0 || !batch.location_id) continue;
+      totalsByLocation.set(batch.location_id, Number(totalsByLocation.get(batch.location_id) || 0) + quantity);
     }
 
     for (const placement of placementsByProduct.get(key) || []) {
-      if (remaining <= 0) break;
-      const assigned = Math.min(remaining, Number(placement.quantita || 0));
-      if (assigned <= 0 || !placement.location_id) continue;
-      remaining -= assigned;
-      totalsByLocation.set(placement.location_id, Number(totalsByLocation.get(placement.location_id) || 0) + assigned);
+      const quantity = Number(placement.quantita || 0);
+      if (quantity <= 0 || !placement.location_id) continue;
+      totalsByLocation.set(placement.location_id, Number(totalsByLocation.get(placement.location_id) || 0) + quantity);
     }
 
     for (const [locationId, delta] of inventoryDeltas.get(key) || []) {
@@ -4073,12 +4068,25 @@ async function wmsStock(params) {
       else totalsByLocation.delete(locationId);
     }
 
-    product.non_ubicato = remaining;
-    product.disponibile = remaining + [...totalsByLocation.values()].reduce((sum, quantity) => sum + Number(quantity || 0), 0);
+    const operationalQuantity = [...totalsByLocation.entries()].reduce((sum, [locationId, quantity]) => {
+      const location = locationById.get(locationId);
+      return ["slot", "pallet"].includes(location?.tipo) && location?.stato === "attiva"
+        ? sum + Math.max(0, Number(quantity || 0))
+        : sum;
+    }, 0);
+    product.non_ubicato = Math.max(0, Number(product.base_disponibile || 0) - operationalQuantity);
+    product.disponibile = operationalQuantity;
     product.ubicazioni = [...totalsByLocation.entries()].map(([locationId, quantita]) => {
       const location = locationById.get(locationId);
-      return { id: locationId, codice: location?.codice || "Ubicazione rimossa", tipo: location?.tipo || null, quantita };
-    }).sort(naturalLocationSort);
+      return {
+        id: locationId,
+        codice: location?.codice || "Ubicazione rimossa",
+        tipo: location?.tipo || null,
+        stato: location?.stato || null,
+        quantita,
+      };
+    }).filter((location) => ["slot", "pallet"].includes(location.tipo) && Number(location.quantita || 0) > 0)
+      .sort(naturalLocationSort);
 
     const locationCode = (id) => locationById.get(id)?.codice || (id ? "Ubicazione rimossa" : null);
     product.movimenti = [
@@ -4502,7 +4510,7 @@ async function wmsPickingPlan(order, items, options = {}) {
 
     let remaining = Number(item.quantita || 0);
     let queuedRemaining = Number(queuedSlotReserved.get(productKey) || 0);
-    const slotLocations = (product.ubicazioni || []).filter((location) => location.tipo === "slot").map((location) => {
+    const slotLocations = (product.ubicazioni || []).filter((location) => location.tipo === "slot" && location.stato === "attiva").map((location) => {
       const key = `${location.id}:${productKey}`;
       const rawAvailable = Math.max(0, Number(location.quantita || 0) - Number(reserved.get(key) || 0));
       const queueShare = Math.min(rawAvailable, queuedRemaining);
@@ -4530,7 +4538,7 @@ async function wmsPickingPlan(order, items, options = {}) {
     if (remaining > 0) {
       unavailableOrderItemIds.add(item.id);
       const palletSources = (product.ubicazioni || [])
-        .filter((location) => location.tipo === "pallet" && Number(location.quantita || 0) > 0)
+        .filter((location) => location.tipo === "pallet" && location.stato === "attiva" && Number(location.quantita || 0) > 0)
         .sort(naturalLocationSort)
         .map((location) => {
           const key = `${location.id}:${productKey}`;
