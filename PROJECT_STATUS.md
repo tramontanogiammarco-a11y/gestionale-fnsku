@@ -16,7 +16,7 @@ Il prodotto e in una fase avanzata di prototipo operativo: molti flussi sono uti
 - Vercel org ID: `team_6L8NmbyP5T1oDOVT5Wd6BMKs`
 - Ultimo deployment verificato: `dpl_BPzbdQqirav9aEgoMZeUXnLq2EFa`
 - Supabase project ref: `ryprjuqfervusppnedsz`
-- Migrazioni repository: `001` - `105`
+- Migrazioni repository: `001` - `106`
 
 Le route SPA vengono riscritte verso `index.html`, quindi i link diretti alle aree React devono funzionare su Vercel.
 
@@ -311,6 +311,7 @@ Segreti server-side tipici:
 - `103`: recupero stato stampa etichetta e coda di ristampa packing autoripristinante.
 - `104`: consultazione pacco entro 48 ore anche tramite tracking o riferimento delle etichette BRT/GLS reali.
 - `105`: nuovo ordine operativo singolo Toyota Prius II 2004-2009, classificato sull'ATP corrente senza cancellare lo storico precedente.
+- `106`: tre ordini operativi singoli richiesti per Lexus CT 200h, Lexus GS 300h e Toyota C-HR, classificati sull'ATP corrente.
 
 Hardening del 4 settembre 2026:
 
@@ -336,7 +337,7 @@ Correzione recente verificata in produzione:
 - Baseline Git completata su `main`, allineata a `origin/main`, con working tree pulito.
 - Build frontend completata con successo.
 - Deploy Vercel completato e alias canonico aggiornato.
-- Migrazioni remote verificate e applicate fino alla `105`.
+- Migrazioni remote verificate e applicate fino alla `106`.
 - Ricontrollo live degli ordini con precedente eccezione stock completato.
 - Test automatici iniziali del routing fisico completati.
 
