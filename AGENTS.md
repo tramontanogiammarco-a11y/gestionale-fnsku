@@ -186,7 +186,7 @@ La stampa silenziosa richiede Zebra Browser Print attivo sul computer, stampante
 ## Supabase e migrazioni
 
 - Il progetto Supabase corrente ha ref `ryprjuqfervusppnedsz`.
-- Le migrazioni presenti arrivano alla `104`.
+- Le migrazioni presenti arrivano alla `105`.
 - Prima di applicare migrazioni: controllare schema remoto, constraint sugli stati e impatto RLS.
 - Preferire operazioni idempotenti per backfill e correzioni dati.
 - Per grandi aggiornamenti usare batch, transazioni o RPC; non aumentare semplicemente limiti UI senza valutare timeout e atomicita.
