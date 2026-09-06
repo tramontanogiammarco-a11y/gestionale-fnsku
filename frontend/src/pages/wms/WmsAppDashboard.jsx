@@ -1,10 +1,24 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import { ArrowRight, Loader2, PackageCheck, PackageOpen, ShoppingCart, Warehouse } from "lucide-react";
+import { prefetchWmsOrders } from "@/lib/wmsOrdersPrefetch";
 
 export default function WmsAppDashboard() {
   const navigate = useNavigate();
-  const { entries, allEntries } = useOutletContext();
+  const { entries, allEntries, clientId } = useOutletContext();
+
+  useEffect(() => {
+    const prepareOrders = () => {
+      import("@/pages/wms/WmsAppOrders");
+      prefetchWmsOrders(clientId);
+    };
+    if (typeof window.requestIdleCallback === "function") {
+      const idleId = window.requestIdleCallback(prepareOrders, { timeout: 800 });
+      return () => window.cancelIdleCallback(idleId);
+    }
+    const timerId = window.setTimeout(prepareOrders, 200);
+    return () => window.clearTimeout(timerId);
+  }, [clientId]);
 
   const model = useMemo(() => {
     const source = entries || [];

@@ -6726,6 +6726,85 @@ async function listWmsGallusePicking(params = new URLSearchParams()) {
   });
 }
 
+async function getWmsOrdersOverview(params = new URLSearchParams()) {
+  const selectedClientId = optionalText(params.get("cliente_id"));
+  let massBatchesQuery = requireSupabase()
+    .from("wms_mass_pick_batches")
+    .select("*")
+    .in("stato", ["in_corso", "da_confermare_bag"]);
+  let galluseBatchesQuery = requireSupabase()
+    .from("wms_galluse_batches")
+    .select("*")
+    .in("stato", ["da_associare_bag", "in_corso"]);
+  let refillOrdersQuery = requireSupabase()
+    .from("shopify_orders")
+    .select("id,cliente_id,refill_requirements")
+    .eq("wms_status", "in_attesa_refill")
+    .eq("gate_status", "attesa_refill");
+  if (selectedClientId) {
+    massBatchesQuery = massBatchesQuery.eq("cliente_id", selectedClientId);
+    galluseBatchesQuery = galluseBatchesQuery.eq("cliente_id", selectedClientId);
+    refillOrdersQuery = refillOrdersQuery.eq("cliente_id", selectedClientId);
+  }
+
+  const [operational, massBatchesResult, galluseBatchesResult, refillOrdersResult] = await Promise.all([
+    wmsOperationalOrdersData(params),
+    massBatchesQuery.order("created_at", { ascending: false }),
+    galluseBatchesQuery.order("created_at", { ascending: false }),
+    refillOrdersQuery,
+  ]);
+  const firstError = massBatchesResult.error || galluseBatchesResult.error || refillOrdersResult.error;
+  if (firstError) fail(firstError.message);
+
+  const massBatches = massBatchesResult.data || [];
+  const galluseBatches = galluseBatchesResult.data || [];
+  const massBatchIds = massBatches.map((batch) => batch.id);
+  const galluseBatchIds = galluseBatches.map((batch) => batch.id);
+  const [{ data: massLinks, error: massLinksError }, { data: galluseLinks, error: galluseLinksError }] = await Promise.all([
+    massBatchIds.length
+      ? requireSupabase().from("wms_mass_pick_orders").select("batch_id,order_id").in("batch_id", massBatchIds)
+      : Promise.resolve({ data: [], error: null }),
+    galluseBatchIds.length
+      ? requireSupabase().from("wms_galluse_orders").select("batch_id,order_id,posizione_bag").in("batch_id", galluseBatchIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (massLinksError || galluseLinksError) fail((massLinksError || galluseLinksError).message);
+
+  const refillTaskKeys = new Set();
+  for (const order of refillOrdersResult.data || []) {
+    for (const requirement of Array.isArray(order.refill_requirements) ? order.refill_requirements : []) {
+      const product = requirement.product_key || requirement.referenza_id;
+      if (product) refillTaskKeys.add(`${order.cliente_id}:${product}`);
+    }
+  }
+  const refillTasks = refillTaskKeys.size || (refillOrdersResult.data || []).length;
+  const massGroups = massGroupsFromOrders(operational.orders);
+  const monoGroups = monoGroupsFromOrders(operational.orders);
+  const galluseCandidates = galluseCandidateOrders(operational.orders);
+  const batchesForMode = (mode) => massBatches
+    .filter((batch) => batch.picking_mode === mode)
+    .map((batch) => ({
+      ...batch,
+      orders: (massLinks || []).filter((link) => link.batch_id === batch.id),
+    }));
+
+  return ok({
+    ...operational,
+    preparation: {
+      mass: { groups: massGroups, batches: batchesForMode("massivo") },
+      mono: { groups: monoGroups, batches: batchesForMode("mono") },
+      galluse: {
+        rounds: galluseCartRound(galluseCandidates),
+        batches: galluseBatches.map((batch) => ({
+          ...batch,
+          orders: (galluseLinks || []).filter((link) => link.batch_id === batch.id),
+        })),
+      },
+      refill: { tasks: refillTasks },
+    },
+  });
+}
+
 async function wmsGalluseSnapshot(batchId) {
   await assertWmsStaff();
   const { data: batch, error: batchError } = await requireSupabase().from("wms_galluse_batches").select("*").eq("id", batchId).single();
@@ -9355,6 +9434,7 @@ export const api = {
     if (path === "/wms/scan") return wmsScan(params);
     if (path === "/wms/configurazione") return getWmsSettings();
     if (path === "/wms/ordini") return listWmsOperationalOrders(params);
+    if (path === "/wms/orders-overview") return getWmsOrdersOverview(params);
     if (path === "/wms/refill") return listWmsRefillQueue(params);
     if (path.match(/^\/wms\/refill\/[^/]+$/)) return wmsRefillMissionSnapshot(path.split("/")[3]);
     if (path === "/wms/picking-massivo") return listWmsMassPicking(params);

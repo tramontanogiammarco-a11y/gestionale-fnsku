@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import { AlertTriangle, Boxes, ChevronRight, Clock3, Layers3, Loader2, PackageCheck, RefreshCw, ScanLine, Settings, ShoppingCart } from "lucide-react";
-import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { toast } from "sonner";
+import { loadWmsOrders, peekWmsOrders } from "@/lib/wmsOrdersPrefetch";
 
 const STATUS_LABELS = {
   in_attesa_refill: "In attesa refill",
@@ -17,41 +17,50 @@ const STATUS_LABELS = {
 export default function WmsAppOrders() {
   const navigate = useNavigate();
   const { clientId } = useOutletContext();
-  const [data, setData] = useState(null);
-  const [massData, setMassData] = useState(null);
-  const [monoData, setMonoData] = useState(null);
-  const [galluseData, setGalluseData] = useState(null);
-  const [refillData, setRefillData] = useState(null);
+  const initialOverview = useRef(peekWmsOrders(clientId)?.data || null).current;
+  const [data, setData] = useState(initialOverview);
+  const [massData, setMassData] = useState(initialOverview?.preparation?.mass || null);
+  const [monoData, setMonoData] = useState(initialOverview?.preparation?.mono || null);
+  const [galluseData, setGalluseData] = useState(initialOverview?.preparation?.galluse || null);
+  const [refillData, setRefillData] = useState(initialOverview?.preparation?.refill || null);
   const [tab, setTab] = useState("oggi");
   const [selected, setSelected] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingModes, setLoadingModes] = useState(true);
+  const requestVersion = useRef(0);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ force = false } = {}) => {
+    const version = ++requestVersion.current;
     setRefreshing(true);
+    setLoadingModes(true);
     try {
-      const query = new URLSearchParams();
-      if (clientId && clientId !== "all") query.set("cliente_id", clientId);
-      const suffix = query.toString() ? `?${query.toString()}` : "";
-      const [response, massResponse, monoResponse, galluseResponse, refillResponse] = await Promise.all([
-        api.get(`/wms/ordini${suffix}`),
-        api.get(`/wms/picking-massivo${suffix}`),
-        api.get(`/wms/picking-mono${suffix}`),
-        api.get(`/wms/picking-galluse${suffix}`),
-        api.get(`/wms/refill${suffix}`),
-      ]);
+      const response = await loadWmsOrders(clientId, { force });
+      if (version !== requestVersion.current) return;
       setData(response.data);
-      setMassData(massResponse.data);
-      setMonoData(monoResponse.data);
-      setGalluseData(galluseResponse.data);
-      setRefillData(refillResponse.data);
+      setMassData(response.data.preparation?.mass || null);
+      setMonoData(response.data.preparation?.mono || null);
+      setGalluseData(response.data.preparation?.galluse || null);
+      setRefillData(response.data.preparation?.refill || null);
     } catch (error) {
+      if (version !== requestVersion.current) return;
       toast.error(error.response?.data?.detail || error.message || "Ordini non disponibili");
     } finally {
-      setRefreshing(false);
+      if (version === requestVersion.current) {
+        setRefreshing(false);
+        setLoadingModes(false);
+      }
     }
   }, [clientId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const cached = peekWmsOrders(clientId)?.data || null;
+    setData(cached);
+    setMassData(cached?.preparation?.mass || null);
+    setMonoData(cached?.preparation?.mono || null);
+    setGalluseData(cached?.preparation?.galluse || null);
+    setRefillData(cached?.preparation?.refill || null);
+    load({ force: Boolean(cached) });
+  }, [clientId, load]);
 
   const visible = useMemo(() => {
     const orders = data?.orders || [];
@@ -67,10 +76,8 @@ export default function WmsAppOrders() {
     return tab === "oggi" ? individual.filter((order) => order.wave !== "prossima") : individual.filter((order) => order.wave === "prossima");
   }, [data, massData, monoData, galluseData, tab]);
 
-  if (!data) return <div className="flex min-h-[65dvh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-teal-700" /></div>;
-
-  const settings = data.settings || {};
-  const summary = data.summary || {};
+  const settings = data?.settings || {};
+  const summary = data?.summary || {};
   const activeMassOrders = (massData?.batches || [])
     .filter((batch) => ["in_corso", "da_confermare_bag"].includes(batch.stato))
     .reduce((sum, batch) => sum + (batch.orders?.length || 0), 0);
@@ -97,7 +104,7 @@ export default function WmsAppOrders() {
     <div className="wms-page" data-testid="wms-orders">
       <header className="wms-page-header">
         <div><p className="wms-eyebrow">Outbound</p><h1 className="wms-title">Ordini</h1></div>
-        <Button type="button" size="icon" variant="outline" onClick={load} disabled={refreshing} aria-label="Aggiorna ordini">{refreshing ? <Loader2 className="h-5 w-5 animate-spin" /> : <RefreshCw className="h-5 w-5" />}</Button>
+        <Button type="button" size="icon" variant="outline" onClick={() => load({ force: true })} disabled={refreshing} aria-label="Aggiorna ordini">{refreshing ? <Loader2 className="h-5 w-5 animate-spin" /> : <RefreshCw className="h-5 w-5" />}</Button>
       </header>
 
       <button type="button" onClick={() => navigate("/wms-app/configurazione?section=cutoff")} className="flex w-full items-center gap-3 rounded-md border border-slate-200 bg-white px-3 py-2.5 text-left transition hover:border-slate-400">
@@ -109,10 +116,10 @@ export default function WmsAppOrders() {
       <section>
         <h2 className="mb-2 text-base font-bold">Preparazione</h2>
         <div className="space-y-2">
-          <button type="button" onClick={() => navigate("/wms-app/picking-mono")} className="wms-action-row"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-800"><ScanLine className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className="block font-extrabold">Mono-prodotto</strong><span className="mt-1 block text-xs font-medium text-slate-500">{activeMonoOrders || availableMonoOrders} ordini da un solo pezzo</span></span><ChevronRight className="h-5 w-5 text-slate-400" /></button>
-          <button type="button" onClick={startGalluse} className="wms-action-row"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-sky-50 text-sky-800"><ShoppingCart className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className="block font-extrabold">Metodo Galluse</strong><span className="mt-1 block text-xs font-medium text-slate-500">{activeGalluse ? `Riprendi ${activeGalluse.cart_code || "missione"} · ${activeGalluse.numero_bag} ordini` : nextGalluseRound ? `${nextGalluseRound.totale_ordini} ordini · scansiona un carrello` : "Nessun compito disponibile"}</span></span><ChevronRight className="h-5 w-5 text-slate-400" /></button>
-          <button type="button" onClick={() => navigate("/wms-app/picking-massivo")} className="wms-action-row"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-violet-50 text-violet-800"><Layers3 className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className="block font-extrabold">Massivo</strong><span className="mt-1 block text-xs font-medium text-slate-500">{activeMassOrders || availableMassOrders} ordini disponibili</span></span><ChevronRight className="h-5 w-5 text-slate-400" /></button>
-          <button type="button" onClick={() => navigate("/wms-app/refill")} className={`wms-action-row ${refillTasks ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-white"}`}><span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-md ${refillTasks ? "bg-white text-amber-800" : "bg-slate-100 text-slate-600"}`}><Boxes className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className={`block font-extrabold ${refillTasks ? "text-amber-950" : "text-slate-950"}`}>Refill</strong><span className={`mt-1 block text-xs font-bold ${refillTasks ? "text-amber-800" : "text-slate-500"}`}>{refillTasks ? `${refillTasks} attività da eseguire` : "Nessuna attività in attesa"}</span></span><ChevronRight className={`h-5 w-5 ${refillTasks ? "text-amber-700" : "text-slate-400"}`} /></button>
+          <button type="button" onClick={() => navigate("/wms-app/picking-mono")} className="wms-action-row"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-800"><ScanLine className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className="block font-extrabold">Mono-prodotto</strong><span className="mt-1 block text-xs font-medium text-slate-500">{loadingModes && !monoData ? "Aggiornamento..." : `${activeMonoOrders || availableMonoOrders} ordini da un solo pezzo`}</span></span><ChevronRight className="h-5 w-5 text-slate-400" /></button>
+          <button type="button" onClick={startGalluse} className="wms-action-row"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-sky-50 text-sky-800"><ShoppingCart className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className="block font-extrabold">Metodo Galluse</strong><span className="mt-1 block text-xs font-medium text-slate-500">{loadingModes && !galluseData ? "Aggiornamento..." : activeGalluse ? `Riprendi ${activeGalluse.cart_code || "missione"} · ${activeGalluse.numero_bag} ordini` : nextGalluseRound ? `${nextGalluseRound.totale_ordini} ordini · scansiona un carrello` : "Nessun compito disponibile"}</span></span><ChevronRight className="h-5 w-5 text-slate-400" /></button>
+          <button type="button" onClick={() => navigate("/wms-app/picking-massivo")} className="wms-action-row"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-violet-50 text-violet-800"><Layers3 className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className="block font-extrabold">Massivo</strong><span className="mt-1 block text-xs font-medium text-slate-500">{loadingModes && !massData ? "Aggiornamento..." : `${activeMassOrders || availableMassOrders} ordini disponibili`}</span></span><ChevronRight className="h-5 w-5 text-slate-400" /></button>
+          <button type="button" onClick={() => navigate("/wms-app/refill")} className={`wms-action-row ${refillTasks ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-white"}`}><span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-md ${refillTasks ? "bg-white text-amber-800" : "bg-slate-100 text-slate-600"}`}><Boxes className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className={`block font-extrabold ${refillTasks ? "text-amber-950" : "text-slate-950"}`}>Refill</strong><span className={`mt-1 block text-xs font-bold ${refillTasks ? "text-amber-800" : "text-slate-500"}`}>{loadingModes && !refillData ? "Aggiornamento..." : refillTasks ? `${refillTasks} attività da eseguire` : "Nessuna attività in attesa"}</span></span><ChevronRight className={`h-5 w-5 ${refillTasks ? "text-amber-700" : "text-slate-400"}`} /></button>
         </div>
       </section>
 
@@ -123,7 +130,11 @@ export default function WmsAppOrders() {
 
       <section>
         <div className="mb-3 flex items-center justify-between"><h2 className="text-xl font-extrabold">{tab === "oggi" ? "Da lavorare oggi" : "Prossima giornata"}</h2><span className="text-xs font-bold text-slate-500">{tab === "oggi" ? formatDate(settings.today) : formatDate(settings.tomorrow)}</span></div>
-        {visible.length ? <div className="space-y-3">{visible.map((order) => <OrderRow key={order.id} order={order} onClick={() => setSelected(order)} />)}</div> : <EmptyOrders next={tab === "prossima"} />}
+        {!data
+          ? <div className="flex min-h-40 items-center justify-center rounded-md border border-slate-200 bg-white"><Loader2 className="h-6 w-6 animate-spin text-teal-700" /></div>
+          : visible.length
+            ? <div className="space-y-3">{visible.map((order) => <OrderRow key={order.id} order={order} onClick={() => setSelected(order)} />)}</div>
+            : <EmptyOrders next={tab === "prossima"} />}
       </section>
 
       <OrderSheet
