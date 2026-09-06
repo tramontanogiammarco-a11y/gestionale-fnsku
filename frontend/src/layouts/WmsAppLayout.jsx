@@ -13,6 +13,8 @@ import {
 import logo from "@/assets/logo-transparent.png";
 import { toast } from "sonner";
 import UniversalScanner from "@/components/wms/UniversalScanner";
+import { prefetchPrimaryWmsRoutes, prefetchOperationalWmsRoutes, prefetchSecondaryWmsRoutes } from "@/lib/wmsRoutePrefetch";
+import { prefetchWmsStock } from "@/lib/wmsStockPrefetch";
 
 const ACTIVE_STATES = new Set(["in_attesa", "in_lavorazione"]);
 
@@ -58,6 +60,25 @@ export default function WmsAppLayout() {
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }, [location.pathname, location.search]);
+
+  useEffect(() => {
+    if (navigator.connection?.saveData) return undefined;
+    const preparePrimary = () => prefetchPrimaryWmsRoutes();
+    const primaryId = typeof window.requestIdleCallback === "function"
+      ? window.requestIdleCallback(preparePrimary, { timeout: 700 })
+      : window.setTimeout(preparePrimary, 250);
+    const operationalId = window.setTimeout(() => {
+      prefetchOperationalWmsRoutes();
+      prefetchWmsStock(clientId);
+    }, 1_500);
+    const secondaryId = window.setTimeout(prefetchSecondaryWmsRoutes, 3_500);
+    return () => {
+      if (typeof window.cancelIdleCallback === "function") window.cancelIdleCallback(primaryId);
+      else window.clearTimeout(primaryId);
+      window.clearTimeout(operationalId);
+      window.clearTimeout(secondaryId);
+    };
+  }, [clientId]);
 
   const clients = useMemo(() => {
     const rows = new Map((clientOptions || []).map((client) => [client.id, {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
-import { ArrowRight, Loader2, PackageCheck, PackageOpen, ShoppingCart, Warehouse } from "lucide-react";
+import { ArrowRight, PackageCheck, PackageOpen, ShoppingCart, Warehouse } from "lucide-react";
 import { prefetchWmsOrders } from "@/lib/wmsOrdersPrefetch";
 
 export default function WmsAppDashboard() {
@@ -28,10 +28,6 @@ export default function WmsAppDashboard() {
     };
   }, [entries]);
 
-  if (allEntries === null) {
-    return <div className="flex min-h-[60dvh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-teal-700" /></div>;
-  }
-
   const currentInbound = model.active[0];
 
   return (
@@ -56,7 +52,7 @@ export default function WmsAppDashboard() {
         <FlowButton tone="teal"
           icon={PackageOpen}
           title="Ricevi merce"
-          detail={`${model.waiting.length} ${model.waiting.length === 1 ? "arrivo in attesa" : "arrivi in attesa"}`}
+          detail={allEntries === null ? "Aggiornamento..." : `${model.waiting.length} ${model.waiting.length === 1 ? "arrivo in attesa" : "arrivi in attesa"}`}
           onClick={() => navigate("/wms-app/arrivi")}
         />
         <FlowButton tone="blue" icon={ShoppingCart} title="Prepara ordini" detail="Picking Massivo, Galluse e singolo" onClick={() => navigate("/wms-app/ordini")} />

@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
 import {
   AlertCircle, ArrowLeftRight, Boxes, CircleCheck, Layers3,
   Loader2, MapPin, PackageSearch, RefreshCw, Search, Warehouse,
 } from "lucide-react";
-import { api } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
+import { loadWmsStock, peekWmsStock } from "@/lib/wmsStockPrefetch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -17,19 +17,18 @@ export default function WmsAppLocations() {
   const navigate = useNavigate();
   const { clientId } = useOutletContext();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [stock, setStock] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const initialStock = useRef(peekWmsStock(clientId)?.data || null).current;
+  const [stock, setStock] = useState(initialStock);
+  const [loading, setLoading] = useState(!initialStock);
   const [refreshing, setRefreshing] = useState(false);
   const [tab, setTab] = useState("products");
   const [search, setSearch] = useState("");
   const [selectedLocation, setSelectedLocation] = useState(null);
 
-  const load = useCallback(async ({ quiet = false } = {}) => {
+  const load = useCallback(async ({ quiet = false, force = false } = {}) => {
     if (!quiet) setRefreshing(true);
     try {
-      const query = new URLSearchParams();
-      if (clientId && clientId !== "all") query.set("cliente_id", clientId);
-      const response = await api.get(`/wms/stock${query.toString() ? `?${query.toString()}` : ""}`);
+      const response = await loadWmsStock(clientId, { force });
       setStock(response.data);
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Stock non disponibile");
@@ -39,15 +38,20 @@ export default function WmsAppLocations() {
     }
   }, [clientId]);
 
-  useEffect(() => { setLoading(true); load(); }, [load]);
+  useEffect(() => {
+    const cached = peekWmsStock(clientId)?.data || null;
+    setStock(cached);
+    setLoading(!cached);
+    load({ force: Boolean(cached) });
+  }, [clientId, load]);
 
   useEffect(() => {
-    const interval = window.setInterval(() => load({ quiet: true }), REFRESH_INTERVAL);
+    const interval = window.setInterval(() => load({ quiet: true, force: true }), REFRESH_INTERVAL);
     if (!supabase) return () => window.clearInterval(interval);
     let timer;
     const schedule = () => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => load({ quiet: true }), 350);
+      timer = window.setTimeout(() => load({ quiet: true, force: true }), 350);
     };
     const channel = supabase.channel(`wms-stock-${clientId}-${Date.now()}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "wms_inbound_movements" }, schedule)
@@ -101,7 +105,7 @@ export default function WmsAppLocations() {
     <div className="wms-page" data-testid="wms-app-stock">
       <header className="wms-page-header">
         <div><p className="wms-eyebrow">Inventario live</p><h1 className="wms-title">Stock</h1><p className="wms-subtitle">Prodotti, pallet e slot in tempo reale.</p></div>
-        <Button type="button" size="icon" variant="outline" onClick={() => load()} disabled={refreshing} aria-label="Aggiorna stock">{refreshing ? <Loader2 className="h-5 w-5 animate-spin" /> : <RefreshCw className="h-5 w-5" />}</Button>
+        <Button type="button" size="icon" variant="outline" onClick={() => load({ force: true })} disabled={refreshing} aria-label="Aggiorna stock">{refreshing ? <Loader2 className="h-5 w-5 animate-spin" /> : <RefreshCw className="h-5 w-5" />}</Button>
       </header>
 
       <section className="grid grid-cols-2 gap-3">

@@ -30,10 +30,6 @@ export default function WmsAppHome() {
     };
   }, [entries]);
 
-  if (allEntries === null) {
-    return <div className="flex min-h-[60dvh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-teal-700" /></div>;
-  }
-
   const rows = model[view];
   const meta = VIEW_META[view];
   const openPieces = [...model.open, ...model.active].reduce((sum, entry) => sum + entryPieces(entry), 0);
@@ -67,7 +63,9 @@ export default function WmsAppHome() {
           <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600">{rows.length}</span>
         </div>
 
-        {rows.length === 0 ? (
+        {allEntries === null ? (
+          <div className="flex min-h-40 items-center justify-center rounded-md border border-slate-200 bg-white"><Loader2 className="h-6 w-6 animate-spin text-teal-700" /></div>
+        ) : rows.length === 0 ? (
           <div className="flex min-h-56 flex-col items-center justify-center rounded-md border border-slate-200 bg-white px-6 text-center">
             <CheckCircle2 className="h-10 w-10 text-teal-600" />
             <h3 className="mt-4 text-lg font-black">{meta.empty}</h3>

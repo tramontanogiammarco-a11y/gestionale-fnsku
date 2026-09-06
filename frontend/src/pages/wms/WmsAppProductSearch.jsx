@@ -1,22 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { Barcode, Boxes, Loader2, MapPin, PackageSearch, Search, Warehouse } from "lucide-react";
-import { api } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { toast } from "sonner";
+import { loadWmsStock, peekWmsStock } from "@/lib/wmsStockPrefetch";
 
 export default function WmsAppProductSearch() {
   const { clientId: workspaceClientId } = useOutletContext();
   const inputRef = useRef(null);
-  const [stock, setStock] = useState(null);
+  const [stock, setStock] = useState(() => peekWmsStock("all")?.data || null);
   const [query, setQuery] = useState("");
   const [clientId, setClientId] = useState(workspaceClientId || "all");
   const [selected, setSelected] = useState(null);
 
   useEffect(() => {
-    api.get("/wms/stock")
+    const cached = peekWmsStock("all")?.data || null;
+    if (cached) setStock(cached);
+    loadWmsStock("all", { force: Boolean(cached) })
       .then((response) => setStock(response.data))
       .catch((error) => toast.error(error.response?.data?.detail || error.message || "Prodotti non disponibili"));
   }, []);
@@ -39,8 +41,6 @@ export default function WmsAppProductSearch() {
     });
   }, [clientId, hasCriteria, query, stock]);
 
-  if (!stock) return <div className="flex min-h-[65dvh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-teal-700" /></div>;
-
   return (
     <div className="wms-page" data-testid="wms-product-search">
       <header className="wms-page-header">
@@ -56,12 +56,14 @@ export default function WmsAppProductSearch() {
           <SelectTrigger className="h-12" aria-label="Filtra per cliente"><SelectValue placeholder="Tutti i clienti" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Tutti i clienti</SelectItem>
-            {(stock.clienti || []).map((client) => <SelectItem key={client.id} value={client.id}>{client.ragione_sociale}</SelectItem>)}
+            {(stock?.clienti || []).map((client) => <SelectItem key={client.id} value={client.id}>{client.ragione_sociale}</SelectItem>)}
           </SelectContent>
         </Select>
       </section>
 
-      {!hasCriteria ? (
+      {!stock ? (
+        <div className="flex min-h-40 items-center justify-center rounded-md border border-slate-200 bg-white"><Loader2 className="h-6 w-6 animate-spin text-teal-700" /></div>
+      ) : !hasCriteria ? (
         <EmptySearch />
       ) : (
         <section>

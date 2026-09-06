@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { toast } from "sonner";
+import { peekWmsOrders } from "@/lib/wmsOrdersPrefetch";
 
 const OTHER_GROUPS = [
   {
@@ -29,9 +30,13 @@ const OTHER_GROUPS = [
 
 export default function WmsAppSettings() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [data, setData] = useState(null);
+  const [initialData] = useState(() => {
+    const overview = peekWmsOrders("all")?.data;
+    return overview ? { settings: overview.settings, summary: overview.summary } : null;
+  });
+  const [data, setData] = useState(initialData);
   const [cutoffOpen, setCutoffOpen] = useState(searchParams.get("section") === "cutoff");
-  const [cutoff, setCutoff] = useState("12:00");
+  const [cutoff, setCutoff] = useState(initialData?.settings?.cutoff_time || "12:00");
   const [saving, setSaving] = useState(false);
 
   const load = async () => {
