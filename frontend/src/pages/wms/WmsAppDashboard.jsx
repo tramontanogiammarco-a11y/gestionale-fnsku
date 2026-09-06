@@ -33,7 +33,7 @@ export default function WmsAppDashboard() {
   return (
     <div className="wms-page" data-testid="wms-app-dashboard">
       <header className="wms-page-header">
-        <div><p className="wms-eyebrow">Operazioni</p><h1 className="wms-title">Inizia da qui</h1></div>
+        <div><p className="wms-eyebrow">Operazioni</p><h1 className="wms-title">Magazzino</h1><p className="wms-subtitle">Attività operative e compiti da completare.</p></div>
       </header>
 
       {currentInbound && (
@@ -48,33 +48,33 @@ export default function WmsAppDashboard() {
         </button>
       )}
 
-      <section className="space-y-2">
-        <FlowButton tone="teal"
-          icon={PackageOpen}
-          title="Ricevi merce"
-          detail={allEntries === null ? "Aggiornamento..." : `${model.waiting.length} ${model.waiting.length === 1 ? "arrivo in attesa" : "arrivi in attesa"}`}
-          onClick={() => navigate("/wms-app/arrivi")}
-        />
-        <FlowButton tone="blue" icon={ShoppingCart} title="Prepara ordini" detail="Picking Massivo, Galluse e singolo" onClick={() => navigate("/wms-app/ordini")} />
-        <FlowButton tone="amber" icon={PackageCheck} title="Imballa ordini" detail="Scansiona carrello o bag" onClick={() => navigate("/packing-station")} />
+      <section>
+        <h2 className="mb-3 text-xl font-extrabold">Operativa magazzino</h2>
+        <div className="grid grid-cols-2 gap-2.5">
+          <FlowButton tone="teal" icon={PackageOpen} title="Arrivi" detail="Ricevi e ubica merce" value={allEntries === null ? "—" : model.waiting.length} unit="in attesa" onClick={() => navigate("/wms-app/arrivi")} />
+          <FlowButton tone="blue" icon={ShoppingCart} title="Ordini" detail="Avvia il picking" value="4" unit="metodi" onClick={() => navigate("/wms-app/ordini")} />
+          <FlowButton tone="amber" icon={PackageCheck} title="Packing" detail="Carrelli, bag, etichette" value="Scan" unit="pronto" onClick={() => navigate("/packing-station")} />
+          <FlowButton tone="slate" icon={Warehouse} title="Stock" detail="Ubicazioni e movimenti" value="Live" unit="inventario" onClick={() => navigate("/wms-app/ubicazioni")} />
+        </div>
       </section>
-
-      <button type="button" onClick={() => navigate("/wms-app/ubicazioni")} className="flex min-h-14 w-full items-center gap-3 border-t border-slate-200 px-1 pt-4 text-left"><Warehouse className="h-5 w-5 text-slate-500" /><span className="flex-1 font-semibold">Stock e ubicazioni</span><ArrowRight className="h-4 w-4 text-slate-400" /></button>
     </div>
   );
 }
 
-function FlowButton({ icon: Icon, title, detail, onClick, tone = "teal" }) {
+function FlowButton({ icon: Icon, title, detail, value, unit, onClick, tone = "teal" }) {
   const tones = {
     teal: "bg-teal-50 text-teal-800",
     blue: "bg-sky-50 text-sky-800",
     amber: "bg-amber-50 text-amber-800",
+    slate: "bg-slate-100 text-slate-800",
   };
   return (
-    <button type="button" onClick={onClick} className="wms-action-row">
-      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md ${tones[tone]}`}><Icon className="h-5 w-5" /></span>
-      <span className="min-w-0 flex-1"><strong className="block text-base font-bold">{title}</strong><span className="mt-0.5 block text-xs font-medium text-slate-500">{detail}</span></span>
-      <ArrowRight className="h-5 w-5 shrink-0 text-slate-400" />
+    <button type="button" onClick={onClick} className="relative flex min-h-40 flex-col rounded-md border border-slate-200 bg-white p-4 text-left shadow-[0_1px_2px_rgba(15,23,42,.04)] transition hover:-translate-y-0.5 hover:shadow-md active:translate-y-0">
+      <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-md ${tones[tone]}`}><Icon className="h-5 w-5" /></span>
+      <ArrowRight className="absolute right-3 top-3 h-4 w-4 text-slate-400" />
+      <strong className="mt-3 block text-base font-extrabold">{title}</strong>
+      <span className="mt-1 block text-xs leading-4 text-slate-500">{detail}</span>
+      <span className="mt-auto flex items-end gap-1.5 pt-3"><strong className="text-2xl font-black leading-none">{value}</strong><span className="pb-0.5 text-[11px] font-bold text-slate-500">{unit}</span></span>
     </button>
   );
 }

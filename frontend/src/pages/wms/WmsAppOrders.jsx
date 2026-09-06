@@ -23,6 +23,7 @@ export default function WmsAppOrders() {
   const [monoData, setMonoData] = useState(initialOverview?.preparation?.mono || null);
   const [galluseData, setGalluseData] = useState(initialOverview?.preparation?.galluse || null);
   const [refillData, setRefillData] = useState(initialOverview?.preparation?.refill || null);
+  const [view, setView] = useState("tasks");
   const [tab, setTab] = useState("oggi");
   const [selected, setSelected] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -103,39 +104,41 @@ export default function WmsAppOrders() {
   return (
     <div className="wms-page" data-testid="wms-orders">
       <header className="wms-page-header">
-        <div><p className="wms-eyebrow">Outbound</p><h1 className="wms-title">Ordini</h1></div>
+        <div><p className="wms-eyebrow">Outbound</p><h1 className="wms-title">Ordini</h1><p className="wms-subtitle">Scegli il metodo e inizia il prossimo compito.</p></div>
         <Button type="button" size="icon" variant="outline" onClick={() => load({ force: true })} disabled={refreshing} aria-label="Aggiorna ordini">{refreshing ? <Loader2 className="h-5 w-5 animate-spin" /> : <RefreshCw className="h-5 w-5" />}</Button>
       </header>
 
-      <button type="button" onClick={() => navigate("/wms-app/configurazione?section=cutoff")} className="flex w-full items-center gap-3 rounded-md border border-slate-200 bg-white px-3 py-2.5 text-left transition hover:border-slate-400">
-        <span className={`flex h-9 w-9 items-center justify-center rounded-md ${settings.cutoff_passed ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700"}`}><Clock3 className="h-5 w-5" /></span>
-        <span className="min-w-0 flex-1"><strong className="block text-sm">Limite ordini {settings.cutoff_time}</strong><span className="mt-0.5 block text-xs text-slate-500">{settings.cutoff_passed ? "I nuovi ordini passano a domani" : "Giornata ancora aperta"}</span></span>
-        <Settings className="h-5 w-5" />
+      <button type="button" onClick={() => navigate("/wms-app/configurazione?section=cutoff")} className="flex w-full items-center gap-3 rounded-md bg-slate-100 px-3 py-2.5 text-left transition hover:bg-slate-200/70">
+        <Clock3 className={`h-5 w-5 shrink-0 ${settings.cutoff_passed ? "text-amber-700" : "text-emerald-700"}`} />
+        <span className="min-w-0 flex-1"><strong className="block text-sm">Limite ordini {settings.cutoff_time}</strong><span className="mt-0.5 block text-xs text-slate-500">{settings.cutoff_passed ? "I nuovi ordini passano alla prossima giornata" : "Giornata operativa aperta"}</span></span>
+        <Settings className="h-4 w-4 text-slate-500" />
       </button>
 
-      <section>
-        <h2 className="mb-2 text-base font-bold">Preparazione</h2>
-        <div className="space-y-2">
-          <button type="button" onClick={() => navigate("/wms-app/picking-mono")} className="wms-action-row"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-800"><ScanLine className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className="block font-extrabold">Mono-prodotto</strong><span className="mt-1 block text-xs font-medium text-slate-500">{loadingModes && !monoData ? "Aggiornamento..." : `${activeMonoOrders || availableMonoOrders} ordini da un solo pezzo`}</span></span><ChevronRight className="h-5 w-5 text-slate-400" /></button>
-          <button type="button" onClick={startGalluse} className="wms-action-row"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-sky-50 text-sky-800"><ShoppingCart className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className="block font-extrabold">Metodo Galluse</strong><span className="mt-1 block text-xs font-medium text-slate-500">{loadingModes && !galluseData ? "Aggiornamento..." : activeGalluse ? `Riprendi ${activeGalluse.cart_code || "missione"} · ${activeGalluse.numero_bag} ordini` : nextGalluseRound ? `${nextGalluseRound.totale_ordini} ordini · scansiona un carrello` : "Nessun compito disponibile"}</span></span><ChevronRight className="h-5 w-5 text-slate-400" /></button>
-          <button type="button" onClick={() => navigate("/wms-app/picking-massivo")} className="wms-action-row"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-violet-50 text-violet-800"><Layers3 className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className="block font-extrabold">Massivo</strong><span className="mt-1 block text-xs font-medium text-slate-500">{loadingModes && !massData ? "Aggiornamento..." : `${activeMassOrders || availableMassOrders} ordini disponibili`}</span></span><ChevronRight className="h-5 w-5 text-slate-400" /></button>
-          <button type="button" onClick={() => navigate("/wms-app/refill")} className={`wms-action-row ${refillTasks ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-white"}`}><span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-md ${refillTasks ? "bg-white text-amber-800" : "bg-slate-100 text-slate-600"}`}><Boxes className="h-5 w-5" /></span><span className="min-w-0 flex-1"><strong className={`block font-extrabold ${refillTasks ? "text-amber-950" : "text-slate-950"}`}>Refill</strong><span className={`mt-1 block text-xs font-bold ${refillTasks ? "text-amber-800" : "text-slate-500"}`}>{loadingModes && !refillData ? "Aggiornamento..." : refillTasks ? `${refillTasks} attività da eseguire` : "Nessuna attività in attesa"}</span></span><ChevronRight className={`h-5 w-5 ${refillTasks ? "text-amber-700" : "text-slate-400"}`} /></button>
-        </div>
-      </section>
-
-      <div className="grid grid-cols-2 gap-1 rounded-md border border-slate-200/70 bg-slate-100/80 p-1" role="tablist" aria-label="Giornata ordini">
-        <TabButton active={tab === "oggi"} onClick={() => setTab("oggi")}>Oggi <span>{(summary.arretrati || 0) + (summary.oggi || 0)}</span>{summary.arretrati > 0 && <span className="text-[10px] text-amber-700">· {summary.arretrati} arretrati</span>}</TabButton>
-        <TabButton active={tab === "prossima"} onClick={() => setTab("prossima")}>Prossima <span>{summary.prossima || 0}</span></TabButton>
+      <div className="wms-view-tabs" role="tablist" aria-label="Vista ordini">
+        <TabButton active={view === "tasks"} onClick={() => setView("tasks")}>Attività in sospeso</TabButton>
+        <TabButton active={view === "operations"} onClick={() => setView("operations")}>Operativa magazzino</TabButton>
       </div>
 
-      <section>
-        <div className="mb-3 flex items-center justify-between"><h2 className="text-xl font-extrabold">{tab === "oggi" ? "Da lavorare oggi" : "Prossima giornata"}</h2><span className="text-xs font-bold text-slate-500">{tab === "oggi" ? formatDate(settings.today) : formatDate(settings.tomorrow)}</span></div>
+      {view === "tasks" ? <section>
+        <div className="mb-3 flex items-center justify-between"><div><h2 className="text-xl font-extrabold">Scegli il compito</h2><p className="mt-1 text-xs font-medium text-slate-500">I conteggi si aggiornano automaticamente.</p></div>{loadingModes && <Loader2 className="h-4 w-4 animate-spin text-teal-700" />}</div>
+        <div className="grid grid-cols-2 gap-2.5">
+          <TaskCard icon={Layers3} title="Massivo" detail="Ordini uguali insieme" count={activeMassOrders || availableMassOrders} unit="ordini" tone="teal" active={activeMassOrders > 0} onClick={() => navigate("/wms-app/picking-massivo")} />
+          <TaskCard icon={ShoppingCart} title="Galluse" detail="Un ordine per bag" count={activeGalluse?.numero_bag || nextGalluseRound?.totale_ordini || 0} unit="ordini" tone="sky" active={Boolean(activeGalluse)} onClick={startGalluse} />
+          <TaskCard icon={ScanLine} title="Mono-prodotto" detail="Un pezzo per ordine" count={activeMonoOrders || availableMonoOrders} unit="ordini" tone="violet" active={activeMonoOrders > 0} onClick={() => navigate("/wms-app/picking-mono")} />
+          <TaskCard icon={Boxes} title="Refill" detail="Rifornisci gli slot" count={refillTasks} unit="attività" tone="amber" attention={refillTasks > 0} onClick={() => navigate("/wms-app/refill")} />
+        </div>
+      </section> : <section>
+        <div className="grid grid-cols-2 gap-1 rounded-md bg-slate-100 p-1" role="tablist" aria-label="Giornata ordini">
+          <TabButton active={tab === "oggi"} onClick={() => setTab("oggi")}>Oggi <span>{(summary.arretrati || 0) + (summary.oggi || 0)}</span>{summary.arretrati > 0 && <span className="text-[10px] text-amber-700">· {summary.arretrati} arretrati</span>}</TabButton>
+          <TabButton active={tab === "prossima"} onClick={() => setTab("prossima")}>Prossima <span>{summary.prossima || 0}</span></TabButton>
+        </div>
+        <div className="mb-3 mt-5 flex items-center justify-between"><h2 className="text-xl font-extrabold">{tab === "oggi" ? "Da lavorare oggi" : "Prossima giornata"}</h2><span className="text-xs font-bold text-slate-500">{tab === "oggi" ? formatDate(settings.today) : formatDate(settings.tomorrow)}</span></div>
         {!data
           ? <div className="flex min-h-40 items-center justify-center rounded-md border border-slate-200 bg-white"><Loader2 className="h-6 w-6 animate-spin text-teal-700" /></div>
           : visible.length
-            ? <div className="space-y-3">{visible.map((order) => <OrderRow key={order.id} order={order} onClick={() => setSelected(order)} />)}</div>
+            ? <div className="space-y-2">{visible.map((order) => <OrderRow key={order.id} order={order} onClick={() => setSelected(order)} />)}</div>
             : <EmptyOrders next={tab === "prossima"} />}
-      </section>
+      </section>}
 
       <OrderSheet
         order={selected}
@@ -148,6 +151,22 @@ export default function WmsAppOrders() {
       />
     </div>
   );
+}
+
+function TaskCard({ icon: Icon, title, detail, count, unit, tone, active, attention, onClick }) {
+  const colors = {
+    teal: "bg-teal-50 text-teal-800",
+    sky: "bg-sky-50 text-sky-800",
+    violet: "bg-violet-50 text-violet-800",
+    amber: "bg-amber-50 text-amber-800",
+  };
+  return <button type="button" onClick={onClick} className={`relative flex min-h-40 flex-col rounded-md border bg-white p-4 text-left shadow-[0_1px_2px_rgba(15,23,42,.04)] transition hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 ${attention ? "border-amber-300" : "border-slate-200"}`}>
+    <span className={`flex h-11 w-11 items-center justify-center rounded-md ${colors[tone]}`}><Icon className="h-5 w-5" /></span>
+    <strong className="mt-3 block text-base font-extrabold leading-tight">{title}</strong>
+    <span className="mt-1 block min-h-8 text-xs leading-4 text-slate-500">{detail}</span>
+    <span className="mt-auto flex items-end gap-1.5 pt-3"><strong className="text-3xl font-black leading-none">{count}</strong><span className="pb-0.5 text-xs font-bold text-slate-500">{unit}</span></span>
+    {active && <span className="absolute right-3 top-3 h-2.5 w-2.5 rounded-full bg-emerald-500" aria-label="Compito attivo" />}
+  </button>;
 }
 
 function OrderRow({ order, onClick }) {
