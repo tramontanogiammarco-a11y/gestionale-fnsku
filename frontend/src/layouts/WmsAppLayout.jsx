@@ -21,6 +21,7 @@ export default function WmsAppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [entries, setEntries] = useState(null);
+  const [clientOptions, setClientOptions] = useState([]);
   const [clientId, setClientId] = useState("all");
   const [companyOpen, setCompanyOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -36,14 +37,35 @@ export default function WmsAppLayout() {
     }
   }, []);
 
-  useEffect(() => { loadEntries(); }, [loadEntries]);
+  const loadClientOptions = useCallback(async () => {
+    try {
+      const response = await api.get("/wms/client-options");
+      setClientOptions(response.data || []);
+    } catch {
+      setClientOptions([]);
+    }
+  }, []);
+
+  const entriesRequired = location.pathname === "/wms-app"
+    || location.pathname.includes("/wms-app/arrivi")
+    || location.pathname.includes("/wms-app/inbound/");
+
+  useEffect(() => { loadClientOptions(); }, [loadClientOptions]);
+  useEffect(() => {
+    if (entriesRequired && entries === null) loadEntries();
+  }, [entries, entriesRequired, loadEntries]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }, [location.pathname, location.search]);
 
   const clients = useMemo(() => {
-    const rows = new Map();
+    const rows = new Map((clientOptions || []).map((client) => [client.id, {
+      id: client.id,
+      name: client.ragione_sociale || "Cliente",
+      open: 0,
+      total: 0,
+    }]));
     for (const entry of entries || []) {
       const id = entry.cliente_id;
       if (!id) continue;
@@ -58,7 +80,7 @@ export default function WmsAppLayout() {
       rows.set(id, current);
     }
     return [...rows.values()].sort((a, b) => a.name.localeCompare(b.name));
-  }, [entries]);
+  }, [clientOptions, entries]);
 
   const selectedClient = clients.find((client) => client.id === clientId);
   const companyLabel = selectedClient?.name || "Tutte le aziende";

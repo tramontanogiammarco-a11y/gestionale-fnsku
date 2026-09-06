@@ -108,13 +108,9 @@ export default function WmsAppPicking() {
     try {
       const locationResponse = await api.post(`/wms/picking/${data.task.id}/scan`, {
         codice: value,
-        quantita: needsLocation ? undefined : Number(quantity),
+        quantita: needsLocation ? remaining : Number(quantity),
       });
-      let response = locationResponse;
-      if (needsLocation && locationResponse.data.current_line?.id === current?.id && locationResponse.data.current_line.location_confirmed_at) {
-        response = await api.post(`/wms/picking/${data.task.id}/scan`, { quantita: remaining });
-      }
-      setData(response.data);
+      setData(locationResponse.data);
       setCode("");
       if (navigator.vibrate) navigator.vibrate([60, 35, 60]);
       toast.success(needsLocation ? `Prelevati ${remaining} pezzi, vai al prossimo slot` : "Prelievo registrato");

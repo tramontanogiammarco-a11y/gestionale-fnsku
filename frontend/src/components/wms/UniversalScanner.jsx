@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   ArrowLeftRight,
   Barcode,
@@ -25,8 +25,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import CameraScanner from "@/components/wms/CameraScanner";
 import { toast } from "sonner";
+
+const CameraScanner = lazy(() => import("@/components/wms/CameraScanner"));
 
 export default function UniversalScanner({ open, onOpenChange, clientId, onViewLocation }) {
   const inputRef = useRef(null);
@@ -296,7 +297,7 @@ export default function UniversalScanner({ open, onOpenChange, clientId, onViewL
         </SheetContent>
       </Sheet>
       <BagContentsDialog bag={selectedBag} detail={bagDetail} loading={bagDetailLoading} onOpenChange={(nextOpen) => { if (!nextOpen) { setSelectedBag(null); setBagDetail(null); } }} />
-      <CameraScanner open={cameraOpen} onOpenChange={setCameraOpen} purpose="universal" onDetected={handleDetected} />
+      {cameraOpen && <Suspense fallback={null}><CameraScanner open onOpenChange={setCameraOpen} purpose="universal" onDetected={handleDetected} /></Suspense>}
     </>
   );
 }

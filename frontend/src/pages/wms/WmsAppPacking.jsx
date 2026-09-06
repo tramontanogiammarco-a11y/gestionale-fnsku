@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Barcode, Camera, CheckCircle2, CircleAlert, ImageIcon, Loader2, PackageCheck, Printer, QrCode, ShoppingBag, Smartphone } from "lucide-react";
 import { toast } from "sonner";
 import { api, fileUrl, normalizeScannerCode } from "@/lib/api";
 import { Input } from "@/components/ui/input";
-import CameraScanner from "@/components/wms/CameraScanner";
 import QrCodeSvg from "@/components/wms/QrCodeSvg";
 import { supabase } from "@/lib/supabase";
 import { getOrCreatePrintStationCode, printStationChannelName } from "@/lib/printStation";
 import { getDefaultZebraPrinter, printZebraBagLabels, printZebraLocationLabels, printZebraPackagingLabels, printZebraPackingLabels } from "@/lib/zebraPrinter";
+
+const CameraScanner = lazy(() => import("@/components/wms/CameraScanner"));
 
 function cartIsComplete(snapshot) {
   const bags = snapshot?.cart_bags || [];
@@ -721,9 +722,9 @@ export default function WmsAppPacking() {
     </section>}
 
     {phase === "completed" && <section className="flex items-center justify-center gap-3 rounded-md border border-emerald-200 bg-emerald-50 p-5 text-emerald-900"><PackageCheck className="h-6 w-6" /><strong>Compito chiuso. Pronto per la prossima bag.</strong></section>}
-    <CameraScanner
+    {cameraOpen && <Suspense fallback={null}><CameraScanner
       key={`packing-${cameraSession}`}
-      open={cameraOpen}
+      open
       onOpenChange={(nextOpen) => {
         setCameraOpen(nextOpen);
       }}
@@ -732,7 +733,7 @@ export default function WmsAppPacking() {
         setCameraOpen(false);
         submitScan(value);
       }}
-    />
+    /></Suspense>}
     {working && <div className="fixed inset-x-0 bottom-6 flex justify-center"><span className="flex items-center gap-2 rounded-full bg-slate-950 px-4 py-2 text-sm font-black text-white"><Loader2 className="h-4 w-4 animate-spin" /> Elaborazione scanner</span></div>}
   </div>;
 }

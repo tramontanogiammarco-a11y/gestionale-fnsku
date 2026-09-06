@@ -6,70 +6,71 @@ import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { Loader2 } from "lucide-react";
 
-import Login from "@/pages/Login";
-import AdminLayout from "@/layouts/AdminLayout";
-import ClientLayout from "@/layouts/ClientLayout";
+const Login = lazy(() => import("@/pages/Login"));
+const AdminLayout = lazy(() => import("@/layouts/AdminLayout"));
+const ClientLayout = lazy(() => import("@/layouts/ClientLayout"));
+const WmsDesktopLayout = lazy(() => import("@/layouts/WmsDesktopLayout"));
+const WmsPackingStationLayout = lazy(() => import("@/layouts/WmsPackingStationLayout"));
+const WmsAppLayout = lazy(() => import("@/layouts/WmsAppLayout"));
 
-import AdminDashboard from "@/pages/admin/Dashboard";
-import AdminEntrate from "@/pages/admin/Entrate";
-import AdminEntrataDetail from "@/pages/admin/EntrataDetail";
-import AdminReferenze from "@/pages/admin/Referenze";
-import AdminEtichette from "@/pages/admin/LabelGenerator";
-import AdminClienti from "@/pages/admin/Clienti";
-import AdminClienteDetail from "@/pages/admin/ClienteDetail";
-import AdminMagazzino from "@/pages/admin/Magazzino";
-import AdminPreparazioni from "@/pages/admin/Preparazioni";
-import AdminPreparazioneDetail from "@/pages/admin/PreparazioneDetail";
-import AdminComposizioneBox from "@/pages/admin/ComposizioneBox";
-import AdminFatturazione from "@/pages/admin/Fatturazione";
-import AdminIntegrazioni from "@/pages/admin/Integrazioni";
-import AdminWmsInbound from "@/pages/admin/WmsInbound";
-import WmsDesktopLayout from "@/layouts/WmsDesktopLayout";
-import WmsPackingStationLayout from "@/layouts/WmsPackingStationLayout";
-import ControlOverview from "@/pages/control/ControlOverview";
-import ControlStock from "@/pages/control/ControlStock";
-import ControlOrders from "@/pages/control/ControlOrders";
-import ControlExceptions from "@/pages/control/ControlExceptions";
-import ControlShipments from "@/pages/control/ControlShipments";
-import ControlReturns from "@/pages/control/ControlReturns";
-import ControlBilling from "@/pages/control/ControlBilling";
-import ControlTickets from "@/pages/control/ControlTickets";
-import WmsControlRoom from "@/pages/control/WmsControlRoom";
-import WmsOperators from "@/pages/wms/WmsOperators";
-import WmsPricing from "@/pages/admin/WmsPricing";
-
-import ClientDashboard from "@/pages/client/Dashboard";
-import ClientReferenze from "@/pages/client/Referenze";
-import ClientEntrate from "@/pages/client/Entrate";
-import ClientEntrataDetail from "@/pages/client/EntrataDetail";
-import ClientBox from "@/pages/client/Box";
-import ClientSpedizioni from "@/pages/client/Spedizioni";
-import ClientMagazzino from "@/pages/client/Magazzino";
-import ClientPreparazioni from "@/pages/client/Preparazioni";
-import ClientPreparazioneDetail from "@/pages/client/PreparazioneDetail";
-import ClientIntegrazioni from "@/pages/client/Integrazioni";
-import WmsAppLayout from "@/layouts/WmsAppLayout";
-import WmsAppDashboard from "@/pages/wms/WmsAppDashboard";
-import WmsAppHome from "@/pages/wms/WmsAppHome";
-import WmsAppInbound from "@/pages/wms/WmsAppInbound";
-import WmsAppInventory from "@/pages/wms/WmsAppInventory";
-import WmsAppInventoryCount from "@/pages/wms/WmsAppInventoryCount";
-import WmsAppLocations from "@/pages/wms/WmsAppLocations";
-import WmsAppOrders from "@/pages/wms/WmsAppOrders";
-import WmsAppPicking from "@/pages/wms/WmsAppPicking";
-import WmsAppMassPicking from "@/pages/wms/WmsAppMassPicking";
-import WmsAppGalluse from "@/pages/wms/WmsAppGalluse";
-import WmsAppBagHistory from "@/pages/wms/WmsAppBagHistory";
-import WmsAppProductSearch from "@/pages/wms/WmsAppProductSearch";
-import WmsAppTools from "@/pages/wms/WmsAppTools";
-import WmsAppSettings from "@/pages/wms/WmsAppSettings";
-import WmsAppCartBags from "@/pages/wms/WmsAppCartBags";
-import WmsAppStockMovement from "@/pages/wms/WmsAppStockMovement";
-import WmsAppPackagingLabels from "@/pages/wms/WmsAppPackagingLabels";
-import WmsAppRefill from "@/pages/wms/WmsAppRefill";
-import WmsAppPackingRemote from "@/pages/wms/WmsAppPackingRemote";
-
+const AdminDashboard = lazy(() => import("@/pages/admin/Dashboard"));
+const AdminEntrate = lazy(() => import("@/pages/admin/Entrate"));
+const AdminEntrataDetail = lazy(() => import("@/pages/admin/EntrataDetail"));
+const AdminReferenze = lazy(() => import("@/pages/admin/Referenze"));
+const AdminEtichette = lazy(() => import("@/pages/admin/LabelGenerator"));
+const AdminClienti = lazy(() => import("@/pages/admin/Clienti"));
+const AdminClienteDetail = lazy(() => import("@/pages/admin/ClienteDetail"));
+const AdminMagazzino = lazy(() => import("@/pages/admin/Magazzino"));
+const AdminPreparazioni = lazy(() => import("@/pages/admin/Preparazioni"));
+const AdminPreparazioneDetail = lazy(() => import("@/pages/admin/PreparazioneDetail"));
+const AdminComposizioneBox = lazy(() => import("@/pages/admin/ComposizioneBox"));
+const AdminFatturazione = lazy(() => import("@/pages/admin/Fatturazione"));
+const AdminIntegrazioni = lazy(() => import("@/pages/admin/Integrazioni"));
+const AdminWmsInbound = lazy(() => import("@/pages/admin/WmsInbound"));
+const WmsPricing = lazy(() => import("@/pages/admin/WmsPricing"));
 const AdminWmsWarehouseMap = lazy(() => import("@/pages/admin/WmsWarehouseMap"));
+
+const ControlOverview = lazy(() => import("@/pages/control/ControlOverview"));
+const ControlStock = lazy(() => import("@/pages/control/ControlStock"));
+const ControlOrders = lazy(() => import("@/pages/control/ControlOrders"));
+const ControlExceptions = lazy(() => import("@/pages/control/ControlExceptions"));
+const ControlShipments = lazy(() => import("@/pages/control/ControlShipments"));
+const ControlReturns = lazy(() => import("@/pages/control/ControlReturns"));
+const ControlBilling = lazy(() => import("@/pages/control/ControlBilling"));
+const ControlTickets = lazy(() => import("@/pages/control/ControlTickets"));
+const WmsControlRoom = lazy(() => import("@/pages/control/WmsControlRoom"));
+
+const ClientDashboard = lazy(() => import("@/pages/client/Dashboard"));
+const ClientReferenze = lazy(() => import("@/pages/client/Referenze"));
+const ClientEntrate = lazy(() => import("@/pages/client/Entrate"));
+const ClientEntrataDetail = lazy(() => import("@/pages/client/EntrataDetail"));
+const ClientBox = lazy(() => import("@/pages/client/Box"));
+const ClientSpedizioni = lazy(() => import("@/pages/client/Spedizioni"));
+const ClientMagazzino = lazy(() => import("@/pages/client/Magazzino"));
+const ClientPreparazioni = lazy(() => import("@/pages/client/Preparazioni"));
+const ClientPreparazioneDetail = lazy(() => import("@/pages/client/PreparazioneDetail"));
+const ClientIntegrazioni = lazy(() => import("@/pages/client/Integrazioni"));
+
+const WmsAppDashboard = lazy(() => import("@/pages/wms/WmsAppDashboard"));
+const WmsAppHome = lazy(() => import("@/pages/wms/WmsAppHome"));
+const WmsAppInbound = lazy(() => import("@/pages/wms/WmsAppInbound"));
+const WmsAppInventory = lazy(() => import("@/pages/wms/WmsAppInventory"));
+const WmsAppInventoryCount = lazy(() => import("@/pages/wms/WmsAppInventoryCount"));
+const WmsAppLocations = lazy(() => import("@/pages/wms/WmsAppLocations"));
+const WmsAppOrders = lazy(() => import("@/pages/wms/WmsAppOrders"));
+const WmsAppPicking = lazy(() => import("@/pages/wms/WmsAppPicking"));
+const WmsAppMassPicking = lazy(() => import("@/pages/wms/WmsAppMassPicking"));
+const WmsAppGalluse = lazy(() => import("@/pages/wms/WmsAppGalluse"));
+const WmsAppBagHistory = lazy(() => import("@/pages/wms/WmsAppBagHistory"));
+const WmsAppProductSearch = lazy(() => import("@/pages/wms/WmsAppProductSearch"));
+const WmsAppTools = lazy(() => import("@/pages/wms/WmsAppTools"));
+const WmsAppSettings = lazy(() => import("@/pages/wms/WmsAppSettings"));
+const WmsAppCartBags = lazy(() => import("@/pages/wms/WmsAppCartBags"));
+const WmsAppStockMovement = lazy(() => import("@/pages/wms/WmsAppStockMovement"));
+const WmsAppPackagingLabels = lazy(() => import("@/pages/wms/WmsAppPackagingLabels"));
+const WmsAppRefill = lazy(() => import("@/pages/wms/WmsAppRefill"));
+const WmsAppPackingRemote = lazy(() => import("@/pages/wms/WmsAppPackingRemote"));
+const WmsOperators = lazy(() => import("@/pages/wms/WmsOperators"));
 
 // Reindirizza dalla root all'area corretta
 function RootRedirect() {
@@ -101,6 +102,7 @@ function App() {
     <div className="App">
       <AuthProvider>
         <BrowserRouter>
+          <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>}>
           <Routes>
             <Route path="/" element={<RootRedirect />} />
             <Route path="/login" element={<Login />} />
@@ -237,6 +239,7 @@ function App() {
 
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          </Suspense>
         </BrowserRouter>
         <Toaster position="top-right" richColors />
       </AuthProvider>
