@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import Papa from "papaparse";
 import { requireSupabase, supabase, supabaseAnonKey, supabaseUrl } from "@/lib/supabase";
+import { createTimedRequestCache } from "@/lib/timedRequestCache";
 import { calculateWarehouseRoute, normalizeAisles } from "@/lib/wmsRouting";
 import { buildWmsDiagnostics } from "@/lib/wmsDiagnostics";
 
@@ -8,6 +9,7 @@ const BUCKET = "gestionale-files";
 const PROFILE_CACHE_MS = 30_000;
 let cachedProfile = null;
 let cachedProfileAt = 0;
+const wmsOperationalOrdersCache = createTimedRequestCache(5_000);
 
 function ok(data) {
   return Promise.resolve({ data });
@@ -4377,6 +4379,11 @@ async function wmsOperationalOrdersData(params = new URLSearchParams()) {
   };
 }
 
+function cachedWmsOperationalOrdersData(params = new URLSearchParams()) {
+  const clientId = optionalText(params.get("cliente_id")) || "all";
+  return wmsOperationalOrdersCache.load(clientId, () => wmsOperationalOrdersData(params));
+}
+
 async function getWmsSettings() {
   const data = await wmsOperationalOrdersData();
   return ok({ settings: data.settings, summary: data.summary });
@@ -4400,7 +4407,7 @@ async function updateWmsSettings(payload = {}) {
 }
 
 async function listWmsOperationalOrders(params) {
-  return ok(await wmsOperationalOrdersData(params));
+  return ok(await cachedWmsOperationalOrdersData(params));
 }
 
 function pickingProductKey(row = {}) {
@@ -4487,6 +4494,48 @@ async function verifiedQueuedReservationsExcept(clienteId, excludedOrderIds = []
   return reservationsForQueuedOrderIds(reservingIds);
 }
 
+async function wmsPickingStockData(clienteId) {
+  const [{ data: balances, error: balancesError }, locationsResult] = await Promise.all([
+    requireSupabase().rpc("wms_picking_stock_balances", { p_cliente_id: clienteId }),
+    fetchAllWmsLocations(),
+  ]);
+  if (balancesError || locationsResult.error) fail((balancesError || locationsResult.error).message);
+
+  const locations = locationsResult.data || [];
+  const locationMap = new Map(locations.map((location) => [location.id, location]));
+  const balancesByProduct = new Map();
+  const occupiedLocationIds = new Set();
+  for (const balance of balances || []) {
+    const quantity = Math.max(0, Number(balance.quantity || 0));
+    if (!quantity || !locationMap.has(balance.location_id)) continue;
+    const productKey = normalizedText(balance.product_key);
+    const rows = balancesByProduct.get(productKey) || [];
+    rows.push({ location_id: balance.location_id, quantity });
+    balancesByProduct.set(productKey, rows);
+    occupiedLocationIds.add(balance.location_id);
+  }
+
+  const operationalLocations = locations.map((location) => ({
+    ...location,
+    occupata: occupiedLocationIds.has(location.id),
+  }));
+  const operationalLocationMap = new Map(operationalLocations.map((location) => [location.id, location]));
+  const locationsByProduct = new Map([...balancesByProduct.entries()].map(([productKey, rows]) => [
+    productKey,
+    rows.map((balance) => {
+      const location = operationalLocationMap.get(balance.location_id);
+      return {
+        id: location.id,
+        codice: location.codice,
+        tipo: location.tipo,
+        stato: location.stato,
+        quantita: balance.quantity,
+      };
+    }).sort(naturalLocationSort),
+  ]));
+  return { locations: operationalLocations, locationsByProduct };
+}
+
 async function wmsPickingPlan(order, items, options = {}) {
   const missingReferences = (items || []).filter((item) => !item.referenza_id);
   if (missingReferences.length) {
@@ -4502,13 +4551,13 @@ async function wmsPickingPlan(order, items, options = {}) {
   const referenceIds = [...new Set((items || []).map((item) => item.referenza_id))];
   const [
     { data: references, error: referencesError },
-    stockResponse,
+    stockData,
     { data: activeTasks, error: activeTasksError },
     { data: mapSettings, error: mapError },
     { data: slotAssignments, error: slotAssignmentsError },
   ] = await Promise.all([
     requireSupabase().from("referenze").select("id,cliente_id,titolo,ean,fnsku,sku").in("id", referenceIds),
-    wmsStock(new URLSearchParams({ cliente_id: order.cliente_id })),
+    wmsPickingStockData(order.cliente_id),
     requireSupabase().from("wms_pick_tasks").select("id,order_id").in("stato", ["da_prelevare", "in_corso"]),
     requireSupabase().from("wms_warehouse_map").select("*").eq("id", true).single(),
     requireSupabase().from("wms_slot_assignments").select("location_id,cliente_id,product_key"),
@@ -4580,7 +4629,7 @@ async function wmsPickingPlan(order, items, options = {}) {
     reserved.set(key, Number(reserved.get(key) || 0) + Number(line.quantita || 0));
   }
 
-  const allLocations = stockResponse.data.locations || [];
+  const allLocations = stockData.locations || [];
   const hiddenLocationIds = new Set(Array.isArray(mapSettings.hidden_location_ids) ? mapSettings.hidden_location_ids : []);
   const locationMap = Object.fromEntries(allLocations.map((location) => [location.id, location]));
   const persistentSlotAssignments = new Map((slotAssignments || []).map((assignment) => [
@@ -4613,11 +4662,7 @@ async function wmsPickingPlan(order, items, options = {}) {
       continue;
     }
     const productKey = pickingProductKey(reference);
-    const product = (stockResponse.data.products || []).find((candidate) => (
-      candidate.cliente_id === order.cliente_id
-      && ((reference.fnsku && normalizedText(candidate.fnsku) === normalizedText(reference.fnsku))
-        || (reference.ean && normalizedText(candidate.ean) === normalizedText(reference.ean)))
-    ));
+    const product = productKey ? { ubicazioni: stockData.locationsByProduct.get(productKey) || [] } : null;
     if (!product || !productKey) {
       errors.push(`Nessuno stock disponibile per ${reference.titolo || item.titolo}`);
       unavailableOrderItemIds.add(item.id);
@@ -5638,7 +5683,7 @@ function massGroupsFromOrders(orders = []) {
 
 async function listWmsMassPicking(params = new URLSearchParams()) {
   await assertWmsStaff();
-  const operational = await wmsOperationalOrdersData(params);
+  const operational = await cachedWmsOperationalOrdersData(params);
   const groups = massGroupsFromOrders(operational.orders);
   const { data: batches, error: batchesError } = await requireSupabase()
     .from("wms_mass_pick_batches")
@@ -5783,7 +5828,7 @@ async function reclassifyUnavailableMonoOrders(orders = [], analyses = null) {
 
 async function listWmsMonoPicking(params = new URLSearchParams()) {
   await assertWmsStaff();
-  const operational = await wmsOperationalOrdersData(params);
+  const operational = await cachedWmsOperationalOrdersData(params);
   const analyses = await analyzeMonoGroupsFromOrders(operational.orders);
   const reclassified = await reclassifyUnavailableMonoOrders(operational.orders, analyses);
   const reclassifiedIds = new Set(reclassified.map((order) => order.id));
@@ -6766,7 +6811,7 @@ async function getWmsOrdersOverview(params = new URLSearchParams()) {
   }
 
   const [operational, massBatchesResult, galluseBatchesResult, refillOrdersResult] = await Promise.all([
-    wmsOperationalOrdersData(params),
+    cachedWmsOperationalOrdersData(params),
     massBatchesQuery.order("created_at", { ascending: false }),
     galluseBatchesQuery.order("created_at", { ascending: false }),
     refillOrdersQuery,
