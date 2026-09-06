@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import CameraScanner from "@/components/wms/CameraScanner";
+import { loadWmsPickingQueue, peekWmsPickingQueue } from "@/lib/wmsPickingQueuePrefetch";
 
 const bagPattern = /^B-[A-Z0-9]{5}$/;
 
@@ -18,18 +19,22 @@ export default function WmsAppMassPicking({ mode = "massivo" }) {
 function MassQueue({ mode }) {
   const navigate = useNavigate();
   const { clientId } = useOutletContext();
-  const [data, setData] = useState(null);
+  const initialData = useRef(peekWmsPickingQueue(mode, clientId)?.data || null).current;
+  const [data, setData] = useState(initialData);
   const [working, setWorking] = useState(false);
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ force = false } = {}) => {
     try {
-      const query = clientId && clientId !== "all" ? `?cliente_id=${encodeURIComponent(clientId)}` : "";
-      setData((await api.get(`/wms/picking-${mode}${query}`)).data);
+      setData((await loadWmsPickingQueue(mode, clientId, { force })).data);
     } catch (error) {
       toast.error(error.response?.data?.detail || "Picking non disponibile");
       setData({ groups: [], batches: [], separate_orders: 0 });
     }
   }, [clientId, mode]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const cached = peekWmsPickingQueue(mode, clientId)?.data || null;
+    setData(cached);
+    load({ force: Boolean(cached) });
+  }, [clientId, load, mode]);
   const start = async (group, selectedOrders = group.numero_ordini) => {
     setWorking(true);
     try {

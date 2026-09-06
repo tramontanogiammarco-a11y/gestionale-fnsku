@@ -2,6 +2,7 @@ import { useEffect, useMemo } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import { ArrowRight, PackageCheck, PackageOpen, ShoppingCart, Warehouse } from "lucide-react";
 import { prefetchWmsOrders } from "@/lib/wmsOrdersPrefetch";
+import { prefetchWmsPickingQueue } from "@/lib/wmsPickingQueuePrefetch";
 
 export default function WmsAppDashboard() {
   const navigate = useNavigate();
@@ -11,6 +12,7 @@ export default function WmsAppDashboard() {
     const prepareOrders = () => {
       import("@/pages/wms/WmsAppOrders");
       prefetchWmsOrders(clientId);
+      prefetchWmsPickingQueue("mono", clientId);
     };
     if (typeof window.requestIdleCallback === "function") {
       const idleId = window.requestIdleCallback(prepareOrders, { timeout: 800 });

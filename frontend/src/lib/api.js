@@ -4331,7 +4331,6 @@ async function wmsSettingsRecord() {
 }
 
 async function wmsOperationalOrdersData(params = new URLSearchParams()) {
-  const settings = await wmsSettingsRecord();
   let query = requireSupabase()
     .from("shopify_orders")
     .select("*")
@@ -4340,7 +4339,10 @@ async function wmsOperationalOrdersData(params = new URLSearchParams()) {
     .order("created_at", { ascending: false })
     .order("order_name", { ascending: false });
   if (params.get("cliente_id")) query = query.eq("cliente_id", params.get("cliente_id"));
-  const { data, error } = await query;
+  const [settings, { data, error }] = await Promise.all([
+    wmsSettingsRecord(),
+    query,
+  ]);
   if (error) fail(error.message);
 
   const timezone = settings.timezone || DEFAULT_WMS_TIMEZONE;
@@ -5717,10 +5719,17 @@ function monoGroupsFromOrders(orders = []) {
   })).sort((left, right) => right.numero_ordini - left.numero_ordini);
 }
 
-async function startableMonoGroupsFromOrders(orders = []) {
+async function analyzeMonoGroupsFromOrders(orders = []) {
+  return Promise.all(monoGroupsFromOrders(orders).map(async (group) => ({
+    group,
+    availability: await monoGroupAvailability(group),
+  })));
+}
+
+function startableMonoGroupsFromAnalysis(analyses = []) {
   const checkedGroups = [];
-  for (const group of monoGroupsFromOrders(orders)) {
-    const { startableOrders } = await monoGroupAvailability(group);
+  for (const { group, availability } of analyses) {
+    const { startableOrders } = availability;
     const [startableGroup] = monoGroupsFromOrders(startableOrders);
     if (startableGroup) {
       checkedGroups.push({
@@ -5730,6 +5739,10 @@ async function startableMonoGroupsFromOrders(orders = []) {
     }
   }
   return checkedGroups.sort((left, right) => right.numero_ordini - left.numero_ordini);
+}
+
+async function startableMonoGroupsFromOrders(orders = []) {
+  return startableMonoGroupsFromAnalysis(await analyzeMonoGroupsFromOrders(orders));
 }
 
 async function monoGroupAvailability(group) {
@@ -5756,10 +5769,10 @@ async function monoGroupAvailability(group) {
   };
 }
 
-async function reclassifyUnavailableMonoOrders(orders = []) {
+async function reclassifyUnavailableMonoOrders(orders = [], analyses = null) {
   const reclassified = [];
-  for (const group of monoGroupsFromOrders(orders)) {
-    const availability = await monoGroupAvailability(group);
+  const checkedGroups = analyses || await analyzeMonoGroupsFromOrders(orders);
+  for (const { availability } of checkedGroups) {
     for (const order of availability.unavailableOrders) {
       await classifyUnavailableOrderFromPlan(order, availability.plan, availability.itemOrderMap);
       reclassified.push(order);
@@ -5770,19 +5783,33 @@ async function reclassifyUnavailableMonoOrders(orders = []) {
 
 async function listWmsMonoPicking(params = new URLSearchParams()) {
   await assertWmsStaff();
-  let operational = await wmsOperationalOrdersData(params);
-  const reclassified = await reclassifyUnavailableMonoOrders(operational.orders);
-  if (reclassified.length) operational = await wmsOperationalOrdersData(params);
-  const groups = await startableMonoGroupsFromOrders(operational.orders);
+  const operational = await wmsOperationalOrdersData(params);
+  const analyses = await analyzeMonoGroupsFromOrders(operational.orders);
+  const reclassified = await reclassifyUnavailableMonoOrders(operational.orders, analyses);
+  const reclassifiedIds = new Set(reclassified.map((order) => order.id));
+  const groups = startableMonoGroupsFromAnalysis(analyses);
   let refillQuery = requireSupabase()
     .from("shopify_orders")
     .select("*")
     .eq("wms_status", "in_attesa_refill")
     .eq("gate_status", "attesa_refill");
   if (optionalText(params.get("cliente_id"))) refillQuery = refillQuery.eq("cliente_id", params.get("cliente_id"));
-  const { data: refillRows, error: refillRowsError } = await refillQuery;
-  if (refillRowsError) fail(refillRowsError.message);
-  const refillOrders = (await enrichShopifyOrders(refillRows || [])).filter((order) => (
+  let batchesQuery = requireSupabase().from("wms_mass_pick_batches").select("*").eq("picking_mode", "mono").neq("stato", "annullata");
+  if (optionalText(params.get("cliente_id"))) batchesQuery = batchesQuery.eq("cliente_id", params.get("cliente_id"));
+  const [{ data: refillRows, error: refillRowsError }, { data: batches, error: batchesError }] = await Promise.all([
+    refillQuery,
+    batchesQuery.order("created_at", { ascending: false }),
+  ]);
+  if (refillRowsError || batchesError) fail((refillRowsError || batchesError).message);
+  const batchIds = (batches || []).map((batch) => batch.id);
+  const [enrichedRefillRows, { data: links, error: linksError }] = await Promise.all([
+    enrichShopifyOrders(refillRows || []),
+    batchIds.length
+      ? requireSupabase().from("wms_mass_pick_orders").select("*").in("batch_id", batchIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (linksError) fail(linksError.message);
+  const refillOrders = enrichedRefillRows.filter((order) => (
     (order.items || []).length === 1
     && Boolean(order.items[0].referenza_id)
     && Number(order.items[0].quantita || 0) === 1
@@ -5800,21 +5827,12 @@ async function listWmsMonoPicking(params = new URLSearchParams()) {
     products.set(item.referenza_id, current);
     return products;
   }, new Map()).values()];
-  let batchesQuery = requireSupabase().from("wms_mass_pick_batches").select("*").eq("picking_mode", "mono").neq("stato", "annullata");
-  if (optionalText(params.get("cliente_id"))) batchesQuery = batchesQuery.eq("cliente_id", params.get("cliente_id"));
-  const { data: batches, error: batchesError } = await batchesQuery.order("created_at", { ascending: false });
-  if (batchesError) fail(batchesError.message);
-  const batchIds = (batches || []).map((batch) => batch.id);
-  const { data: links, error: linksError } = batchIds.length
-    ? await requireSupabase().from("wms_mass_pick_orders").select("*").in("batch_id", batchIds)
-    : { data: [], error: null };
-  if (linksError) fail(linksError.message);
   return ok({
     groups,
     batches: (batches || []).map((batch) => ({ ...batch, orders: (links || []).filter((link) => link.batch_id === batch.id) })),
     refill_orders: refillOrders.length,
     refill_products: refillProducts,
-    separate_orders: operational.orders.filter((order) => order.wms_status === "da_preparare" && !groups.some((group) => group.orders.some((candidate) => candidate.id === order.id))).length,
+    separate_orders: operational.orders.filter((order) => order.wms_status === "da_preparare" && !reclassifiedIds.has(order.id) && !groups.some((group) => group.orders.some((candidate) => candidate.id === order.id))).length,
   });
 }
 

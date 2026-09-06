@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { toast } from "sonner";
 import { loadWmsOrders, peekWmsOrders } from "@/lib/wmsOrdersPrefetch";
+import { prefetchWmsPickingQueue } from "@/lib/wmsPickingQueuePrefetch";
 
 const STATUS_LABELS = {
   in_attesa_refill: "In attesa refill",
@@ -51,6 +52,11 @@ export default function WmsAppOrders() {
         setLoadingModes(false);
       }
     }
+  }, [clientId]);
+
+  useEffect(() => {
+    prefetchWmsPickingQueue("mono", clientId)
+      .finally(() => prefetchWmsPickingQueue("massivo", clientId));
   }, [clientId]);
 
   useEffect(() => {
@@ -122,9 +128,9 @@ export default function WmsAppOrders() {
       {view === "tasks" ? <section>
         <div className="mb-3 flex items-center justify-between"><div><h2 className="text-xl font-extrabold">Scegli il compito</h2><p className="mt-1 text-xs font-medium text-slate-500">I conteggi si aggiornano automaticamente.</p></div>{loadingModes && <Loader2 className="h-4 w-4 animate-spin text-teal-700" />}</div>
         <div className="grid grid-cols-2 gap-2.5">
-          <TaskCard icon={Layers3} title="Massivo" detail="Ordini uguali insieme" count={activeMassOrders || availableMassOrders} unit="ordini" tone="teal" active={activeMassOrders > 0} onClick={() => navigate("/wms-app/picking-massivo")} />
+          <TaskCard icon={Layers3} title="Massivo" detail="Ordini uguali insieme" count={activeMassOrders || availableMassOrders} unit="ordini" tone="teal" active={activeMassOrders > 0} onIntent={() => prefetchWmsPickingQueue("massivo", clientId)} onClick={() => navigate("/wms-app/picking-massivo")} />
           <TaskCard icon={ShoppingCart} title="Galluse" detail="Un ordine per bag" count={activeGalluse?.numero_bag || nextGalluseRound?.totale_ordini || 0} unit="ordini" tone="sky" active={Boolean(activeGalluse)} onClick={startGalluse} />
-          <TaskCard icon={ScanLine} title="Mono-prodotto" detail="Un pezzo per ordine" count={activeMonoOrders || availableMonoOrders} unit="ordini" tone="violet" active={activeMonoOrders > 0} onClick={() => navigate("/wms-app/picking-mono")} />
+          <TaskCard icon={ScanLine} title="Mono-prodotto" detail="Un pezzo per ordine" count={activeMonoOrders || availableMonoOrders} unit="ordini" tone="violet" active={activeMonoOrders > 0} onIntent={() => prefetchWmsPickingQueue("mono", clientId)} onClick={() => navigate("/wms-app/picking-mono")} />
           <TaskCard icon={Boxes} title="Refill" detail="Rifornisci gli slot" count={refillTasks} unit="attività" tone="amber" attention={refillTasks > 0} onClick={() => navigate("/wms-app/refill")} />
         </div>
       </section> : <section>
@@ -153,14 +159,14 @@ export default function WmsAppOrders() {
   );
 }
 
-function TaskCard({ icon: Icon, title, detail, count, unit, tone, active, attention, onClick }) {
+function TaskCard({ icon: Icon, title, detail, count, unit, tone, active, attention, onIntent, onClick }) {
   const colors = {
     teal: "bg-teal-50 text-teal-800",
     sky: "bg-sky-50 text-sky-800",
     violet: "bg-violet-50 text-violet-800",
     amber: "bg-amber-50 text-amber-800",
   };
-  return <button type="button" onClick={onClick} className={`relative flex min-h-40 flex-col rounded-md border bg-white p-4 text-left shadow-[0_1px_2px_rgba(15,23,42,.04)] transition hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 ${attention ? "border-amber-300" : "border-slate-200"}`}>
+  return <button type="button" onPointerEnter={onIntent} onFocus={onIntent} onTouchStart={onIntent} onClick={onClick} className={`relative flex min-h-40 flex-col rounded-md border bg-white p-4 text-left shadow-[0_1px_2px_rgba(15,23,42,.04)] transition hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 ${attention ? "border-amber-300" : "border-slate-200"}`}>
     <span className={`flex h-11 w-11 items-center justify-center rounded-md ${colors[tone]}`}><Icon className="h-5 w-5" /></span>
     <strong className="mt-3 block text-base font-extrabold leading-tight">{title}</strong>
     <span className="mt-1 block min-h-8 text-xs leading-4 text-slate-500">{detail}</span>
