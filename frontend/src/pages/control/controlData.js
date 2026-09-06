@@ -1,36 +1,25 @@
 import { api } from "@/lib/api";
+import { loadWmsStock } from "@/lib/wmsStockPrefetch";
 
 export function queryForClient(clientId) {
   return clientId ? `?cliente_id=${encodeURIComponent(clientId)}` : "";
 }
 
-export async function loadControlData({ clientId, clients, includeStock = true }) {
+export async function loadControlData({ clientId, includeStock = true }) {
   const suffix = queryForClient(clientId);
-  const [ordersRes, shipmentsRes, ticketsRes, returnsRes] = await Promise.all([
+  const [ordersRes, shipmentsRes, ticketsRes, returnsRes, stockRes] = await Promise.all([
     api.get(`/shopify/orders${suffix}`),
     api.get(`/wms/spedizioni${suffix}`),
     api.get(`/wms/tickets${suffix}`).catch(() => ({ data: [] })),
     api.get(`/wms/resi${suffix}`).catch(() => ({ data: [] })),
+    includeStock ? loadWmsStock(clientId || "all") : Promise.resolve({ data: { products: [] } }),
   ]);
-
-  let stock = [];
-  if (includeStock) {
-    if (clientId || !clients?.length) {
-      stock = (await api.get(`/magazzino${suffix}`)).data || [];
-    } else {
-      const chunks = await Promise.all(clients.map(async (client) => {
-        const response = await api.get(`/magazzino?cliente_id=${encodeURIComponent(client.id)}`);
-        return (response.data || []).map((row) => ({ ...row, cliente_id: client.id, cliente_nome: client.ragione_sociale }));
-      }));
-      stock = chunks.flat();
-    }
-  }
   return {
     orders: ordersRes.data || [],
     shipments: shipmentsRes.data || [],
     tickets: ticketsRes.data || [],
     returns: returnsRes.data || [],
-    stock,
+    stock: stockRes.data?.products || [],
   };
 }
 

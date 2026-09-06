@@ -24,17 +24,23 @@ export default function WmsAppLocations() {
   const [tab, setTab] = useState("products");
   const [search, setSearch] = useState("");
   const [selectedLocation, setSelectedLocation] = useState(null);
+  const requestVersion = useRef(0);
 
   const load = useCallback(async ({ quiet = false, force = false } = {}) => {
+    const version = ++requestVersion.current;
     if (!quiet) setRefreshing(true);
     try {
       const response = await loadWmsStock(clientId, { force });
+      if (version !== requestVersion.current) return;
       setStock(response.data);
     } catch (error) {
+      if (version !== requestVersion.current) return;
       toast.error(error.response?.data?.detail || error.message || "Stock non disponibile");
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (version === requestVersion.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [clientId]);
 
@@ -55,6 +61,11 @@ export default function WmsAppLocations() {
     };
     const channel = supabase.channel(`wms-stock-${clientId}-${Date.now()}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "wms_inbound_movements" }, schedule)
+      .on("postgres_changes", { event: "*", schema: "public", table: "wms_outbound_movements" }, schedule)
+      .on("postgres_changes", { event: "*", schema: "public", table: "wms_stock_placements" }, schedule)
+      .on("postgres_changes", { event: "*", schema: "public", table: "wms_stock_transfers" }, schedule)
+      .on("postgres_changes", { event: "*", schema: "public", table: "wms_pick_tasks" }, schedule)
+      .on("postgres_changes", { event: "*", schema: "public", table: "wms_refill_missions" }, schedule)
       .on("postgres_changes", { event: "*", schema: "public", table: "wms_locations" }, schedule)
       .on("postgres_changes", { event: "*", schema: "public", table: "entrate_righe" }, schedule)
       .on("postgres_changes", { event: "*", schema: "public", table: "preparazioni_righe" }, schedule)

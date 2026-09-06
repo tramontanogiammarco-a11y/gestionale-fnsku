@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import {
@@ -9,6 +10,7 @@ import GlobalSearch from "@/components/GlobalSearch";
 import InstallAppButton from "@/components/InstallAppButton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import logo from "@/assets/logo.png";
+import { prefetchAdminRoutes, scheduleRoutePrefetch } from "@/lib/appRoutePrefetch";
 
 const NAV_SECTIONS = [
   {
@@ -87,14 +89,16 @@ export default function AdminLayout() {
     .sort((a, b) => b.to.length - a.to.length)
     .find((item) => item.end ? location.pathname === item.to : location.pathname.startsWith(item.to)) || NAV[0];
 
+  useEffect(() => scheduleRoutePrefetch(prefetchAdminRoutes), []);
+
   const handleLogout = async () => {
     await logout();
     navigate("/login");
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-20 flex-col border-r border-slate-200 bg-white md:flex">
+    <div className="app-shell min-h-screen bg-background">
+      <aside className="app-sidebar fixed inset-y-0 left-0 z-40 hidden w-20 flex-col border-r border-slate-200 bg-white md:flex">
         <div className="flex h-16 items-center justify-center border-b border-slate-200">
           <img src={logo} alt="Aimago" className="h-10 w-10 object-contain" />
         </div>
@@ -123,7 +127,7 @@ export default function AdminLayout() {
         </div>
       </aside>
 
-      <header className="fixed inset-x-0 top-0 z-30 border-b border-slate-200 bg-white md:hidden">
+      <header className="app-topbar fixed inset-x-0 top-0 z-30 border-b border-slate-200 bg-white md:hidden">
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2.5">
             <img src={logo} alt="Aimago" className="h-8 w-8 object-contain" />
@@ -148,7 +152,7 @@ export default function AdminLayout() {
       </header>
 
       <main className="min-h-screen pt-28 md:ml-20 md:pt-0">
-        <div className="sticky top-0 z-30 hidden h-16 items-center border-b border-slate-200 bg-white/95 px-6 backdrop-blur md:flex lg:px-8">
+        <div className="app-topbar sticky top-0 z-30 hidden h-16 items-center border-b border-slate-200 bg-white/95 px-6 backdrop-blur md:flex lg:px-8">
           <div className="flex min-w-0 items-center gap-2 text-sm">
             <span className="font-bold text-slate-950">Aimago Prep</span>
             <ChevronRight className="h-4 w-4 text-slate-300" />

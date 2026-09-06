@@ -1,18 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { AlertTriangle, Boxes, CheckCircle2, MessageSquareText, ShoppingCart, Truck } from "lucide-react";
+import { AlertTriangle, Boxes, CheckCircle2, MessageSquareText, RefreshCw, ShoppingCart, Truck } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { exceptionGuidance, loadControlData, EXCEPTION_STATUSES, formatDate, orderPieces, ORDER_STATUS, SHIPMENT_STATUS } from "./controlData";
 import { EmptyState, Metric, PageIntro, PageLoader, Panel, StatusPill } from "./ControlUi";
 
 export default function ControlOverview() {
   const context = useOutletContext();
-  const { clientId, clients, isStaff } = context;
+  const { clientId } = context;
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
-  useEffect(() => { let live = true; setData(null); loadControlData({ clientId, clients, isStaff }).then((value) => live && setData(value)).catch((e) => live && setError(e.message)); return () => { live = false; }; }, [clientId, clients, isStaff]);
+  const [reloadKey, setReloadKey] = useState(0);
+  useEffect(() => { let live = true; setData(null); setError(""); loadControlData({ clientId }).then((value) => live && setData(value)).catch((e) => live && setError(e.message || "Caricamento non riuscito")); return () => { live = false; }; }, [clientId, reloadKey]);
   const metrics = useMemo(() => data ? deriveMetrics(data) : null, [data]);
-  if (!data) return <PageLoader />;
+  if (!data && !error) return <PageLoader />;
+  if (!data) return <div>
+    <PageIntro eyebrow="Control Tower" title="Panoramica non disponibile" description="Non è stato possibile aggiornare i dati operativi." />
+    <div className="rounded-md border border-rose-200 bg-white p-6 shadow-sm">
+      <p className="font-bold text-rose-700">{error}</p>
+      <Button type="button" variant="outline" className="mt-4" onClick={() => setReloadKey((value) => value + 1)}><RefreshCw className="mr-2 h-4 w-4" />Riprova</Button>
+    </div>
+  </div>;
   return <div>
     <PageIntro eyebrow={context.isStaff ? "Vista globale Aimago" : "Il tuo centro logistico"} title="Control Tower" description="Ordini, stock, consegne ed eccezioni in un unico punto, aggiornati con i dati operativi del magazzino." />
     {error && <p className="mb-4 bg-rose-50 p-3 text-sm font-bold text-rose-700">{error}</p>}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { ChevronRight, Clock3, Loader2, Network, Printer, Ruler, Save, Settings2, Timer, Warehouse } from "lucide-react";
+import { ChevronRight, Clock3, Loader2, Save, Timer } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,25 +8,6 @@ import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { toast } from "sonner";
 import { peekWmsOrders } from "@/lib/wmsOrdersPrefetch";
-
-const OTHER_GROUPS = [
-  {
-    title: "Configurazione operativa",
-    items: [
-      { icon: Warehouse, label: "Configurazione del magazzino" },
-      { icon: Settings2, label: "Personalizzazione dei compiti" },
-    ],
-  },
-  {
-    title: "Stazione di imballaggio",
-    items: [
-      { icon: Ruler, label: "Dimensioni etichette" },
-      { icon: Printer, label: "Inizializza la stazione" },
-      { icon: Settings2, label: "Gestisci stazione" },
-      { icon: Network, label: "Imposta rete" },
-    ],
-  },
-];
 
 export default function WmsAppSettings() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -96,19 +77,6 @@ export default function WmsAppSettings() {
         </button>
         <div className="mt-3 grid grid-cols-3 gap-2"><MiniMetric label="Arretrati" value={summary.arretrati || 0} tone={summary.arretrati ? "amber" : "slate"} /><MiniMetric label="Oggi" value={summary.oggi || 0} tone="teal" /><MiniMetric label="Prossimi" value={summary.prossima || 0} tone="blue" /></div>
       </section>
-
-      {OTHER_GROUPS.map((group) => (
-        <section key={group.title}>
-          <h2 className="mb-3 text-sm font-bold text-slate-400">{group.title}</h2>
-          <div className="divide-y divide-slate-100 rounded-md border border-slate-200 bg-white">
-            {group.items.map((item) => (
-              <button key={item.label} type="button" onClick={() => toast.info(`${item.label}: prossimo collegamento operativo`)} className="flex min-h-16 w-full items-center gap-3 px-4 text-left hover:bg-slate-50">
-                <item.icon className="h-5 w-5 text-slate-500" /><span className="flex-1 font-semibold">{item.label}</span><ChevronRight className="h-5 w-5 text-slate-400" />
-              </button>
-            ))}
-          </div>
-        </section>
-      ))}
 
       <Sheet open={cutoffOpen} onOpenChange={(open) => { if (!open) closeCutoff(); else setCutoffOpen(true); }}>
         <SheetContent side="bottom" className="mx-auto w-full max-w-3xl rounded-t-lg border-0 bg-white p-0">

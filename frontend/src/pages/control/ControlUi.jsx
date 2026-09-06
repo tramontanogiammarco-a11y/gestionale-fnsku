@@ -13,7 +13,7 @@ export function PageIntro({ eyebrow, title, description, action }) {
 }
 
 export function Metric({ label, value, hint, icon: Icon, tone = "teal" }) {
-  return <div className="min-h-[132px] border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-3"><div><p className="text-[10px] font-extrabold uppercase text-slate-500">{label}</p><p className="mt-3 text-3xl font-extrabold">{value}</p>{hint && <p className="mt-2 text-xs text-slate-500">{hint}</p>}</div>{Icon && <span className={cn("flex h-10 w-10 items-center justify-center rounded-md", TONES[tone] || TONES.teal)}><Icon className="h-5 w-5" /></span>}</div></div>;
+  return <div className="min-h-[132px] rounded-md border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,.04),0_10px_28px_rgba(15,23,42,.035)]"><div className="flex items-start justify-between gap-3"><div><p className="text-[10px] font-extrabold uppercase text-slate-500">{label}</p><p className="mt-3 text-3xl font-extrabold">{value}</p>{hint && <p className="mt-2 text-xs text-slate-500">{hint}</p>}</div>{Icon && <span className={cn("flex h-10 w-10 items-center justify-center rounded-md", TONES[tone] || TONES.teal)}><Icon className="h-5 w-5" /></span>}</div></div>;
 }
 
 export function StatusPill({ children, tone = "slate" }) {
@@ -21,7 +21,7 @@ export function StatusPill({ children, tone = "slate" }) {
 }
 
 export function EmptyState({ title = "Nessun dato", description = "Non ci sono elementi da mostrare." }) {
-  return <div className="flex min-h-52 flex-col items-center justify-center border border-dashed border-slate-300 bg-white px-6 text-center"><PackageOpen className="h-8 w-8 text-slate-300" /><h3 className="mt-4 text-base font-extrabold">{title}</h3><p className="mt-1 max-w-md text-sm text-slate-500">{description}</p></div>;
+  return <div className="flex min-h-52 flex-col items-center justify-center rounded-md border border-dashed border-slate-300 bg-white px-6 text-center"><PackageOpen className="h-8 w-8 text-slate-300" /><h3 className="mt-4 text-base font-extrabold">{title}</h3><p className="mt-1 max-w-md text-sm text-slate-500">{description}</p></div>;
 }
 
 export function PageLoader() {
@@ -29,5 +29,5 @@ export function PageLoader() {
 }
 
 export function Panel({ title, description, action, children, className }) {
-  return <section className={cn("border border-slate-200 bg-white shadow-sm", className)}><div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4"><div><h3 className="text-base font-extrabold">{title}</h3>{description && <p className="mt-1 text-xs text-slate-500">{description}</p>}</div>{action}</div>{children}</section>;
+  return <section className={cn("overflow-hidden rounded-md border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,.04),0_10px_28px_rgba(15,23,42,.03)]", className)}><div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4"><div><h3 className="text-base font-extrabold">{title}</h3>{description && <p className="mt-1 text-xs text-slate-500">{description}</p>}</div>{action}</div>{children}</section>;
 }

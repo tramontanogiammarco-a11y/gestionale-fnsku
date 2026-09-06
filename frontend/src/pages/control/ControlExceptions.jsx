@@ -36,7 +36,7 @@ export default function ControlExceptions() {
     setData({ orders: ordersResponse.data || [], shipments: shipmentsResponse.data || [] });
   }, [context.clientId, context.isStaff]);
 
-  useEffect(() => { setData(null); load({ recheck: context.isStaff }); }, [context.isStaff, load]);
+  useEffect(() => { setData(null); load(); }, [load]);
 
   const exceptions = useMemo(() => {
     if (!data) return [];

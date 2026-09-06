@@ -1,12 +1,10 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 body {
     margin: 0;
-    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
@@ -62,10 +60,10 @@ body {
     }
     body {
         @apply bg-background text-foreground;
-        background: #f2f4f5;
+        background: #f4f6f7;
     }
     h1, h2, h3, h4 {
-        font-family: 'DM Sans', sans-serif;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     }
     .font-mono {
         font-family: 'JetBrains Mono', monospace;
@@ -97,7 +95,7 @@ body {
 
 @layer components {
     .wms-icon-button {
-        @apply flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-900 transition hover:border-teal-400 hover:text-teal-800 active:bg-slate-100;
+        @apply flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-900 shadow-sm transition-all duration-150 hover:border-teal-400 hover:text-teal-800 active:scale-[.97] active:bg-slate-100;
     }
     .wms-segment {
         @apply min-h-11 rounded-md px-2 text-sm font-bold text-slate-500 transition;
@@ -121,10 +119,10 @@ body {
         @apply mt-1 max-w-xl text-sm font-medium leading-5 text-slate-500;
     }
     .wms-panel {
-        @apply rounded-md border border-slate-200 bg-white;
+        @apply rounded-md border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,.04),0_8px_24px_rgba(15,23,42,.025)];
     }
     .wms-action-row {
-        @apply flex min-h-16 w-full items-center gap-3 rounded-md border border-slate-200 bg-white px-3.5 py-3 text-left transition hover:border-slate-400 active:bg-slate-50;
+        @apply flex min-h-16 w-full items-center gap-3 rounded-md border border-slate-200 bg-white px-3.5 py-3 text-left shadow-[0_1px_2px_rgba(15,23,42,.04)] transition-all duration-150 hover:border-slate-300 hover:shadow-sm active:scale-[.995] active:bg-slate-50;
     }
     .wms-action-icon {
         @apply flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-slate-950 text-white;
@@ -141,7 +139,7 @@ body {
 
 .wms-shell {
     background: #e9edef;
-    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 .wms-app-frame {
@@ -151,20 +149,49 @@ body {
 .wms-topbar {
     background: rgba(255, 255, 255, .96);
     border-color: #d9e0e4;
-    backdrop-filter: blur(12px);
+    box-shadow: 0 1px 0 rgba(15, 23, 42, .025);
+    backdrop-filter: blur(16px) saturate(1.15);
 }
 
 .wms-bottom-nav {
     background: rgba(255, 255, 255, .97);
     border-color: #d9e0e4;
     box-shadow: 0 -1px 0 rgba(15, 23, 42, .03);
-    backdrop-filter: blur(12px);
+    backdrop-filter: blur(16px) saturate(1.15);
 }
 
 .wms-shell button,
 .wms-shell a,
 .wms-shell input {
     -webkit-tap-highlight-color: transparent;
+}
+
+.wms-shell button,
+.app-shell button,
+.app-shell a {
+    transition-duration: 150ms;
+}
+
+.wms-shell :is(section, button).border-2 {
+    border-radius: .5rem;
+}
+
+.app-shell {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.app-sidebar {
+    box-shadow: 1px 0 0 rgba(15, 23, 42, .02);
+}
+
+.app-topbar {
+    box-shadow: 0 1px 0 rgba(15, 23, 42, .025);
+    backdrop-filter: blur(16px) saturate(1.15);
+}
+
+.app-shell main :is(h1, h2, h3) {
+    color: #0b1220;
+    font-weight: 750;
 }
 
 .wms-shell button:focus-visible,

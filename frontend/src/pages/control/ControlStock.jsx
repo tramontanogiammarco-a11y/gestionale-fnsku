@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { ArrowRight, ArrowRightLeft, Boxes, ChevronRight, ClipboardCheck, Loader2, MapPin, PackageCheck, Save, Search, Scale, Truck, Warehouse } from "lucide-react";
 import { toast } from "sonner";
@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
+import { loadWmsStock, peekWmsStock } from "@/lib/wmsStockPrefetch";
 import { EmptyState, Metric, PageIntro, PageLoader, Panel, StatusPill } from "./ControlUi";
 
 const EMPTY_FORM = { ean: "", sku: "", peso_kg: "", lunghezza_cm: "", larghezza_cm: "", altezza_cm: "", picking_scan_product_enabled: false };
@@ -141,14 +142,14 @@ function ProductDetail({ product, onOpenChange, onSaved }) {
 export default function ControlStock() {
   const context = useOutletContext();
   const { clientId } = context;
-  const [data, setData] = useState(null);
+  const initialData = useRef(peekWmsStock(clientId || "all")?.data || null).current;
+  const [data, setData] = useState(initialData);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(null);
 
-  const load = useCallback(async (keepReferenceId = null) => {
-    const query = clientId ? `?cliente_id=${encodeURIComponent(clientId)}` : "";
+  const load = useCallback(async (keepReferenceId = null, { force = false } = {}) => {
     try {
-      const response = await api.get(`/wms/stock${query}`);
+      const response = await loadWmsStock(clientId || "all", { force: force || Boolean(keepReferenceId) });
       const next = response.data || { products: [], summary: {} };
       setData(next);
       if (keepReferenceId) setSelected(next.products?.find((product) => product.referenza_id === keepReferenceId) || null);
@@ -160,7 +161,12 @@ export default function ControlStock() {
     }
   }, [clientId]);
 
-  useEffect(() => { setData(null); setSelected(null); load(); }, [load]);
+  useEffect(() => {
+    const cached = peekWmsStock(clientId || "all")?.data || null;
+    setData(cached);
+    setSelected(null);
+    load(null, { force: Boolean(cached) });
+  }, [clientId, load]);
   const rows = useMemo(() => (data?.products || []).filter((row) => [row.titolo, row.ean, row.fnsku, ...(row.skus || []), row.cliente].join(" ").toLowerCase().includes(search.toLowerCase())), [data, search]);
   if (!data) return <PageLoader />;
   const totals = (data.products || []).reduce((acc, row) => ({ received: acc.received + Number(row.ricevuto || 0), available: acc.available + Number(row.disponibile || 0), prep: acc.prep + Number(row.in_preparazione || 0) }), { received: 0, available: 0, prep: 0 });

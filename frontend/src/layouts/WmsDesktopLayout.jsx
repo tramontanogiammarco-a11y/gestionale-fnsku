@@ -12,6 +12,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import logo from "@/assets/logo.png";
+import { prefetchControlRoutes, scheduleRoutePrefetch } from "@/lib/appRoutePrefetch";
 
 const CORE_NAV = [
   { to: "/wms", end: true, label: "Panoramica", icon: LayoutDashboard },
@@ -62,13 +63,18 @@ export default function WmsDesktopLayout() {
   }, [isStaff]);
 
   useEffect(() => {
-    if (!isStaff) return;
-    api.post("/wms/order-gate/recheck", {
-      cliente_id: clientId === "all" ? null : clientId,
-      pending_only: true,
-      limit: 50,
-    }).catch(() => {});
+    if (!isStaff) return undefined;
+    const timer = window.setTimeout(() => {
+      api.post("/wms/order-gate/recheck", {
+        cliente_id: clientId === "all" ? null : clientId,
+        pending_only: true,
+        limit: 50,
+      }).catch(() => {});
+    }, 1_200);
+    return () => window.clearTimeout(timer);
   }, [clientId, isStaff]);
+
+  useEffect(() => scheduleRoutePrefetch(prefetchControlRoutes), []);
 
   const current = useMemo(() => {
     const all = [...CORE_NAV, ...(isStaff ? ADMIN_NAV : CLIENT_NAV)];
@@ -80,8 +86,8 @@ export default function WmsDesktopLayout() {
   const signOut = async () => { await logout(); navigate("/login", { replace: true }); };
 
   return (
-    <div className="min-h-screen bg-[#f4f6f7] text-slate-950">
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-slate-200/80 bg-white lg:flex">
+    <div className="app-shell min-h-screen bg-[#f4f6f7] text-slate-950">
+      <aside className="app-sidebar fixed inset-y-0 left-0 z-40 hidden w-64 flex-col border-r border-slate-200/80 bg-white lg:flex">
         <div className="flex h-[72px] items-center gap-3 border-b border-slate-100 px-5">
           <img src={logo} alt="Aimago" className="h-10 w-10 object-contain" />
           <div><div className="text-base font-extrabold">Aimago</div><div className="text-[10px] font-extrabold uppercase text-teal-700">Logistics Control</div></div>
@@ -102,7 +108,7 @@ export default function WmsDesktopLayout() {
       </aside>
 
       <div className="lg:pl-64">
-        <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/90 backdrop-blur-xl">
+        <header className="app-topbar sticky top-0 z-30 border-b border-slate-200/80 bg-white/90 backdrop-blur-xl">
           <div className="flex min-h-[72px] items-center gap-4 px-4 sm:px-6 lg:px-8">
             <div className="flex min-w-0 items-center gap-3 lg:hidden"><img src={logo} alt="Aimago" className="h-9 w-9 object-contain" /><div><div className="text-sm font-extrabold">Aimago</div><div className="text-[10px] text-slate-500">{current.label}</div></div></div>
             <div className="hidden min-w-0 lg:block"><p className="text-[10px] font-extrabold uppercase text-teal-700">Control Tower</p><h1 className="truncate text-lg font-extrabold">{current.label}</h1></div>

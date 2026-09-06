@@ -222,8 +222,8 @@ function BottomNavigation() {
     <nav className="wms-bottom-nav fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-3xl border-x border-t px-2 pb-[max(6px,env(safe-area-inset-bottom))] pt-1" aria-label="Navigazione WMS">
       <div className="grid grid-cols-5 gap-1">
         {items.map((item) => (
-          <button key={item.label} type="button" onClick={item.action} className={`relative flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-md px-1 text-[10px] font-bold transition ${item.active ? "text-teal-800" : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"}`}>
-            <span className="flex h-6 w-9 items-center justify-center"><item.icon className={`h-[19px] w-[19px] ${item.active ? "stroke-[2.5]" : ""}`} /></span>
+          <button key={item.label} type="button" onClick={item.action} aria-current={item.active ? "page" : undefined} className={`relative flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-md px-1 text-[10px] font-bold transition ${item.active ? "text-teal-800" : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"}`}>
+            <span className={`flex h-7 w-10 items-center justify-center rounded-md transition ${item.active ? "bg-teal-50" : ""}`}><item.icon className={`h-[19px] w-[19px] ${item.active ? "stroke-[2.5]" : ""}`} /></span>
             {item.label}
           </button>
         ))}
@@ -238,7 +238,7 @@ function CompanySheet({ open, onOpenChange, clients, selected, totalOpen, onSele
       <SheetContent side="bottom" className="mx-auto max-h-[75dvh] w-full max-w-3xl overflow-y-auto rounded-t-lg border-0 bg-white p-0">
         <SheetHeader className="border-b border-slate-100 px-5 pb-4 pt-6 text-left">
           <SheetTitle className="text-xl font-black">Azienda</SheetTitle>
-          <SheetDescription>Filtra gli arrivi del magazzino.</SheetDescription>
+          <SheetDescription>Filtra ordini, stock e attività operative.</SheetDescription>
         </SheetHeader>
         <div className="divide-y divide-slate-100 pb-[max(18px,env(safe-area-inset-bottom))]">
           <CompanyRow name="Tutte le aziende" count={totalOpen} selected={selected === "all"} onClick={() => onSelect("all")} />

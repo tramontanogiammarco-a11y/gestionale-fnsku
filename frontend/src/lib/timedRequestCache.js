@@ -15,7 +15,9 @@ export function createTimedRequestCache(ttlMs) {
     }
 
     const promise = loader().then((response) => {
-      entries.set(key, { response, createdAt: Date.now() });
+      if (entries.get(key)?.promise === promise) {
+        entries.set(key, { response, createdAt: Date.now() });
+      }
       return response;
     }).catch((error) => {
       if (entries.get(key)?.promise === promise) entries.delete(key);
