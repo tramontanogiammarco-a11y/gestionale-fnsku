@@ -3,6 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
+    "@capacitor/barcode-scanner": "^3.1.2",
+    "@capacitor/core": "^8.5.1",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/ios": "^8.5.1",
+    "@capacitor/network": "^8.0.1",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.3",
     "@hookform/resolvers": "5.0.1",
     "@phosphor-icons/react": "^2.1.10",
     "@radix-ui/react-accordion": "1.2.8",
@@ -70,7 +77,11 @@
   "scripts": {
     "start": "craco start",
     "build": "craco build",
-    "test": "craco test"
+    "test": "craco test",
+    "ios:add": "npm run build && cap add ios",
+    "ios:sync": "npm run build && cap sync ios",
+    "ios:open": "cap open ios",
+    "ios:doctor": "cap doctor ios"
   },
   "browserslist": {
     "production": [
@@ -86,6 +97,7 @@
   },
   "devDependencies": {
     "@babel/plugin-proposal-private-property-in-object": "7.21.11",
+    "@capacitor/cli": "^8.5.1",
     "@craco/craco": "7.1.0",
     "@eslint/js": "9.23.0",
     "@types/lodash": "4.17.24",

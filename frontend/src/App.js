@@ -5,6 +5,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { Loader2 } from "lucide-react";
+import { isNativeApp } from "@/lib/nativeApp";
+import NativeAppBridge from "@/components/wms/NativeAppBridge";
 
 const Login = lazy(() => import("@/pages/Login"));
 const AdminLayout = lazy(() => import("@/layouts/AdminLayout"));
@@ -75,7 +77,8 @@ const WmsOperators = lazy(() => import("@/pages/wms/WmsOperators"));
 // Reindirizza dalla root all'area corretta
 function RootRedirect() {
   const { user } = useAuth();
-  const wmsOnly = process.env.REACT_APP_WMS_ONLY === "true"
+  const nativeApp = isNativeApp();
+  const wmsOnly = nativeApp || process.env.REACT_APP_WMS_ONLY === "true"
     || window.location.hostname === "aimago-prep-wms.vercel.app";
   if (user === null)
     return (
@@ -83,8 +86,8 @@ function RootRedirect() {
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
-  if (!user) return <Navigate to="/login" replace state={wmsOnly ? { from: "/wms" } : undefined} />;
-  return <Navigate to={user.is_operator ? "/wms-app" : "/wms"} replace />;
+  if (!user) return <Navigate to="/login" replace state={wmsOnly ? { from: nativeApp ? "/wms-app" : "/wms" } : undefined} />;
+  return <Navigate to={(nativeApp && user.role !== "cliente") || user.is_operator ? "/wms-app" : "/wms"} replace />;
 }
 
 function LegacyWmsInboundRedirect() {
@@ -101,6 +104,7 @@ function App() {
   return (
     <div className="App">
       <AuthProvider>
+        <NativeAppBridge />
         <BrowserRouter>
           <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>}>
           <Routes>

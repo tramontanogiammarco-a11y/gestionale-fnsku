@@ -1,0 +1,20 @@
+{
+  "appId": "com.aimago.logistics.wms",
+  "appName": "Aimago WMS",
+  "webDir": "build",
+  "server": {
+    "iosScheme": "https"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1000,
+      "backgroundColor": "#ffffff",
+      "showSpinner": false
+    },
+    "StatusBar": {
+      "style": "LIGHT",
+      "overlaysWebView": false,
+      "backgroundColor": "#f8fafc"
+    }
+  }
+}

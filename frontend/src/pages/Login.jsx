@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ArrowRight, Boxes, Loader2, ShieldCheck, Truck } from "lucide-react";
 import logo from "@/assets/logo-transparent.png";
+import { isNativeApp } from "@/lib/nativeApp";
 
 export default function Login() {
   const { login } = useAuth();
@@ -26,7 +27,7 @@ export default function Login() {
       const requestedPath = location.state?.from;
       const staffDestination = typeof requestedPath === "string" && requestedPath.startsWith("/wms")
         ? requestedPath
-        : "/wms";
+        : isNativeApp() ? "/wms-app" : "/wms";
       navigate(res.user.role === "cliente" ? "/wms" : staffDestination, { replace: true });
     } else {
       setError(res.error);

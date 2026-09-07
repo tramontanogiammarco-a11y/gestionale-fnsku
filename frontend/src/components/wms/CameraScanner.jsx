@@ -2,23 +2,48 @@ import { useEffect, useRef, useState } from "react";
 import { BrowserMultiFormatReader } from "@zxing/browser";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { isNativeApp, scanNativeBarcode } from "@/lib/nativeApp";
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 
 export default function CameraScanner({ open, onOpenChange, purpose = "universal", onDetected, context = null, allowManual = true }) {
   const controlsRef = useRef(null);
+  const nativeScanRef = useRef(false);
   const onDetectedRef = useRef(onDetected);
+  const onOpenChangeRef = useRef(onOpenChange);
   const [videoElement, setVideoElement] = useState(null);
   const [starting, setStarting] = useState(false);
   const [previewReady, setPreviewReady] = useState(false);
   const [error, setError] = useState("");
   const compactPicking = Boolean(context && (context.compact || ["location", "cart"].includes(purpose)));
+  const nativeScanner = isNativeApp();
 
   useEffect(() => { onDetectedRef.current = onDetected; }, [onDetected]);
+  useEffect(() => { onOpenChangeRef.current = onOpenChange; }, [onOpenChange]);
 
   useEffect(() => {
-    if (!open || !videoElement) return undefined;
+    if (!open || !nativeScanner || nativeScanRef.current) return;
+    nativeScanRef.current = true;
+    setStarting(true);
+    setError("");
+
+    scanNativeBarcode(purpose)
+      .then((value) => {
+        if (value) onDetectedRef.current(value);
+        else onOpenChangeRef.current(false);
+      })
+      .catch(() => {
+        setError("Scanner non disponibile. Controlla il permesso Fotocamera nelle impostazioni di iOS e riprova.");
+      })
+      .finally(() => {
+        nativeScanRef.current = false;
+        setStarting(false);
+      });
+  }, [nativeScanner, open, purpose]);
+
+  useEffect(() => {
+    if (nativeScanner || !open || !videoElement) return undefined;
     let cancelled = false;
     let handled = false;
     const reader = new BrowserMultiFormatReader(undefined, {
@@ -58,7 +83,7 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
       controlsRef.current?.stop();
       controlsRef.current = null;
     };
-  }, [allowManual, open, videoElement]);
+  }, [allowManual, nativeScanner, open, videoElement]);
 
   const title = purpose === "location" ? "Scansiona posizione" : purpose === "product" ? "Scansiona prodotto" : purpose === "bag" ? "Scansiona bag" : purpose === "cart" ? "Scansiona carrello" : purpose === "carrier_label" ? "Scansiona etichetta corriere" : purpose === "packing" ? "Scansiona carrello o bag" : "Scanner universale";
   const description = purpose === "location"
@@ -76,6 +101,24 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
         : purpose === "packing"
           ? "Inquadra il barcode del carrello oppure quello applicato alla bag."
       : "Inquadra una posizione, un EAN o un FNSKU.";
+
+  if (nativeScanner) {
+    if (!error) return null;
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="wms-shell max-w-[calc(100%-24px)] rounded-md border-slate-300 bg-[#f8faf9] sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{title}</DialogTitle>
+            <DialogDescription>{error}</DialogDescription>
+          </DialogHeader>
+          <Button type="button" className="h-12 w-full" onClick={() => {
+            setError("");
+            onOpenChange(false);
+          }}>Chiudi</Button>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
