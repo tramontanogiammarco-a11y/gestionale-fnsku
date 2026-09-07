@@ -6431,7 +6431,11 @@ async function startWmsMassPicking(payload = {}) {
   const orderIds = selectedOrders.map((order) => order.id);
   const firstOrder = selectedOrders[0];
   const combinedItems = (firstOrder.items || []).map((item) => ({ ...item, quantita: Number(item.quantita || 0) * selectedOrders.length }));
-  const queuedSlotReserved = await verifiedQueuedReservationsExcept(group.cliente_id, orderIds);
+  const queuedSlotReserved = await verifiedQueuedReservationsExcept(
+    group.cliente_id,
+    orderIds,
+    { before: selectedOrders[0] },
+  );
   const plan = await wmsPickingPlan(firstOrder, combinedItems, { queuedSlotReserved });
   if (plan.errors.length) fail(plan.errors.join(" "));
   if (plan.replenishment.length) fail(`Rifornisci prima gli slot per ${plan.replenishment.length} ${plan.replenishment.length === 1 ? "prodotto" : "prodotti"}.`);
