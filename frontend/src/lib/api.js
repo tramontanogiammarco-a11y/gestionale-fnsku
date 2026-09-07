@@ -8949,7 +8949,6 @@ async function fatturazione(params) {
   const clienteId = isStaff(profile) ? params.get("cliente_id") : profile.cliente_id;
   const anno = Number(params.get("anno"));
   const mese = Number(params.get("mese"));
-  const palletStoccati = Number(params.get("pallet") || 0);
   if (!clienteId || !anno || !mese) fail("Cliente, anno e mese sono obbligatori");
 
   const start = new Date(Date.UTC(anno, mese - 1, 1)).toISOString();
@@ -8987,14 +8986,25 @@ async function fatturazione(params) {
     return riga;
   };
 
-  const [{ data: entrate, error: entrateError }, { data: preps, error: prepsError }, { data: boxes, error: boxesError }, { data: packagingUsage, error: packagingError }] = await Promise.all([
+  const [
+    { data: entrate, error: entrateError },
+    { data: preps, error: prepsError },
+    { data: boxes, error: boxesError },
+    { data: packagingUsage, error: packagingError },
+    { data: storageMonth, error: storageError },
+  ] = await Promise.all([
     supabase.from("entrate").select("*").eq("cliente_id", clienteId).gte("data_ricezione", start).lt("data_ricezione", end),
     supabase.from("preparazioni").select("*").eq("cliente_id", clienteId).in("stato", ["pronto", "spedito"]).gte("data_pronto", start).lt("data_pronto", end),
     supabase.from("box").select("*").eq("cliente_id", clienteId),
     supabase.from("wms_order_packaging_usage").select("order_id,packaging_code,quantity,unit_price_snapshot,scanned_at").eq("cliente_id", clienteId).gte("scanned_at", start).lt("scanned_at", end),
+    supabase.from("wms_billing_storage_months").select("*").eq("cliente_id", clienteId).eq("anno", anno).eq("mese", mese).maybeSingle(),
   ]);
-  const firstError = entrateError || prepsError || boxesError || packagingError;
+  const firstError = entrateError || prepsError || boxesError || packagingError || storageError;
   if (firstError) fail(firstError.message);
+  const palletStoccati = Number(storageMonth?.pallet_quantity || 0);
+  const storageUnitPrice = storageMonth
+    ? Number(storageMonth.unit_price_snapshot || 0)
+    : price("stoccaggio_pallet");
 
   const prepIds = (preps || []).map((p) => p.id);
   const entrataIds = (entrate || []).map((e) => e.id);
@@ -9011,6 +9021,7 @@ async function fatturazione(params) {
   if (detailError) fail(detailError.message);
 
   const refByEan = Object.fromEntries((refs || []).map((r) => [r.ean, r]));
+  const refById = Object.fromEntries((refs || []).map((r) => [r.id, r]));
   const righeByPrep = groupBy(prepRighe || [], "preparazione_id");
   const righeByEntrata = groupBy(entrateRighe || [], "entrata_id");
   const boxesByPrep = boxesByPreparazioneWithFallback(preps || [], prepRighe || [], boxes || []);
@@ -9092,16 +9103,23 @@ async function fatturazione(params) {
   const scatola40 = boxesFatturabili.filter((b) => boxScatolaCodice(b) === "scatola_40").length;
   addRiga("scatola_60", "Scatola 60x40x40", scatola60, price("scatola_60"));
   addRiga("scatola_40", "Scatola 40x30x30", scatola40, price("scatola_40"));
-  addRiga("stoccaggio_pallet", "Stoccaggio pallet mese", palletStoccati, price("stoccaggio_pallet"));
+  addRiga("stoccaggio_pallet", "Stoccaggio pallet mese", palletStoccati, storageUnitPrice);
 
   const packedOrderIds = [...new Set((packagingUsage || []).map((usage) => usage.order_id))];
-  const [{ data: packedItems, error: packedItemsError }, { data: packedOrders, error: packedOrdersError }] = packedOrderIds.length
+  const [
+    { data: packedItems, error: packedItemsError },
+    { data: packedOrders, error: packedOrdersError },
+    { data: packedShipments, error: packedShipmentsError },
+  ] = packedOrderIds.length
     ? await Promise.all([
-      supabase.from("shopify_order_items").select("order_id,quantita").in("order_id", packedOrderIds),
-      supabase.from("shopify_orders").select("id,order_name,selected_carrier,shipping_price").in("id", packedOrderIds),
+      supabase.from("shopify_order_items").select("order_id,referenza_id,sku,ean,titolo,quantita").in("order_id", packedOrderIds),
+      supabase.from("shopify_orders").select("id,shopify_order_id,order_name,shop_domain,processed_at,ship_name,ship_company,ship_address1,ship_address2,ship_zip,ship_city,ship_province,ship_country,customer_email,customer_phone,selected_carrier,shipping_price,shipping_billable_weight,shipping_zone").in("id", packedOrderIds),
+      supabase.from("wms_shipments").select("id,order_id,corriere,servizio,stato,tracking,carrier_reference,created_at,updated_at").in("order_id", packedOrderIds),
     ])
-    : [{ data: [], error: null }, { data: [], error: null }];
-  if (packedItemsError || packedOrdersError) fail((packedItemsError || packedOrdersError).message);
+    : [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }];
+  if (packedItemsError || packedOrdersError || packedShipmentsError) {
+    fail((packedItemsError || packedOrdersError || packedShipmentsError).message);
+  }
   const piecesByOrder = (packedItems || []).reduce((accumulator, item) => {
     accumulator[item.order_id] = (accumulator[item.order_id] || 0) + Number(item.quantita || 0);
     return accumulator;
@@ -9147,6 +9165,76 @@ async function fatturazione(params) {
     return !latest || new Date(usage.scanned_at) > new Date(latest) ? usage.scanned_at : latest;
   }, null);
   const ordersWithoutShipping = Math.max(0, packedOrderIds.length - Object.values(shippingByCarrier).reduce((sum, totals) => sum + Number(totals.count || 0), 0));
+  const itemsByPackedOrder = groupBy(packedItems || [], "order_id");
+  const packagingByOrder = Object.fromEntries((packagingUsage || []).map((usage) => [usage.order_id, usage]));
+  const shipmentsByOrder = groupBy(packedShipments || [], "order_id");
+  const packedOrdersDetail = (packedOrders || []).map((order) => {
+    const orderItems = itemsByPackedOrder[order.id] || [];
+    const usage = packagingByOrder[order.id] || null;
+    const shipment = [...(shipmentsByOrder[order.id] || [])]
+      .sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at))[0] || null;
+    const pieces = orderItems.reduce((sum, item) => sum + Number(item.quantita || 0), 0);
+    const extraQuantity = Math.max(0, pieces - 1);
+    const shippingCost = Number(order.shipping_price || 0);
+    const baseCost = pieces > 0 ? price("wms_order_base_fee") : 0;
+    const extraCost = extraQuantity * price("wms_extra_item_fee");
+    const packagingCost = Number(usage?.quantity || 0) * Number(usage?.unit_price_snapshot || 0);
+    const products = orderItems.map((item) => ({
+      title: item.titolo,
+      sku: item.sku || null,
+      ean: item.ean || null,
+      fnsku: refById[item.referenza_id]?.fnsku || null,
+      quantity: Number(item.quantita || 0),
+    }));
+    return {
+      order_id: order.id,
+      order_name: order.order_name,
+      shopify_order_id: order.shopify_order_id,
+      shop_domain: order.shop_domain,
+      processed_at: order.processed_at,
+      packed_at: usage?.scanned_at || null,
+      recipient: {
+        name: order.ship_name,
+        company: order.ship_company,
+        address1: order.ship_address1,
+        address2: order.ship_address2,
+        zip: order.ship_zip,
+        city: order.ship_city,
+        province: order.ship_province,
+        country: order.ship_country,
+        email: order.customer_email,
+        phone: order.customer_phone,
+      },
+      shipment: shipment ? {
+        carrier: shipment.corriere,
+        service: shipment.servizio,
+        status: shipment.stato,
+        tracking: shipment.tracking,
+        carrier_reference: shipment.carrier_reference,
+      } : null,
+      carrier: shipment?.corriere || order.selected_carrier || null,
+      tracking: shipment?.tracking || shipment?.carrier_reference || null,
+      billable_weight_kg: Number(order.shipping_billable_weight || 0),
+      shipping_zone: order.shipping_zone || null,
+      products,
+      products_summary: products.map((item) => `${item.title} x${item.quantity}`).join("; "),
+      pieces,
+      packaging: usage ? {
+        code: usage.packaging_code,
+        name: WMS_PACKAGING_NAMES[usage.packaging_code] || usage.packaging_code,
+        quantity: Number(usage.quantity || 0),
+      } : null,
+      costs: {
+        shipping: shippingCost,
+        base_fee: baseCost,
+        extra_quantity: extraQuantity,
+        extra_unit_fee: price("wms_extra_item_fee"),
+        extra_total: extraCost,
+        packaging: packagingCost,
+        net_total: shippingCost + baseCost + extraCost + packagingCost,
+      },
+    };
+  }).sort((a, b) => new Date(a.packed_at || 0) - new Date(b.packed_at || 0));
 
   const entrateDettaglio = (entrate || []).map((entrata) => {
     const colli = Number(entrata.colli || 1);
@@ -9198,8 +9286,9 @@ async function fatturazione(params) {
       preparazioni: preparazioniDettaglio,
       stoccaggio: {
         pallet: palletStoccati,
-        prezzo: price("stoccaggio_pallet"),
-        importo: palletStoccati * price("stoccaggio_pallet"),
+        prezzo: storageUnitPrice,
+        importo: palletStoccati * storageUnitPrice,
+        registrato_il: storageMonth?.updated_at || null,
       },
       ordini_imballati: {
         ultimo_imballato_at: latestPackedAt,
@@ -9225,10 +9314,46 @@ async function fatturazione(params) {
           importo: packagingAmount,
           per_tipo: packagingTotals,
         },
+        dettaglio: packedOrdersDetail,
         totale: shippingAmount + orderBaseAmount + extraItemsAmount + packagingAmount,
       },
     },
   });
+}
+
+async function saveBillingStorageMonth(payload = {}) {
+  const profile = await currentProfile();
+  if (!isStaff(profile)) fail("Solo Aimago puo aggiornare lo stoccaggio mensile", 403);
+  const clienteId = String(payload.cliente_id || "").trim();
+  const anno = Number(payload.anno);
+  const mese = Number(payload.mese);
+  const palletQuantity = Number(payload.pallet);
+  if (!clienteId || !Number.isInteger(anno) || anno < 2020 || anno > 2200) fail("Cliente o anno non valido");
+  if (!Number.isInteger(mese) || mese < 1 || mese > 12) fail("Mese non valido");
+  if (!Number.isInteger(palletQuantity) || palletQuantity < 0) fail("Il numero di pallet deve essere un intero positivo o zero");
+
+  const { data: cliente, error: clienteError } = await requireSupabase()
+    .from("clienti")
+    .select("id,listino")
+    .eq("id", clienteId)
+    .single();
+  if (clienteError || !cliente) fail(clienteError?.message || "Cliente non trovato");
+
+  const { data, error } = await requireSupabase()
+    .from("wms_billing_storage_months")
+    .upsert({
+      cliente_id: clienteId,
+      anno,
+      mese,
+      pallet_quantity: palletQuantity,
+      unit_price_snapshot: numberFromListino(cliente.listino || {}, "stoccaggio_pallet", 0),
+      recorded_by: profile.id,
+      updated_at: nowIso(),
+    }, { onConflict: "cliente_id,anno,mese" })
+    .select()
+    .single();
+  if (error) fail(error.message);
+  return ok(data);
 }
 
 function simplePdfTextBlob(lines = []) {
@@ -9567,6 +9692,7 @@ export const api = {
   async post(url, payload, config = {}) {
     const { path } = pathAndQuery(url);
     if (path === "/clienti") return createCliente(payload);
+    if (path === "/fatturazione/stoccaggio") return saveBillingStorageMonth(payload);
     if (path.match(/^\/clienti\/[^/]+\/carrier-rates\/import$/)) return importClientCarrierRates(path.split("/")[2], payload);
     if (path.match(/^\/clienti\/[^/]+\/carrier-rates\/replace$/)) return replaceClientCarrierRates(path.split("/")[2], payload);
     if (path === "/wms/operatori/manage") return manageWmsOperator(payload);

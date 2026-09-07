@@ -1,6 +1,6 @@
 # PROJECT_STATUS.md
 
-Aggiornato al 4 settembre 2026.
+Aggiornato al 7 settembre 2026.
 
 ## Sintesi
 
@@ -16,7 +16,7 @@ Il prodotto e in una fase avanzata di prototipo operativo: molti flussi sono uti
 - Vercel org ID: `team_6L8NmbyP5T1oDOVT5Wd6BMKs`
 - Ultimo deployment verificato: `dpl_P4i5fSJTnH4wythnntbWjhoZutda`
 - Supabase project ref: `ryprjuqfervusppnedsz`
-- Migrazioni repository: `001` - `107`
+- Migrazioni repository: `001` - `114`
 
 Le route SPA vengono riscritte verso `index.html`, quindi i link diretti alle aree React devono funzionare su Vercel.
 
@@ -177,6 +177,8 @@ Per Relifebattery sono stati importati catalogo, immagini e giacenze di test. Gl
 - Preventivo corriere per ordine.
 - Selezione predefinita del corriere piu economico e possibilita di cambio prima del packing.
 - Costi ordine: prima unita, unita aggiuntive, imballaggio e spedizione.
+- Stoccaggio mensile persistente per cliente con tariffa storicizzata.
+- Export Excel cliente per periodo con riepilogo, spedizioni, prodotti, entrate, Prep FBA e stoccaggio.
 - Layout di test distinti per etichette GLS/BRT.
 
 Le funzioni per ShippyPro e Sendcloud esistono, ma il flusso reale richiede credenziali, configurazione mittente, verifica contratti/listini e certificazione end-to-end. Le etichette demo non equivalgono ancora a una integrazione corriere certificata in produzione.

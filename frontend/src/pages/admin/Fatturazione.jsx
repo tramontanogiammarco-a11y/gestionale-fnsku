@@ -14,7 +14,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Loader2, Receipt, Download, Calculator, Boxes, ClipboardList, PackageOpen, Warehouse, Truck, PackageCheck, CircleDollarSign } from "lucide-react";
+import { Loader2, Receipt, Download, FileSpreadsheet, Calculator, Boxes, ClipboardList, PackageOpen, Warehouse, Truck, PackageCheck, CircleDollarSign } from "lucide-react";
 import { STATI_PREP } from "@/lib/statuses";
 
 const MESI = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno",
@@ -30,6 +30,7 @@ export default function AdminFatturazione({ clientMode = false, forcedClienteId 
   const [pallet, setPallet] = useState(0);
   const [fattura, setFattura] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [excelLoading, setExcelLoading] = useState(false);
 
   useEffect(() => {
     if (!clientMode) api.get("/clienti").then((r) => setClienti(r.data));
@@ -47,16 +48,26 @@ export default function AdminFatturazione({ clientMode = false, forcedClienteId 
     }
     setLoading(true);
     try {
+      if (!clientMode && !silent) {
+        await api.post("/fatturazione/stoccaggio", {
+          cliente_id: clienteId,
+          anno,
+          mese,
+          pallet: Number(pallet) || 0,
+        });
+      }
       const query = new URLSearchParams({
         anno: String(anno),
         mese: String(mese),
-        pallet: String(clientMode ? 0 : Number(pallet) || 0),
       });
       if (!clientMode) query.set("cliente_id", clienteId);
       const r = await api.get(`/fatturazione?${query.toString()}`);
       setFattura(r.data);
+      if (!clientMode) setPallet(Number(r.data?.dettaglio?.stoccaggio?.pallet || 0));
+      return r.data;
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Errore nel calcolo");
+      return null;
     } finally { setLoading(false); }
   };
 
@@ -68,16 +79,39 @@ export default function AdminFatturazione({ clientMode = false, forcedClienteId 
   const scaricaPdf = async () => {
     if (!clientMode && !clienteId) { toast.error("Seleziona un cliente"); return; }
     try {
+      if (!clientMode) {
+        await api.post("/fatturazione/stoccaggio", {
+          cliente_id: clienteId,
+          anno,
+          mese,
+          pallet: Number(pallet) || 0,
+        });
+      }
       const query = new URLSearchParams({
         anno: String(anno),
         mese: String(mese),
-        pallet: String(clientMode ? 0 : Number(pallet) || 0),
       });
       if (!clientMode) query.set("cliente_id", clienteId);
       const res = await api.get(`/fatturazione/pdf?${query.toString()}`, { responseType: "blob" });
       window.open(URL.createObjectURL(res.data), "_blank");
     } catch (e) {
       toast.error("Errore nella generazione PDF");
+    }
+  };
+
+  const scaricaExcel = async () => {
+    if (!clientMode && !clienteId) { toast.error("Seleziona un cliente"); return; }
+    setExcelLoading(true);
+    try {
+      const invoice = await calcola();
+      if (!invoice) return;
+      const { downloadBillingWorkbook } = await import("@/lib/billingWorkbook");
+      await downloadBillingWorkbook(invoice);
+      toast.success("Excel fatturazione scaricato");
+    } catch (e) {
+      toast.error(e?.message || "Errore nella generazione Excel");
+    } finally {
+      setExcelLoading(false);
     }
   };
 
@@ -121,7 +155,7 @@ export default function AdminFatturazione({ clientMode = false, forcedClienteId 
           </div>
           {!clientMode && (
             <div>
-              <Label className="text-xs">N. pallet stoccati</Label>
+              <Label className="text-xs">Pallet stoccati nel mese</Label>
               <Input type="number" min={0} data-testid="fatt-pallet" value={pallet} onChange={(e) => setPallet(e.target.value)} className="mt-1" />
             </div>
           )}
@@ -132,6 +166,10 @@ export default function AdminFatturazione({ clientMode = false, forcedClienteId 
           </Button>
           <Button variant="outline" onClick={scaricaPdf} disabled={!fattura} data-testid="fatt-pdf-btn">
             <Download className="h-4 w-4 mr-2" /> Scarica PDF
+          </Button>
+          <Button variant="outline" onClick={scaricaExcel} disabled={!fattura || loading || excelLoading} data-testid="fatt-excel-btn">
+            {excelLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FileSpreadsheet className="h-4 w-4 mr-2" />}
+            Scarica Excel
           </Button>
         </div>
       </Card>
