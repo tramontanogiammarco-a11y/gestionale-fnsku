@@ -312,21 +312,28 @@ function addPrepSheet(workbook, invoice) {
 function addStorageSheet(workbook, invoice) {
   const columns = [
     { key: "period", header: "Periodo", width: 16 },
-    { key: "pallets", header: "Pallet stoccati", width: 18 },
-    { key: "unit_price", header: "Prezzo pallet/mese", width: 21, style: { numFmt: CURRENCY_FORMAT } },
+    { key: "type", header: "Tipo ubicazione", width: 18 },
+    { key: "quantity", header: "Quantità", width: 14 },
+    { key: "unit_price", header: "Prezzo / mese", width: 18, style: { numFmt: CURRENCY_FORMAT } },
     { key: "amount", header: "Importo", width: 18, style: { numFmt: CURRENCY_FORMAT } },
     { key: "recorded_at", header: "Registrato il", width: 20, style: { numFmt: DATE_FORMAT } },
   ];
   const sheet = workbook.addWorksheet("Stoccaggio", { properties: { tabColor: { argb: "059669" } } });
-  prepareSheet(sheet, "Stoccaggio mensile", `${invoice.ragione_sociale} · quantità e tariffa storicizzate`, columns);
+  prepareSheet(sheet, "Stoccaggio mensile", `${invoice.ragione_sociale} · tariffe applicate per decorrenza`, columns);
   const storage = invoice.dettaglio?.stoccaggio || {};
-  const row = sheet.addRow({
-    period: invoice.periodo,
-    pallets: number(storage.pallet),
-    unit_price: number(storage.prezzo),
-    recorded_at: date(storage.registrato_il),
+  [
+    { type: "Pallet", quantity: storage.pallet, unitPrice: storage.prezzo_pallet ?? storage.prezzo },
+    { type: "Slot", quantity: storage.slot, unitPrice: storage.prezzo_slot },
+  ].forEach((item) => {
+    const row = sheet.addRow({
+      period: invoice.periodo,
+      type: item.type,
+      quantity: number(item.quantity),
+      unit_price: number(item.unitPrice),
+      recorded_at: date(storage.registrato_il),
+    });
+    row.getCell(5).value = { formula: `C${row.number}*D${row.number}` };
   });
-  row.getCell(4).value = { formula: `B${row.number}*C${row.number}` };
   finishSheet(sheet, columns.length, sheet.rowCount);
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { BadgeEuro, Boxes, CheckCircle2, Loader2, MapPin, Printer, Save } from "lucide-react";
+import { BadgeEuro, Boxes, CalendarDays, CheckCircle2, Loader2, MapPin, Printer, Save } from "lucide-react";
 import { toast } from "sonner";
 import { api, formatApiError } from "@/lib/api";
 import { CarrierTariffCsv } from "@/pages/admin/Clienti";
@@ -23,6 +23,10 @@ const RATE_ROWS = [
 ];
 const cellKey = (carrier, zone, band) => `${carrier}:${zone.toLowerCase()}:${band}`;
 const FULFILLMENT_FEES = [
+  ["stoccaggio_slot", "Slot / mese", "Costo mensile per ogni slot occupato"],
+  ["stoccaggio_pallet", "Pallet / mese", "Costo mensile per ogni pallet stoccato"],
+  ["entrata_scatola", "Entrata scatola", "Costo per ogni scatola ricevuta"],
+  ["entrata_pallet", "Entrata pallet", "Costo per ogni pallet ricevuto"],
   ["wms_order_base_fee", "Gestione ordine", "Per ogni ordine imballato"],
   ["wms_extra_item_fee", "Pezzo extra", "Per ogni pezzo oltre il primo"],
   ["wms_pack_scatola_piccola", "Scatola piccola", "Barcode SCATOLA-PICCOLA"],
@@ -31,12 +35,28 @@ const FULFILLMENT_FEES = [
   ["wms_pack_busta_corriere", "Busta corriere", "Barcode BUSTA-CORRIERE"],
 ];
 
-function OperationalFees({ client, onSaved }) {
+const today = () => new Date().toLocaleDateString("en-CA");
+
+function valuesAtDate(base, versions, effectiveDate) {
+  return (versions || [])
+    .filter((version) => version.effective_from <= effectiveDate)
+    .sort((a, b) => a.effective_from.localeCompare(b.effective_from))
+    .reduce((values, version) => ({ ...values, [version.price_key]: Number(version.amount || 0) }), { ...(base || {}) });
+}
+
+function OperationalFees({ client, effectiveDate }) {
   const [values, setValues] = useState({});
+  const [versions, setVersions] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   useEffect(() => {
-    setValues(Object.fromEntries(FULFILLMENT_FEES.map(([key]) => [key, String(client?.listino?.[key] ?? 0)])));
-  }, [client]);
+    setLoading(true);
+    api.get(`/clienti/${client.id}/price-versions`).then(({ data }) => {
+      setVersions(data || []);
+      const active = valuesAtDate(client.listino, data, effectiveDate);
+      setValues(Object.fromEntries(FULFILLMENT_FEES.map(([key]) => [key, String(active[key] ?? 0)])));
+    }).catch((error) => toast.error(formatApiError(error.response?.data?.detail || error.message))).finally(() => setLoading(false));
+  }, [client, effectiveDate]);
   const save = async () => {
     setSaving(true);
     try {
@@ -45,9 +65,10 @@ function OperationalFees({ client, onSaved }) {
         if (!Number.isFinite(value) || value < 0) throw new Error("Inserisci solo prezzi validi e non negativi");
         return [key, value];
       }));
-      const { data } = await api.put(`/clienti/${client.id}`, { listino: { ...(client.listino || {}), ...normalized } });
-      onSaved(data);
-      toast.success("Costi operativi salvati");
+      await api.post(`/clienti/${client.id}/price-versions`, { effective_from: effectiveDate, prices: normalized });
+      const { data } = await api.get(`/clienti/${client.id}/price-versions`);
+      setVersions(data || []);
+      toast.success(`Costi validi dal ${new Date(`${effectiveDate}T12:00:00`).toLocaleDateString("it-IT")}`);
     } catch (error) {
       toast.error(formatApiError(error.response?.data?.detail || error.message));
     } finally {
@@ -56,8 +77,8 @@ function OperationalFees({ client, onSaved }) {
   };
   return <Card className="p-5">
     <div className="mb-5 flex items-center gap-3 border-b border-slate-100 pb-4"><span className="flex h-11 w-11 items-center justify-center bg-amber-50 text-amber-800"><Boxes className="h-5 w-5"/></span><div><p className="font-extrabold">Picking, packing e imballaggi</p><p className="text-xs text-slate-500">Costi applicati automaticamente quando il packing viene completato.</p></div></div>
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{FULFILLMENT_FEES.map(([key, label, hint]) => <label key={key} className="border border-slate-200 bg-slate-50 p-3"><span className="block text-sm font-extrabold">{label}</span><span className="mt-0.5 block text-xs text-slate-500">{hint}</span><div className="relative mt-3"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">€</span><Input value={values[key] ?? ""} onChange={(event) => setValues((current) => ({ ...current, [key]: event.target.value }))} inputMode="decimal" className="bg-white pl-7"/></div></label>)}</div>
-    <div className="mt-4 flex justify-end"><Button onClick={save} disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Save className="mr-2 h-4 w-4"/>}Salva costi operativi</Button></div>
+    {loading ? <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin"/></div> : <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{FULFILLMENT_FEES.map(([key, label, hint]) => <label key={key} className="border border-slate-200 bg-slate-50 p-3"><span className="block text-sm font-extrabold">{label}</span><span className="mt-0.5 block text-xs text-slate-500">{hint}</span><div className="relative mt-3"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">€</span><Input value={values[key] ?? ""} onChange={(event) => setValues((current) => ({ ...current, [key]: event.target.value }))} inputMode="decimal" className="bg-white pl-7"/></div></label>)}</div>}
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-slate-500">{new Set(versions.map((version) => version.effective_from)).size} decorrenze salvate. La fattura usa la tariffa valida alla data del movimento.</p><Button onClick={save} disabled={loading || saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Save className="mr-2 h-4 w-4"/>}Salva con decorrenza</Button></div>
   </Card>;
 }
 
@@ -97,13 +118,13 @@ function PackagingStock() {
   </Card>;
 }
 
-function CarrierRateMatrix({ clientId }) {
+function CarrierRateMatrix({ clientId, effectiveDate }) {
   const [values, setValues] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   useEffect(() => {
     setLoading(true);
-    api.get(`/clienti/${clientId}/carrier-rates`).then(({ data }) => {
+    api.get(`/clienti/${clientId}/carrier-rates?effective_on=${effectiveDate}`).then(({ data }) => {
       const next = {};
       for (const rate of data || []) {
         const zone = String(rate.zone_name || "").toLowerCase().includes("disagiat") ? "Disagiati" : "Nazionale";
@@ -112,7 +133,7 @@ function CarrierRateMatrix({ clientId }) {
       }
       setValues(next);
     }).catch((error) => toast.error(formatApiError(error.response?.data?.detail || error.message))).finally(() => setLoading(false));
-  }, [clientId]);
+  }, [clientId, effectiveDate]);
   const save = async () => {
     const missing = RATE_ROWS.flatMap((row) => WEIGHT_BANDS.map((band) => cellKey(row.carrier, row.zone, band.key)))
       .filter((key) => values[key] === "" || values[key] == null || !Number.isFinite(Number(String(values[key]).replace(",", "."))));
@@ -131,8 +152,8 @@ function CarrierRateMatrix({ clientId }) {
     })));
     setSaving(true);
     try {
-      await api.post(`/clienti/${clientId}/carrier-rates/replace`, { rules });
-      toast.success("Prezzario cliente salvato");
+      await api.post(`/clienti/${clientId}/carrier-rates/replace`, { rules, effective_from: effectiveDate });
+      toast.success(`Prezzario valido dal ${new Date(`${effectiveDate}T12:00:00`).toLocaleDateString("it-IT")}`);
     } catch (error) {
       toast.error(formatApiError(error.response?.data?.detail || error.message));
     } finally {
@@ -158,6 +179,7 @@ export default function WmsPricing() {
   const [clients, setClients] = useState(null);
   const [postalStats, setPostalStats] = useState(null);
   const [clientId, setClientId] = useState("");
+  const [effectiveDate, setEffectiveDate] = useState(today());
   useEffect(() => {
     api.get("/clienti").then(({ data }) => {
       setClients(data || []);
@@ -168,17 +190,20 @@ export default function WmsPricing() {
     api.get("/wms/postal-codes/stats").then(({ data }) => setPostalStats(data)).catch(() => setPostalStats({}));
   }, []);
   const client = useMemo(() => (clients || []).find((item) => item.id === clientId), [clients, clientId]);
-  const updateClient = (nextClient) => setClients((current) => current.map((item) => item.id === nextClient.id ? nextClient : item));
   if (!clients) return <div className="flex min-h-[55vh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-teal-700"/></div>;
   return <div className="space-y-6">
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div><p className="text-xs font-extrabold uppercase text-teal-700">Amministrazione</p><h2 className="mt-1 text-3xl font-black">Prezzari clienti</h2><p className="mt-2 text-sm text-slate-500">Tariffe GLS/BRT per fascia di peso e zona di destinazione.</p></div>
-      <div className="w-full sm:w-80"><label className="text-xs font-extrabold uppercase text-slate-500">Cliente</label><Select value={clientId} onValueChange={setClientId}><SelectTrigger className="mt-1 bg-white"><SelectValue placeholder="Seleziona cliente"/></SelectTrigger><SelectContent>{clients.map((item)=><SelectItem key={item.id} value={item.id}>{item.ragione_sociale}</SelectItem>)}</SelectContent></Select></div>
+      <div className="grid w-full gap-3 sm:w-auto sm:grid-cols-[320px_190px]">
+        <div><label className="text-xs font-extrabold uppercase text-slate-500">Cliente</label><Select value={clientId} onValueChange={setClientId}><SelectTrigger className="mt-1 bg-white"><SelectValue placeholder="Seleziona cliente"/></SelectTrigger><SelectContent>{clients.map((item)=><SelectItem key={item.id} value={item.id}>{item.ragione_sociale}</SelectItem>)}</SelectContent></Select></div>
+        <label><span className="flex items-center gap-1 text-xs font-extrabold uppercase text-slate-500"><CalendarDays className="h-3.5 w-3.5"/>In vigore dal</span><Input type="date" value={effectiveDate} onChange={(event) => setEffectiveDate(event.target.value || today())} className="mt-1 bg-white"/></label>
+      </div>
     </div>
-    {clientId && <Card className="p-5"><div className="mb-5 flex items-center gap-3 border-b border-slate-100 pb-4"><span className="flex h-11 w-11 items-center justify-center bg-teal-50 text-teal-800"><BadgeEuro className="h-5 w-5"/></span><div><p className="font-extrabold">{client?.ragione_sociale}</p><p className="text-xs text-slate-500">Inserisci il prezzo di ogni fascia per questo cliente.</p></div></div><CarrierRateMatrix key={clientId} clientId={clientId}/></Card>}
-    {client && <OperationalFees key={`fees-${client.id}`} client={client} onSaved={updateClient}/>} 
+    <div className="border-l-4 border-teal-600 bg-teal-50 p-4 text-sm text-teal-950"><strong>Decorrenza unica.</strong> I salvataggi qui sotto entrano in vigore il {new Date(`${effectiveDate}T12:00:00`).toLocaleDateString("it-IT")}. Una data passata ricalcola automaticamente fatture, PDF ed Excel del periodo interessato.</div>
+    {clientId && <Card className="p-5"><div className="mb-5 flex items-center gap-3 border-b border-slate-100 pb-4"><span className="flex h-11 w-11 items-center justify-center bg-teal-50 text-teal-800"><BadgeEuro className="h-5 w-5"/></span><div><p className="font-extrabold">{client?.ragione_sociale}</p><p className="text-xs text-slate-500">Inserisci il prezzo di ogni fascia per questo cliente.</p></div></div><CarrierRateMatrix key={`${clientId}-${effectiveDate}`} clientId={clientId} effectiveDate={effectiveDate}/></Card>}
+    {client && <OperationalFees key={`fees-${client.id}-${effectiveDate}`} client={client} effectiveDate={effectiveDate}/>}
     <div className="grid gap-5 xl:grid-cols-[1fr_320px]">
-      <Card className="p-5"><div className="mb-5"><p className="font-extrabold">Importazione avanzata CSV</p><p className="mt-1 text-xs text-slate-500">Per listini con servizi, supplementi o regole aggiuntive.</p></div>{clientId ? <CarrierTariffCsv key={`csv-${clientId}`} clienteId={clientId}/> : <p className="py-12 text-center text-sm text-slate-500">Nessun cliente disponibile.</p>}</Card>
+      <Card className="p-5"><div className="mb-5"><p className="font-extrabold">Importazione avanzata CSV</p><p className="mt-1 text-xs text-slate-500">Per listini con servizi, supplementi o regole aggiuntive.</p></div>{clientId ? <CarrierTariffCsv key={`csv-${clientId}-${effectiveDate}`} clienteId={clientId} effectiveFrom={effectiveDate}/> : <p className="py-12 text-center text-sm text-slate-500">Nessun cliente disponibile.</p>}</Card>
       <Card className="p-5">
         <div className="flex items-center gap-3"><span className="flex h-11 w-11 items-center justify-center bg-sky-50 text-sky-800"><MapPin className="h-5 w-5"/></span><div><p className="font-extrabold">Anagrafica CAP</p><p className="text-xs text-slate-500">Copertura nazionale condivisa</p></div></div>
         {!postalStats ? <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-teal-700"/></div> : <>

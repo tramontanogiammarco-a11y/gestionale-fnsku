@@ -358,7 +358,19 @@ async function listClienti() {
     .select("*")
     .order("created_at", { ascending: false });
   if (error) fail(error.message);
-  return ok(data || []);
+  const clients = data || [];
+  if (!clients.length) return ok(clients);
+  const { data: versions, error: versionsError } = await requireSupabase()
+    .from("client_price_versions")
+    .select("cliente_id,price_key,amount,effective_from")
+    .in("cliente_id", clients.map((client) => client.id))
+    .lte("effective_from", dateOnly(new Date()));
+  if (versionsError) fail(versionsError.message);
+  const byClient = groupBy(versions || [], "cliente_id");
+  return ok(clients.map((client) => ({
+    ...client,
+    listino: effectivePriceValues(client.listino, byClient[client.id] || [], new Date()),
+  })));
 }
 
 async function listWmsClientOptions() {
@@ -833,7 +845,67 @@ async function updateCliente(id, payload) {
   return ok(data);
 }
 
-async function listClientCarrierRates(clienteId) {
+function dateOnly(value = new Date()) {
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 10);
+}
+
+function effectivePriceValues(baseListino = {}, versions = [], at = new Date()) {
+  const target = dateOnly(at);
+  return (versions || [])
+    .filter((version) => !target || version.effective_from <= target)
+    .sort((a, b) => String(a.effective_from).localeCompare(String(b.effective_from)))
+    .reduce((values, version) => ({ ...values, [version.price_key]: Number(version.amount || 0) }), { ...baseListino });
+}
+
+function activeCarrierRatesAt(rates = [], at = new Date()) {
+  const target = dateOnly(at);
+  const dates = [...new Set((rates || [])
+    .map((rate) => rate.effective_from || "2000-01-01")
+    .filter((effectiveFrom) => !target || effectiveFrom <= target))]
+    .sort();
+  const activeDate = dates.at(-1);
+  return activeDate
+    ? (rates || []).filter((rate) => (rate.effective_from || "2000-01-01") === activeDate)
+    : [];
+}
+
+async function listClientPriceVersions(clienteId) {
+  const profile = await currentProfile();
+  if (!isStaff(profile) && profile.cliente_id !== clienteId) fail("Listino non accessibile", 403);
+  const { data, error } = await requireSupabase()
+    .from("client_price_versions")
+    .select("*")
+    .eq("cliente_id", clienteId)
+    .order("effective_from", { ascending: false })
+    .order("price_key");
+  if (error) fail(error.message);
+  return ok(data || []);
+}
+
+async function saveClientPriceVersion(clienteId, payload = {}) {
+  const profile = await currentProfile();
+  if (!isStaff(profile)) fail("Accesso riservato allo staff", 403);
+  const effectiveFrom = dateOnly(payload.effective_from);
+  if (!effectiveFrom) fail("Scegli la data di decorrenza");
+  const prices = payload.prices && typeof payload.prices === "object" ? payload.prices : {};
+  if (!Object.keys(prices).length) fail("Inserisci almeno un prezzo");
+  const normalized = Object.fromEntries(Object.entries(prices).map(([key, raw]) => {
+    const value = Number(String(raw).replace(",", "."));
+    if (!Number.isFinite(value) || value < 0) fail(`Prezzo non valido per ${key}`);
+    return [key, value];
+  }));
+  const { data, error } = await requireSupabase().rpc("save_client_price_version", {
+    p_cliente_id: clienteId,
+    p_effective_from: effectiveFrom,
+    p_prices: normalized,
+  });
+  if (error) fail(error.message);
+  return ok({ saved: Number(data || Object.keys(normalized).length), effective_from: effectiveFrom });
+}
+
+async function listClientCarrierRates(clienteId, params = new URLSearchParams()) {
   const profile = await currentProfile();
   if (!isStaff(profile) && profile.cliente_id !== clienteId) fail("Tariffario non accessibile", 403);
   const { data, error } = await requireSupabase()
@@ -844,7 +916,8 @@ async function listClientCarrierRates(clienteId) {
     .order("weight_from_kg")
     .order("priority", { ascending: false });
   if (error) fail(error.message);
-  return ok(data || []);
+  const effectiveOn = params.get("effective_on");
+  return ok(effectiveOn ? activeCarrierRatesAt(data || [], effectiveOn) : (data || []));
 }
 
 function splitCarrierCsvList(value, { postal = false } = {}) {
@@ -906,7 +979,12 @@ async function importClientCarrierRates(clienteId, formData) {
   });
   if (errors.length) fail(errors.slice(0, 8).join("\n"));
   if (!rules.length) fail("Il CSV non contiene tariffe");
-  const { data, error } = await requireSupabase().rpc("replace_client_carrier_rates", { p_cliente_id: clienteId, p_rules: rules });
+  const effectiveFrom = dateOnly(formData?.get?.("effective_from")) || dateOnly(new Date());
+  const { data, error } = await requireSupabase().rpc("replace_client_carrier_rates", {
+    p_cliente_id: clienteId,
+    p_rules: rules,
+    p_effective_from: effectiveFrom,
+  });
   if (error) fail(error.message);
   return ok({ imported: Number(data || rules.length), rules });
 }
@@ -924,6 +1002,7 @@ async function replaceClientCarrierRates(clienteId, payload = {}) {
   const { data, error } = await requireSupabase().rpc("replace_client_carrier_rates", {
     p_cliente_id: clienteId,
     p_rules: rules,
+    p_effective_from: dateOnly(payload.effective_from) || dateOnly(new Date()),
   });
   if (error) fail(error.message);
   return ok({ saved: Number(data || rules.length) });
@@ -2858,15 +2937,16 @@ async function computeWmsShippingQuote(orderId) {
   if (!optionalText(order.ship_zip)) fail("Inserisci il CAP di destinazione prima di calcolare la spedizione");
 
   const normalizedPostalCode = String(order.ship_zip || "").replace(/\D/g, "").padStart(5, "0");
-  const [{ data: items, error: itemsError }, { data: client, error: clientError }, { data: packing, error: packingError }, { data: carrierRules, error: carrierRulesError }, { data: postalRows, error: postalError }, { data: carrierZones, error: carrierZonesError }] = await Promise.all([
+  const [{ data: items, error: itemsError }, { data: client, error: clientError }, { data: packing, error: packingError }, { data: carrierRules, error: carrierRulesError }, { data: priceVersions, error: priceVersionsError }, { data: postalRows, error: postalError }, { data: carrierZones, error: carrierZonesError }] = await Promise.all([
     sb.from("shopify_order_items").select("id,referenza_id,titolo,quantita").eq("order_id", order.id),
     sb.from("clienti").select("id,listino").eq("id", order.cliente_id).single(),
     sb.from("wms_packing_sessions").select("id,stato,started_at").eq("order_id", order.id).maybeSingle(),
     sb.from("client_carrier_rates").select("*").eq("cliente_id", order.cliente_id),
+    sb.from("client_price_versions").select("price_key,amount,effective_from").eq("cliente_id", order.cliente_id),
     sb.from("italian_postal_codes").select("postal_code,municipality_name,province_code,province_name,region_name").eq("postal_code", normalizedPostalCode).limit(1),
     sb.from("carrier_postal_zones").select("carrier,zone_code,zone_name,is_current_postal_code").eq("postal_code", normalizedPostalCode).eq("active", true),
   ]);
-  if (itemsError || clientError || packingError || carrierRulesError || postalError || carrierZonesError) fail((itemsError || clientError || packingError || carrierRulesError || postalError || carrierZonesError).message);
+  if (itemsError || clientError || packingError || carrierRulesError || priceVersionsError || postalError || carrierZonesError) fail((itemsError || clientError || packingError || carrierRulesError || priceVersionsError || postalError || carrierZonesError).message);
   if (!(postalRows || []).length && !(carrierZones || []).length) fail(`CAP ${normalizedPostalCode} non presente nell'anagrafica italiana o nei listini corriere`);
   const postalDestination = postalRows?.[0] || { postal_code: normalizedPostalCode, municipality_name: "CAP corriere legacy", province_code: "", province_name: "", region_name: "" };
   if (!(items || []).length) fail("L'ordine non contiene prodotti");
@@ -2892,7 +2972,9 @@ async function computeWmsShippingQuote(orderId) {
     if (!reference.misure_confermate) estimatedReferences += 1;
     return { title: reference.titolo || item.titolo, quantity, weight_kg: Math.round(weight * 1000) / 1000, volume_cm3: Math.round(volume) };
   });
-  const divisor = Math.max(1, numberFromListino(client.listino, "sped_peso_volumetrico_divisore", 5000));
+  const effectiveListino = effectivePriceValues(client.listino, priceVersions, new Date());
+  const effectiveCarrierRules = activeCarrierRatesAt(carrierRules, new Date());
+  const divisor = Math.max(1, numberFromListino(effectiveListino, "sped_peso_volumetrico_divisore", 5000));
   const volumetricWeight = volumeCm3 / divisor;
   const billableWeight = Math.max(1, Math.ceil(Math.max(actualWeight, volumetricWeight) * 2) / 2);
   const destinationOrder = {
@@ -2906,7 +2988,7 @@ async function computeWmsShippingQuote(orderId) {
     order: destinationOrder,
     difficultCarriers: new Set((carrierZones || []).filter((item) => item.zone_code === "disagiata").map((item) => item.carrier)),
   };
-  const carriers = ["gls", "brt"].map((carrier) => carrierRate(client.listino, carrier, zone.code, billableWeight, carrierRules || [], destination));
+  const carriers = ["gls", "brt"].map((carrier) => carrierRate(effectiveListino, carrier, zone.code, billableWeight, effectiveCarrierRules, destination));
   const recommended = [...carriers].sort((a, b) => a.net - b.net || a.name.localeCompare(b.name))[0].carrier;
   const locked = ["in_packing", "imballato", "spedito", "annullato"].includes(order.wms_status)
     || Boolean(packing?.started_at)
@@ -2930,7 +3012,7 @@ async function computeWmsShippingQuote(orderId) {
     estimated_references: estimatedReferences,
     lines,
     carriers,
-    csv_tariff_rows: (carrierRules || []).length,
+    csv_tariff_rows: effectiveCarrierRules.length,
     recommended,
     simulated: true,
   };
@@ -2971,12 +3053,13 @@ async function getWmsOrderCostDetail(orderId) {
   if (orderError || !order) fail(orderError?.message || "Ordine non trovato", 404);
   if (!isStaff(profile) && order.cliente_id !== profile.cliente_id) fail("Ordine non accessibile", 403);
 
-  const [{ data: items, error: itemsError }, { data: client, error: clientError }, { data: usage, error: usageError }] = await Promise.all([
+  const [{ data: items, error: itemsError }, { data: client, error: clientError }, { data: usage, error: usageError }, { data: priceVersions, error: priceVersionsError }] = await Promise.all([
     sb.from("shopify_order_items").select("*").eq("order_id", orderId).order("created_at", { ascending: true }),
     sb.from("clienti").select("id,ragione_sociale,listino").eq("id", order.cliente_id).single(),
     sb.from("wms_order_packaging_usage").select("packaging_code,quantity,unit_price_snapshot,scanned_at").eq("order_id", orderId).maybeSingle(),
+    sb.from("client_price_versions").select("price_key,amount,effective_from").eq("cliente_id", order.cliente_id),
   ]);
-  if (itemsError || clientError || usageError) fail((itemsError || clientError || usageError).message);
+  if (itemsError || clientError || usageError || priceVersionsError) fail((itemsError || clientError || usageError || priceVersionsError).message);
 
   let quote = null;
   let quoteError = null;
@@ -2986,11 +3069,20 @@ async function getWmsOrderCostDetail(orderId) {
     quoteError = error?.message || "Preventivo spedizione non disponibile";
   }
   const pieces = (items || []).reduce((sum, item) => sum + Number(item.quantita || 0), 0);
-  const listino = client?.listino || {};
+  const listino = effectivePriceValues(client?.listino || {}, priceVersions || [], usage?.scanned_at || new Date());
   const baseFee = pieces > 0 ? numberFromListino(listino, "wms_order_base_fee", 0) : 0;
   const extraPieces = Math.max(0, pieces - 1);
   const extraUnitFee = numberFromListino(listino, "wms_extra_item_fee", 0);
-  const packagingTotal = Number(usage?.unit_price_snapshot || 0) * Number(usage?.quantity || 0);
+  const packagingKey = {
+    small_box: "wms_pack_scatola_piccola",
+    medium_box: "wms_pack_scatola_media",
+    large_box: "wms_pack_scatola_grande",
+    courier_bag: "wms_pack_busta_corriere",
+  }[usage?.packaging_code];
+  const packagingUnitPrice = packagingKey
+    ? numberFromListino(listino, packagingKey, Number(usage?.unit_price_snapshot || 0))
+    : Number(usage?.unit_price_snapshot || 0);
+  const packagingTotal = packagingUnitPrice * Number(usage?.quantity || 0);
   const selectedQuote = quote?.carriers?.find((carrier) => carrier.carrier === quote.selected_carrier)
     || quote?.carriers?.find((carrier) => carrier.carrier === quote.recommended)
     || null;
@@ -8961,7 +9053,8 @@ async function fatturazione(params) {
   if (clienteError || !cliente) fail(clienteError?.message || "Cliente non trovato");
 
   const listino = { ...(cliente.listino || {}) };
-  const price = (key) => Number(listino[key] || 0);
+  let priceVersions = [];
+  let carrierRateVersions = [];
   const righe = [];
   const addRiga = (codice, descrizione, quantita, prezzo) => {
     const q = Number(quantita || 0);
@@ -8992,19 +9085,28 @@ async function fatturazione(params) {
     { data: boxes, error: boxesError },
     { data: packagingUsage, error: packagingError },
     { data: storageMonth, error: storageError },
+    { data: loadedPriceVersions, error: priceVersionsError },
+    { data: loadedCarrierRates, error: carrierRatesError },
   ] = await Promise.all([
     supabase.from("entrate").select("*").eq("cliente_id", clienteId).gte("data_ricezione", start).lt("data_ricezione", end),
     supabase.from("preparazioni").select("*").eq("cliente_id", clienteId).in("stato", ["pronto", "spedito"]).gte("data_pronto", start).lt("data_pronto", end),
     supabase.from("box").select("*").eq("cliente_id", clienteId),
     supabase.from("wms_order_packaging_usage").select("order_id,packaging_code,quantity,unit_price_snapshot,scanned_at").eq("cliente_id", clienteId).gte("scanned_at", start).lt("scanned_at", end),
     supabase.from("wms_billing_storage_months").select("*").eq("cliente_id", clienteId).eq("anno", anno).eq("mese", mese).maybeSingle(),
+    supabase.from("client_price_versions").select("price_key,amount,effective_from").eq("cliente_id", clienteId).lt("effective_from", end.slice(0, 10)).order("effective_from"),
+    supabase.from("client_carrier_rates").select("*").eq("cliente_id", clienteId).lt("effective_from", end.slice(0, 10)).order("effective_from"),
   ]);
-  const firstError = entrateError || prepsError || boxesError || packagingError || storageError;
+  const firstError = entrateError || prepsError || boxesError || packagingError || storageError || priceVersionsError || carrierRatesError;
   if (firstError) fail(firstError.message);
+  priceVersions = loadedPriceVersions || [];
+  carrierRateVersions = loadedCarrierRates || [];
+  const listinoAt = (at) => effectivePriceValues(listino, priceVersions, at || start);
+  const priceAt = (key, at, fallback = 0) => numberFromListino(listinoAt(at), key, fallback);
+  const invoiceListino = listinoAt(new Date(new Date(end).getTime() - 1));
   const palletStoccati = Number(storageMonth?.pallet_quantity || 0);
-  const storageUnitPrice = storageMonth
-    ? Number(storageMonth.unit_price_snapshot || 0)
-    : price("stoccaggio_pallet");
+  const slotStoccati = Number(storageMonth?.slot_quantity || 0);
+  const storageUnitPrice = priceAt("stoccaggio_pallet", start, Number(storageMonth?.unit_price_snapshot || 0));
+  const slotStorageUnitPrice = priceAt("stoccaggio_slot", start, Number(storageMonth?.slot_unit_price_snapshot || 0));
 
   const prepIds = (preps || []).map((p) => p.id);
   const entrataIds = (entrate || []).map((e) => e.id);
@@ -9028,10 +9130,14 @@ async function fatturazione(params) {
 
   const entrataPallet = (entrate || []).filter((e) => e.tipo === "pallet").reduce((sum, e) => sum + Number(e.colli || 1), 0);
   const entrataScatola = (entrate || []).filter((e) => e.tipo === "scatola").reduce((sum, e) => sum + Number(e.colli || 1), 0);
-  addRiga("entrata_pallet", "Entrata pallet", entrataPallet, price("entrata_pallet"));
-  addRiga("entrata_scatola", "Entrata scatola", entrataScatola, price("entrata_scatola"));
+  const entrataPalletAmount = (entrate || []).filter((e) => e.tipo === "pallet").reduce((sum, e) => sum + Number(e.colli || 1) * priceAt("entrata_pallet", e.data_ricezione), 0);
+  const entrataScatolaAmount = (entrate || []).filter((e) => e.tipo === "scatola").reduce((sum, e) => sum + Number(e.colli || 1) * priceAt("entrata_scatola", e.data_ricezione), 0);
+  addImportoRiga("entrata_pallet", "Entrata pallet", entrataPallet, entrataPalletAmount);
+  addImportoRiga("entrata_scatola", "Entrata scatola", entrataScatola, entrataScatolaAmount);
 
   const servizioQty = {};
+  const servizioAmounts = {};
+  const boxAmounts = { inscatolamento: 0, scatola_60: 0, scatola_40: 0 };
   const preparazioniDettaglio = (preps || []).map((prep) => {
     const righePrep = righeByPrep[prep.id] || [];
     const boxesPrep = boxesByPrep[prep.id] || [];
@@ -9040,6 +9146,7 @@ async function fatturazione(params) {
       for (const servizio of riga.servizi || []) {
         servizi[servizio] = (servizi[servizio] || 0) + Number(riga.quantita || 0);
         servizioQty[servizio] = (servizioQty[servizio] || 0) + Number(riga.quantita || 0);
+        servizioAmounts[servizio] = (servizioAmounts[servizio] || 0) + Number(riga.quantita || 0) * priceAt(servizio, prep.data_pronto);
       }
     }
     const scatola60 = boxesPrep.filter((b) => boxScatolaCodice(b) === "scatola_60").length;
@@ -9049,31 +9156,34 @@ async function fatturazione(params) {
         codice,
         descrizione: SERVICE_LABELS[codice] || codice,
         quantita,
-        prezzo: price(codice),
-        importo: Number(quantita || 0) * price(codice),
+        prezzo: priceAt(codice, prep.data_pronto),
+        importo: Number(quantita || 0) * priceAt(codice, prep.data_pronto),
       })),
       boxesPrep.length > 0 ? {
         codice: "inscatolamento",
         descrizione: "Inscatolamento box",
         quantita: boxesPrep.length,
-        prezzo: price("inscatolamento"),
-        importo: boxesPrep.length * price("inscatolamento"),
+        prezzo: priceAt("inscatolamento", prep.data_pronto),
+        importo: boxesPrep.length * priceAt("inscatolamento", prep.data_pronto),
       } : null,
       scatola60 > 0 ? {
         codice: "scatola_60",
         descrizione: "Scatola 60x40x40",
         quantita: scatola60,
-        prezzo: price("scatola_60"),
-        importo: scatola60 * price("scatola_60"),
+        prezzo: priceAt("scatola_60", prep.data_pronto),
+        importo: scatola60 * priceAt("scatola_60", prep.data_pronto),
       } : null,
       scatola40 > 0 ? {
         codice: "scatola_40",
         descrizione: "Scatola 40x30x30",
         quantita: scatola40,
-        prezzo: price("scatola_40"),
-        importo: scatola40 * price("scatola_40"),
+        prezzo: priceAt("scatola_40", prep.data_pronto),
+        importo: scatola40 * priceAt("scatola_40", prep.data_pronto),
       } : null,
     ].filter(Boolean);
+    boxAmounts.inscatolamento += boxesPrep.length * priceAt("inscatolamento", prep.data_pronto);
+    boxAmounts.scatola_60 += scatola60 * priceAt("scatola_60", prep.data_pronto);
+    boxAmounts.scatola_40 += scatola40 * priceAt("scatola_40", prep.data_pronto);
 
     return {
       id: prep.id,
@@ -9094,16 +9204,17 @@ async function fatturazione(params) {
   });
 
   for (const codice of ["fnsku", "busta", "nastratura", "pluriball", "bundle"]) {
-    addRiga(codice, SERVICE_LABELS[codice], servizioQty[codice], price(codice));
+    addImportoRiga(codice, SERVICE_LABELS[codice], servizioQty[codice], servizioAmounts[codice]);
   }
 
   const boxesFatturabili = Object.values(boxesByPrep).flat();
-  addRiga("inscatolamento", "Inscatolamento box", boxesFatturabili.length, price("inscatolamento"));
+  addImportoRiga("inscatolamento", "Inscatolamento box", boxesFatturabili.length, boxAmounts.inscatolamento);
   const scatola60 = boxesFatturabili.filter((b) => boxScatolaCodice(b) === "scatola_60").length;
   const scatola40 = boxesFatturabili.filter((b) => boxScatolaCodice(b) === "scatola_40").length;
-  addRiga("scatola_60", "Scatola 60x40x40", scatola60, price("scatola_60"));
-  addRiga("scatola_40", "Scatola 40x30x30", scatola40, price("scatola_40"));
+  addImportoRiga("scatola_60", "Scatola 60x40x40", scatola60, boxAmounts.scatola_60);
+  addImportoRiga("scatola_40", "Scatola 40x30x30", scatola40, boxAmounts.scatola_40);
   addRiga("stoccaggio_pallet", "Stoccaggio pallet mese", palletStoccati, storageUnitPrice);
+  addRiga("stoccaggio_slot", "Stoccaggio slot mese", slotStoccati, slotStorageUnitPrice);
 
   const packedOrderIds = [...new Set((packagingUsage || []).map((usage) => usage.order_id))];
   const [
@@ -9125,46 +9236,16 @@ async function fatturazione(params) {
     return accumulator;
   }, {});
   const extraPieces = packedOrderIds.reduce((total, orderId) => total + Math.max(0, Number(piecesByOrder[orderId] || 0) - 1), 0);
-  const orderBaseAmount = packedOrderIds.length * price("wms_order_base_fee");
-  const extraItemsAmount = extraPieces * price("wms_extra_item_fee");
-  addRiga("wms_order_base_fee", "Gestione ordine", packedOrderIds.length, price("wms_order_base_fee"));
-  addRiga("wms_extra_item_fee", "Pezzi extra oltre il primo", extraPieces, price("wms_extra_item_fee"));
   const packagingLabels = {
     small_box: ["wms_pack_scatola_piccola", "Scatola piccola"],
     medium_box: ["wms_pack_scatola_media", "Scatola media"],
     large_box: ["wms_pack_scatola_grande", "Scatola grande"],
     courier_bag: ["wms_pack_busta_corriere", "Busta corriere"],
   };
-  const packagingTotals = (packagingUsage || []).reduce((accumulator, usage) => {
-    accumulator[usage.packaging_code] ||= { quantity: 0, amount: 0 };
-    accumulator[usage.packaging_code].quantity += Number(usage.quantity || 0);
-    accumulator[usage.packaging_code].amount += Number(usage.quantity || 0) * Number(usage.unit_price_snapshot || 0);
-    return accumulator;
-  }, {});
-  for (const [packagingCode, totals] of Object.entries(packagingTotals)) {
-    const [listinoKey, label] = packagingLabels[packagingCode] || [packagingCode, packagingCode];
-    addImportoRiga(listinoKey, label, totals.quantity, totals.amount);
-  }
-
-  const shippingByCarrier = (packedOrders || []).reduce((accumulator, order) => {
-    const amount = Number(order.shipping_price || 0);
-    if (amount <= 0) return accumulator;
-    const carrier = optionalText(order.selected_carrier)?.toLowerCase() || "altro";
-    accumulator[carrier] ||= { count: 0, amount: 0 };
-    accumulator[carrier].count += 1;
-    accumulator[carrier].amount += amount;
-    return accumulator;
-  }, {});
-  for (const [carrier, totals] of Object.entries(shippingByCarrier)) {
-    addImportoRiga(`wms_shipping_${carrier}`, `Spedizioni ${carrier.toUpperCase()}`, totals.count, totals.amount);
-  }
-  const shippingAmount = Object.values(shippingByCarrier).reduce((sum, totals) => sum + Number(totals.amount || 0), 0);
-  const packagingAmount = Object.values(packagingTotals).reduce((sum, totals) => sum + Number(totals.amount || 0), 0);
   const latestPackedAt = (packagingUsage || []).reduce((latest, usage) => {
     if (!usage.scanned_at) return latest;
     return !latest || new Date(usage.scanned_at) > new Date(latest) ? usage.scanned_at : latest;
   }, null);
-  const ordersWithoutShipping = Math.max(0, packedOrderIds.length - Object.values(shippingByCarrier).reduce((sum, totals) => sum + Number(totals.count || 0), 0));
   const itemsByPackedOrder = groupBy(packedItems || [], "order_id");
   const packagingByOrder = Object.fromEntries((packagingUsage || []).map((usage) => [usage.order_id, usage]));
   const shipmentsByOrder = groupBy(packedShipments || [], "order_id");
@@ -9173,12 +9254,34 @@ async function fatturazione(params) {
     const usage = packagingByOrder[order.id] || null;
     const shipment = [...(shipmentsByOrder[order.id] || [])]
       .sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at))[0] || null;
+    const billingDate = usage?.scanned_at || order.processed_at || start;
     const pieces = orderItems.reduce((sum, item) => sum + Number(item.quantita || 0), 0);
     const extraQuantity = Math.max(0, pieces - 1);
-    const shippingCost = Number(order.shipping_price || 0);
-    const baseCost = pieces > 0 ? price("wms_order_base_fee") : 0;
-    const extraCost = extraQuantity * price("wms_extra_item_fee");
-    const packagingCost = Number(usage?.quantity || 0) * Number(usage?.unit_price_snapshot || 0);
+    const activeListino = listinoAt(billingDate);
+    const carrier = optionalText(shipment?.corriere || order.selected_carrier)?.toLowerCase();
+    const zoneCode = /special|disagiat/i.test(String(order.shipping_zone || "")) ? "speciale" : "nazionale";
+    const cap = String(order.ship_zip || "").replace(/\D/g, "").padStart(5, "0");
+    const province = optionalText(order.ship_province)?.toUpperCase() || "";
+    let shippingCost = Number(order.shipping_price || 0);
+    if (["gls", "brt"].includes(carrier) && Number(order.shipping_billable_weight || 0) > 0) {
+      const recalculated = carrierRate(
+        activeListino,
+        carrier,
+        zoneCode,
+        Number(order.shipping_billable_weight),
+        activeCarrierRatesAt(carrierRateVersions, billingDate),
+        { cap, province, order }
+      );
+      shippingCost = Number(recalculated.net || 0);
+    }
+    const baseCost = pieces > 0 ? priceAt("wms_order_base_fee", billingDate) : 0;
+    const extraUnitFee = priceAt("wms_extra_item_fee", billingDate);
+    const extraCost = extraQuantity * extraUnitFee;
+    const packagingKey = packagingLabels[usage?.packaging_code]?.[0];
+    const packagingUnitPrice = packagingKey
+      ? priceAt(packagingKey, billingDate, Number(usage?.unit_price_snapshot || 0))
+      : Number(usage?.unit_price_snapshot || 0);
+    const packagingCost = Number(usage?.quantity || 0) * packagingUnitPrice;
     const products = orderItems.map((item) => ({
       title: item.titolo,
       sku: item.sku || null,
@@ -9223,18 +9326,52 @@ async function fatturazione(params) {
         code: usage.packaging_code,
         name: WMS_PACKAGING_NAMES[usage.packaging_code] || usage.packaging_code,
         quantity: Number(usage.quantity || 0),
+        unit_price: packagingUnitPrice,
       } : null,
       costs: {
         shipping: shippingCost,
         base_fee: baseCost,
         extra_quantity: extraQuantity,
-        extra_unit_fee: price("wms_extra_item_fee"),
+        extra_unit_fee: extraUnitFee,
         extra_total: extraCost,
         packaging: packagingCost,
         net_total: shippingCost + baseCost + extraCost + packagingCost,
       },
     };
   }).sort((a, b) => new Date(a.packed_at || 0) - new Date(b.packed_at || 0));
+
+  const orderBaseAmount = packedOrdersDetail.reduce((sum, order) => sum + Number(order.costs.base_fee || 0), 0);
+  const extraItemsAmount = packedOrdersDetail.reduce((sum, order) => sum + Number(order.costs.extra_total || 0), 0);
+  addImportoRiga("wms_order_base_fee", "Gestione ordine", packedOrderIds.length, orderBaseAmount);
+  addImportoRiga("wms_extra_item_fee", "Pezzi extra oltre il primo", extraPieces, extraItemsAmount);
+
+  const packagingTotals = packedOrdersDetail.reduce((accumulator, order) => {
+    if (!order.packaging) return accumulator;
+    accumulator[order.packaging.code] ||= { quantity: 0, amount: 0 };
+    accumulator[order.packaging.code].quantity += Number(order.packaging.quantity || 0);
+    accumulator[order.packaging.code].amount += Number(order.costs.packaging || 0);
+    return accumulator;
+  }, {});
+  for (const [packagingCode, totals] of Object.entries(packagingTotals)) {
+    const [listinoKey, label] = packagingLabels[packagingCode] || [packagingCode, packagingCode];
+    addImportoRiga(listinoKey, label, totals.quantity, totals.amount);
+  }
+  const packagingAmount = Object.values(packagingTotals).reduce((sum, totals) => sum + Number(totals.amount || 0), 0);
+
+  const shippingByCarrier = packedOrdersDetail.reduce((accumulator, order) => {
+    const amount = Number(order.costs.shipping || 0);
+    if (amount <= 0) return accumulator;
+    const carrier = optionalText(order.carrier)?.toLowerCase() || "altro";
+    accumulator[carrier] ||= { count: 0, amount: 0 };
+    accumulator[carrier].count += 1;
+    accumulator[carrier].amount += amount;
+    return accumulator;
+  }, {});
+  for (const [carrier, totals] of Object.entries(shippingByCarrier)) {
+    addImportoRiga(`wms_shipping_${carrier}`, `Spedizioni ${carrier.toUpperCase()}`, totals.count, totals.amount);
+  }
+  const shippingAmount = Object.values(shippingByCarrier).reduce((sum, totals) => sum + Number(totals.amount || 0), 0);
+  const ordersWithoutShipping = Math.max(0, packedOrderIds.length - Object.values(shippingByCarrier).reduce((sum, totals) => sum + Number(totals.count || 0), 0));
 
   const entrateDettaglio = (entrate || []).map((entrata) => {
     const colli = Number(entrata.colli || 1);
@@ -9243,8 +9380,8 @@ async function fatturazione(params) {
       codice,
       descrizione: entrata.tipo === "pallet" ? "Entrata pallet" : "Entrata scatola",
       quantita: colli,
-      prezzo: price(codice),
-      importo: colli * price(codice),
+      prezzo: priceAt(codice, entrata.data_ricezione),
+      importo: colli * priceAt(codice, entrata.data_ricezione),
     };
     const righeEntrata = righeByEntrata[entrata.id] || [];
     return {
@@ -9260,7 +9397,7 @@ async function fatturazione(params) {
   });
 
   const subtotale = righe.reduce((sum, r) => sum + r.importo, 0);
-  const ivaPerc = Number(listino.iva ?? 22);
+  const ivaPerc = Number(invoiceListino.iva ?? 22);
   const ivaImporto = subtotale * ivaPerc / 100;
   return ok({
     righe,
@@ -9286,8 +9423,13 @@ async function fatturazione(params) {
       preparazioni: preparazioniDettaglio,
       stoccaggio: {
         pallet: palletStoccati,
+        slot: slotStoccati,
         prezzo: storageUnitPrice,
-        importo: palletStoccati * storageUnitPrice,
+        prezzo_pallet: storageUnitPrice,
+        prezzo_slot: slotStorageUnitPrice,
+        importo: palletStoccati * storageUnitPrice + slotStoccati * slotStorageUnitPrice,
+        importo_pallet: palletStoccati * storageUnitPrice,
+        importo_slot: slotStoccati * slotStorageUnitPrice,
         registrato_il: storageMonth?.updated_at || null,
       },
       ordini_imballati: {
@@ -9301,12 +9443,12 @@ async function fatturazione(params) {
         },
         gestione_ordini: {
           quantita: packedOrderIds.length,
-          prezzo: price("wms_order_base_fee"),
+          prezzo: packedOrderIds.length ? orderBaseAmount / packedOrderIds.length : 0,
           importo: orderBaseAmount,
         },
         pezzi_extra: {
           quantita: extraPieces,
-          prezzo: price("wms_extra_item_fee"),
+          prezzo: extraPieces ? extraItemsAmount / extraPieces : 0,
           importo: extraItemsAmount,
         },
         imballaggi: {
@@ -9328,9 +9470,11 @@ async function saveBillingStorageMonth(payload = {}) {
   const anno = Number(payload.anno);
   const mese = Number(payload.mese);
   const palletQuantity = Number(payload.pallet);
+  const slotQuantity = Number(payload.slot ?? 0);
   if (!clienteId || !Number.isInteger(anno) || anno < 2020 || anno > 2200) fail("Cliente o anno non valido");
   if (!Number.isInteger(mese) || mese < 1 || mese > 12) fail("Mese non valido");
   if (!Number.isInteger(palletQuantity) || palletQuantity < 0) fail("Il numero di pallet deve essere un intero positivo o zero");
+  if (!Number.isInteger(slotQuantity) || slotQuantity < 0) fail("Il numero di slot deve essere un intero positivo o zero");
 
   const { data: cliente, error: clienteError } = await requireSupabase()
     .from("clienti")
@@ -9339,6 +9483,15 @@ async function saveBillingStorageMonth(payload = {}) {
     .single();
   if (clienteError || !cliente) fail(clienteError?.message || "Cliente non trovato");
 
+  const storageDate = new Date(Date.UTC(anno, mese - 1, 1)).toISOString().slice(0, 10);
+  const { data: versions, error: versionsError } = await requireSupabase()
+    .from("client_price_versions")
+    .select("price_key,amount,effective_from")
+    .eq("cliente_id", clienteId)
+    .lte("effective_from", storageDate);
+  if (versionsError) fail(versionsError.message);
+  const effectiveListino = effectivePriceValues(cliente.listino || {}, versions || [], storageDate);
+
   const { data, error } = await requireSupabase()
     .from("wms_billing_storage_months")
     .upsert({
@@ -9346,7 +9499,9 @@ async function saveBillingStorageMonth(payload = {}) {
       anno,
       mese,
       pallet_quantity: palletQuantity,
-      unit_price_snapshot: numberFromListino(cliente.listino || {}, "stoccaggio_pallet", 0),
+      slot_quantity: slotQuantity,
+      unit_price_snapshot: numberFromListino(effectiveListino, "stoccaggio_pallet", 0),
+      slot_unit_price_snapshot: numberFromListino(effectiveListino, "stoccaggio_slot", 0),
       recorded_by: profile.id,
       updated_at: nowIso(),
     }, { onConflict: "cliente_id,anno,mese" })
@@ -9627,7 +9782,8 @@ export const api = {
   async get(url, config = {}) {
     const { path, params } = pathAndQuery(url);
     if (path === "/clienti") return listClienti();
-    if (path.match(/^\/clienti\/[^/]+\/carrier-rates$/)) return listClientCarrierRates(path.split("/")[2]);
+    if (path.match(/^\/clienti\/[^/]+\/price-versions$/)) return listClientPriceVersions(path.split("/")[2]);
+    if (path.match(/^\/clienti\/[^/]+\/carrier-rates$/)) return listClientCarrierRates(path.split("/")[2], params);
     if (path === "/wms/postal-codes/stats") return getItalianPostalCodeStats();
     if (path === "/wms/client-options") return listWmsClientOptions();
     if (path === "/wms/operatori") return listWmsOperators(params);
@@ -9693,6 +9849,7 @@ export const api = {
     const { path } = pathAndQuery(url);
     if (path === "/clienti") return createCliente(payload);
     if (path === "/fatturazione/stoccaggio") return saveBillingStorageMonth(payload);
+    if (path.match(/^\/clienti\/[^/]+\/price-versions$/)) return saveClientPriceVersion(path.split("/")[2], payload);
     if (path.match(/^\/clienti\/[^/]+\/carrier-rates\/import$/)) return importClientCarrierRates(path.split("/")[2], payload);
     if (path.match(/^\/clienti\/[^/]+\/carrier-rates\/replace$/)) return replaceClientCarrierRates(path.split("/")[2], payload);
     if (path === "/wms/operatori/manage") return manageWmsOperator(payload);

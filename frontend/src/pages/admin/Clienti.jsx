@@ -17,7 +17,7 @@ import { Check, ChevronRight, Copy, Download, FileUp, KeyRound, Loader2, Pencil,
 
 const DEFAULT_LISTINO = {
   fnsku: 0.10, busta: 0, nastratura: 0, pluriball: 0, bundle: 0,
-  inscatolamento: 0, scatola_60: 0, scatola_40: 0, stoccaggio_pallet: 0, entrata_pallet: 0, entrata_scatola: 0, iva: 22,
+  inscatolamento: 0, scatola_60: 0, scatola_40: 0, stoccaggio_slot: 0, stoccaggio_pallet: 0, entrata_pallet: 0, entrata_scatola: 0, iva: 22,
   sped_gls_nazionale_base: 5.90, sped_gls_speciale_base: 8.90, sped_gls_kg_extra: 0.65,
   sped_brt_nazionale_base: 6.20, sped_brt_speciale_base: 8.40, sped_brt_kg_extra: 0.55,
   sped_peso_volumetrico_divisore: 5000,
@@ -35,6 +35,7 @@ const PREZZO_FIELDS = [
   ["inscatolamento", "Inscatolamento (€/box)"],
   ["scatola_60", "Scatola 60×40×40 (€/pz)"],
   ["scatola_40", "Scatola 40×30×30 (€/pz)"],
+  ["stoccaggio_slot", "Stoccaggio (€/slot·mese)"],
   ["stoccaggio_pallet", "Stoccaggio (€/pallet·mese)"],
   ["entrata_pallet", "Entrata pallet (€/pallet)"],
   ["entrata_scatola", "Entrata scatola (€/scatola)"],
@@ -75,11 +76,11 @@ function downloadCarrierTemplate() {
   URL.revokeObjectURL(url);
 }
 
-export function CarrierTariffCsv({ clienteId }) {
+export function CarrierTariffCsv({ clienteId, effectiveFrom }) {
   const [rates, setRates] = useState([]);
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
-  const load = useCallback(() => api.get(`/clienti/${clienteId}/carrier-rates`).then(({ data }) => setRates(data)), [clienteId]);
+  const load = useCallback(() => api.get(`/clienti/${clienteId}/carrier-rates${effectiveFrom ? `?effective_on=${effectiveFrom}` : ""}`).then(({ data }) => setRates(data)), [clienteId, effectiveFrom]);
   useEffect(() => { load(); }, [load]);
   const upload = async () => {
     if (!file) return toast.error("Seleziona il CSV del tariffario");
@@ -87,6 +88,7 @@ export function CarrierTariffCsv({ clienteId }) {
     try {
       const formData = new FormData();
       formData.append("file", file);
+      if (effectiveFrom) formData.append("effective_from", effectiveFrom);
       const { data } = await api.post(`/clienti/${clienteId}/carrier-rates/import`, formData);
       toast.success(`${data.imported} tariffe importate`);
       setFile(null);
@@ -102,7 +104,7 @@ export function CarrierTariffCsv({ clienteId }) {
   const special = rates.filter((rate) => rate.postal_codes?.length || rate.provinces?.length).length;
   return <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
     <div className="flex flex-wrap items-start justify-between gap-3">
-      <div><p className="text-sm font-bold">Tariffario spedizioni CSV</p><p className="mt-1 text-xs leading-5 text-slate-500">L’importazione sostituisce il tariffario precedente. I CAP accettano valori esatti o prefissi come <code>90*</code>; separa più CAP o province con <code>|</code>.</p></div>
+      <div><p className="text-sm font-bold">Tariffario spedizioni CSV</p><p className="mt-1 text-xs leading-5 text-slate-500">L’importazione salva una versione completa{effectiveFrom ? ` valida dal ${new Date(`${effectiveFrom}T12:00:00`).toLocaleDateString("it-IT")}` : " valida da oggi"}. I CAP accettano valori esatti o prefissi come <code>90*</code>; separa più CAP o province con <code>|</code>.</p></div>
       <Button type="button" variant="outline" size="sm" onClick={downloadCarrierTemplate}><Download className="mr-2 h-4 w-4"/>Modello CSV</Button>
     </div>
     <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto]">
@@ -355,6 +357,7 @@ function ModificaClienteDialog({ cliente, onSaved }) {
   const [ragione, setRagione] = useState(cliente.ragione_sociale);
   const [note, setNote] = useState(cliente.note || "");
   const [listino, setListino] = useState({ ...DEFAULT_LISTINO, ...(cliente.listino || {}) });
+  const [effectiveFrom, setEffectiveFrom] = useState(new Date().toLocaleDateString("en-CA"));
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -362,14 +365,16 @@ function ModificaClienteDialog({ cliente, onSaved }) {
     setRagione(cliente.ragione_sociale);
     setNote(cliente.note || "");
     setListino({ ...DEFAULT_LISTINO, ...(cliente.listino || {}) });
+    setEffectiveFrom(new Date().toLocaleDateString("en-CA"));
   }, [open, cliente]);
 
   const salva = async () => {
     setSaving(true);
     try {
       const listinoNum = normalizeListino(listino);
-      await api.put(`/clienti/${cliente.id}`, { ragione_sociale: ragione, note, listino: listinoNum });
-      toast.success("Cliente aggiornato");
+      await api.put(`/clienti/${cliente.id}`, { ragione_sociale: ragione, note });
+      await api.post(`/clienti/${cliente.id}/price-versions`, { effective_from: effectiveFrom, prices: listinoNum });
+      toast.success(`Cliente e listino validi dal ${new Date(`${effectiveFrom}T12:00:00`).toLocaleDateString("it-IT")}`);
       setOpen(false);
       onSaved();
     } catch (e) {
@@ -408,10 +413,10 @@ function ModificaClienteDialog({ cliente, onSaved }) {
             </div>
           </div>
           <div>
-            <Label className="text-sm font-semibold">Costi lavorazioni</Label>
+            <div className="flex flex-wrap items-end justify-between gap-3"><Label className="text-sm font-semibold">Costi lavorazioni</Label><label><span className="block text-xs font-semibold text-slate-500">In vigore dal</span><Input type="date" value={effectiveFrom} onChange={(event) => setEffectiveFrom(event.target.value)} className="mt-1 w-44"/></label></div>
             <div className="mt-2"><ListinoFields value={listino} onChange={setListino} /></div>
           </div>
-          <CarrierTariffCsv clienteId={cliente.id} />
+          <CarrierTariffCsv clienteId={cliente.id} effectiveFrom={effectiveFrom} />
         </div>
         <DialogFooter>
           <Button onClick={salva} disabled={saving} data-testid="edit-cliente-salva">

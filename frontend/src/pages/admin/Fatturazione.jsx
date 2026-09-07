@@ -28,6 +28,7 @@ export default function AdminFatturazione({ clientMode = false, forcedClienteId 
   const [anno, setAnno] = useState(now.getFullYear());
   const [mese, setMese] = useState(now.getMonth() + 1);
   const [pallet, setPallet] = useState(0);
+  const [slot, setSlot] = useState(0);
   const [fattura, setFattura] = useState(null);
   const [loading, setLoading] = useState(false);
   const [excelLoading, setExcelLoading] = useState(false);
@@ -54,6 +55,7 @@ export default function AdminFatturazione({ clientMode = false, forcedClienteId 
           anno,
           mese,
           pallet: Number(pallet) || 0,
+          slot: Number(slot) || 0,
         });
       }
       const query = new URLSearchParams({
@@ -64,6 +66,7 @@ export default function AdminFatturazione({ clientMode = false, forcedClienteId 
       const r = await api.get(`/fatturazione?${query.toString()}`);
       setFattura(r.data);
       if (!clientMode) setPallet(Number(r.data?.dettaglio?.stoccaggio?.pallet || 0));
+      if (!clientMode) setSlot(Number(r.data?.dettaglio?.stoccaggio?.slot || 0));
       return r.data;
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Errore nel calcolo");
@@ -85,6 +88,7 @@ export default function AdminFatturazione({ clientMode = false, forcedClienteId 
           anno,
           mese,
           pallet: Number(pallet) || 0,
+          slot: Number(slot) || 0,
         });
       }
       const query = new URLSearchParams({
@@ -128,7 +132,7 @@ export default function AdminFatturazione({ clientMode = false, forcedClienteId 
       </div>
 
       <Card className="p-5">
-        <div className={`grid grid-cols-1 gap-3 items-end ${clientMode ? "md:grid-cols-3" : "md:grid-cols-5"}`}>
+        <div className={`grid grid-cols-1 gap-3 items-end ${clientMode ? "md:grid-cols-3" : "md:grid-cols-6"}`}>
           {!clientMode && !forcedClienteId && (
             <div className="md:col-span-2">
               <Label className="text-xs">Cliente</Label>
@@ -159,6 +163,12 @@ export default function AdminFatturazione({ clientMode = false, forcedClienteId 
               <Input type="number" min={0} data-testid="fatt-pallet" value={pallet} onChange={(e) => setPallet(e.target.value)} className="mt-1" />
             </div>
           )}
+          {!clientMode && (
+            <div>
+              <Label className="text-xs">Slot occupati nel mese</Label>
+              <Input type="number" min={0} data-testid="fatt-slot" value={slot} onChange={(e) => setSlot(e.target.value)} className="mt-1" />
+            </div>
+          )}
         </div>
         <div className="flex gap-2 mt-4">
           <Button onClick={() => calcola()} disabled={loading} data-testid="fatt-calcola-btn">
@@ -182,7 +192,7 @@ export default function AdminFatturazione({ clientMode = false, forcedClienteId 
               { label: "Entrate", value: (fattura.metriche.entrata_pallet || 0) + (fattura.metriche.entrata_scatola || 0), icon: PackageOpen, tone: "bg-sky-50 text-sky-700" },
               { label: "Preparazioni", value: fattura.metriche.preparazioni || 0, icon: ClipboardList, tone: "bg-indigo-50 text-indigo-700" },
               { label: "Box", value: fattura.metriche.box || 0, icon: Boxes, tone: "bg-amber-50 text-amber-700" },
-              { label: "Stoccaggio", value: `${fattura.dettaglio?.stoccaggio?.pallet || 0} pallet`, icon: Warehouse, tone: "bg-emerald-50 text-emerald-700" },
+              { label: "Stoccaggio", value: `${fattura.dettaglio?.stoccaggio?.pallet || 0} pallet · ${fattura.dettaglio?.stoccaggio?.slot || 0} slot`, icon: Warehouse, tone: "bg-emerald-50 text-emerald-700" },
             ].map((kpi) => (
               <Card key={kpi.label} className="p-5">
                 <div className="flex items-start justify-between">
@@ -459,15 +469,18 @@ function PreparazioniFatturazione({ preparazioni }) {
 
 function StoccaggioFatturazione({ stoccaggio, clientMode }) {
   const pallet = Number(stoccaggio?.pallet || 0);
+  const slot = Number(stoccaggio?.slot || 0);
   return (
     <Card className="p-5" data-testid="fatt-stoccaggio-dettaglio">
       <h2 className="font-heading text-lg font-semibold">Stoccaggio</h2>
       <p className="mt-1 text-xs text-muted-foreground">
-        {clientMode ? "Il costo compare quando viene inserito nel conteggio mensile." : "Calcolato sui pallet stoccati inseriti nel filtro sopra."}
+        {clientMode ? "Il costo compare quando viene inserito nel conteggio mensile." : "Calcolato su pallet e slot occupati inseriti nel filtro sopra."}
       </p>
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <MiniStat label="Pallet" value={pallet} />
-        <MiniStat label="Prezzo pallet/mese" value={eur(stoccaggio?.prezzo)} />
+        <MiniStat label="Prezzo pallet/mese" value={eur(stoccaggio?.prezzo_pallet ?? stoccaggio?.prezzo)} />
+        <MiniStat label="Slot" value={slot} />
+        <MiniStat label="Prezzo slot/mese" value={eur(stoccaggio?.prezzo_slot)} />
         <MiniStat label="Importo" value={eur(stoccaggio?.importo)} strong />
       </div>
     </Card>

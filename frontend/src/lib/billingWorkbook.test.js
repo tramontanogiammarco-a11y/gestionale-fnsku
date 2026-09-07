@@ -40,7 +40,7 @@ test("builds a readable billing workbook with operational detail", async () => {
         costo: { quantita: 1, prezzo: 2 },
       }],
       preparazioni: [],
-      stoccaggio: { pallet: 2, prezzo: 5, registrato_il: "2026-09-07T10:00:00Z" },
+      stoccaggio: { pallet: 2, slot: 3, prezzo_pallet: 5, prezzo_slot: 2, registrato_il: "2026-09-07T10:00:00Z" },
     },
   };
 
@@ -55,5 +55,6 @@ test("builds a readable billing workbook with operational detail", async () => {
   expect(parsed.getWorksheet("Spedizioni").getCell("F5").value).toBe("Mario Rossi");
   expect(parsed.getWorksheet("Spedizioni").getCell("M5").value).toBe("Prodotto Test x1");
   expect(parsed.getWorksheet("Spedizioni").getCell("Y5").value.formula).toContain("S5");
-  expect(parsed.getWorksheet("Stoccaggio").getCell("D5").value.formula).toBe("B5*C5");
+  expect(parsed.getWorksheet("Stoccaggio").getCell("E5").value.formula).toBe("C5*D5");
+  expect(parsed.getWorksheet("Stoccaggio").getCell("B6").value).toBe("Slot");
 });

@@ -16,7 +16,7 @@ Il prodotto e in una fase avanzata di prototipo operativo: molti flussi sono uti
 - Vercel org ID: `team_6L8NmbyP5T1oDOVT5Wd6BMKs`
 - Ultimo deployment verificato: `dpl_P4i5fSJTnH4wythnntbWjhoZutda`
 - Supabase project ref: `ryprjuqfervusppnedsz`
-- Migrazioni repository: `001` - `114`
+- Migrazioni repository: `001` - `115`
 
 Le route SPA vengono riscritte verso `index.html`, quindi i link diretti alle aree React devono funzionare su Vercel.
 
@@ -172,12 +172,15 @@ Per Relifebattery sono stati importati catalogo, immagini e giacenze di test. Gl
 ## Corrieri e costi
 
 - Tabelle prezzari cliente per GLS e BRT.
+- Listini cliente versionati per data di decorrenza, incluse modifiche future e retroattive.
 - Fasce peso: 0-3, 3-5, 5-10, 10-20 e 20-30 kg.
 - Zone nazionale e disagiata basate sui CAP importati.
 - Preventivo corriere per ordine.
 - Selezione predefinita del corriere piu economico e possibilita di cambio prima del packing.
 - Costi ordine: prima unita, unita aggiuntive, imballaggio e spedizione.
-- Stoccaggio mensile persistente per cliente con tariffa storicizzata.
+- Costi mensili distinti per slot e pallet, oltre ai costi di entrata scatola e pallet.
+- Stoccaggio mensile persistente per cliente con quantita distinte di slot e pallet.
+- Fatturazione, PDF ed Excel ricalcolati con il prezzo valido alla data di ogni evento; una decorrenza retroattiva aggiorna il periodo interessato senza cancellare gli snapshot operativi.
 - Export Excel cliente per periodo con riepilogo, spedizioni, prodotti, entrate, Prep FBA e stoccaggio.
 - Layout di test distinti per etichette GLS/BRT.
 
