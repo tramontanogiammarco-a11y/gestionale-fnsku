@@ -6393,6 +6393,25 @@ async function wmsMassPickSnapshot(batchId) {
   });
 }
 
+async function rollbackWmsMassPickStart(batchId, orderIds = []) {
+  const sb = requireSupabase();
+  const { error: batchError } = await sb.from("wms_mass_pick_batches").delete().eq("id", batchId);
+  if (batchError) return batchError;
+  if (!orderIds.length) return null;
+  const { error: ordersError } = await sb
+    .from("shopify_orders")
+    .update({ wms_status: "da_preparare", updated_at: nowIso() })
+    .in("id", orderIds)
+    .eq("wms_status", "in_preparazione");
+  return ordersError || null;
+}
+
+function wmsMassPickStartError(error, rollbackError = null) {
+  if (rollbackError) return `Avvio non completato e ripristino fallito: ${rollbackError.message}`;
+  if (error?.code === "23505") return "Uno o più ordini sono già stati assegnati a un altro picking. Aggiorna la coda.";
+  return error?.message || "Missione picking non creata";
+}
+
 async function startWmsMassPicking(payload = {}) {
   const profile = await assertWmsStaff();
   const signature = optionalText(payload.signature);
@@ -6454,7 +6473,11 @@ async function startWmsMassPicking(payload = {}) {
     requireSupabase().from("wms_mass_pick_lines").insert(lines),
     requireSupabase().from("shopify_orders").update({ wms_status: "in_preparazione", updated_at: nowIso() }).in("id", orderIds),
   ]);
-  if (linksError || linesError || statusesError) fail((linksError || linesError || statusesError).message);
+  if (linksError || linesError || statusesError) {
+    const startError = linksError || linesError || statusesError;
+    const rollbackError = await rollbackWmsMassPickStart(batch.id, orderIds);
+    fail(wmsMassPickStartError(startError, rollbackError));
+  }
   return wmsMassPickSnapshot(batch.id);
 }
 
@@ -6541,8 +6564,9 @@ async function startWmsMonoPicking(payload = {}) {
     requireSupabase().from("shopify_orders").update({ wms_status: "in_preparazione", updated_at: nowIso() }).in("id", orderIds),
   ]);
   if (linksError || linesError || statusesError) {
-    await requireSupabase().from("wms_mass_pick_batches").delete().eq("id", batch.id);
-    fail((linksError || linesError || statusesError).message);
+    const startError = linksError || linesError || statusesError;
+    const rollbackError = await rollbackWmsMassPickStart(batch.id, orderIds);
+    fail(wmsMassPickStartError(startError, rollbackError));
   }
   return wmsMassPickSnapshot(batch.id);
 }
