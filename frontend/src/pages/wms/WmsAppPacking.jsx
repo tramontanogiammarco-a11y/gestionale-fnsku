@@ -122,6 +122,7 @@ export default function WmsAppPacking() {
   const wakeLockRef = useRef(null);
   const stationChannelRef = useRef(null);
   const stationSnapshotRef = useRef(null);
+  const pairedDeviceSignalsRef = useRef(new Map());
   const [station, setStation] = useState(null);
   const [cart, setCart] = useState(null);
   const [code, setCode] = useState("");
@@ -251,12 +252,38 @@ export default function WmsAppPacking() {
     const channel = supabase.channel(printStationChannelName(printStationCode), {
       config: { broadcast: { ack: true }, presence: { key: `packing-${printStationCode}` } },
     });
+    const pairedDeviceSignals = pairedDeviceSignalsRef.current;
     stationChannelRef.current = channel;
+
+    const refreshPairedDevices = () => {
+      const now = Date.now();
+      for (const [deviceId, lastSeen] of pairedDeviceSignals.entries()) {
+        if (now - lastSeen > 10000) pairedDeviceSignals.delete(deviceId);
+      }
+      const presenceDevices = Object.values(channel.presenceState()).flat()
+        .filter((device) => device.role === "mobile").length;
+      setPairedDevices(Math.max(presenceDevices, pairedDeviceSignals.size));
+    };
+
+    const markPairedDevice = (deviceId) => {
+      const normalizedDeviceId = String(deviceId || "").slice(0, 80);
+      if (normalizedDeviceId) pairedDeviceSignals.set(normalizedDeviceId, Date.now());
+      refreshPairedDevices();
+    };
 
     channel
       .on("presence", { event: "sync" }, () => {
-        const devices = Object.values(channel.presenceState()).flat();
-        setPairedDevices(devices.filter((device) => device.role === "mobile").length);
+        refreshPairedDevices();
+      })
+      .on("broadcast", { event: "pairing-ping" }, async ({ payload }) => {
+        if (payload?.stationCode !== printStationCode) return;
+        markPairedDevice(payload?.deviceId);
+        await channel.send({
+          type: "broadcast",
+          event: "pairing-pong",
+          payload: { deviceId: payload?.deviceId, stationCode: printStationCode },
+        });
+        await channel.send({ type: "broadcast", event: "packing-state", payload: { station: stationSnapshotRef.current } });
       })
       .on("broadcast", { event: "print-location-labels" }, async ({ payload }) => {
         const jobId = String(payload?.jobId || "");
@@ -361,7 +388,11 @@ export default function WmsAppPacking() {
         }
       });
 
+    const pairedDeviceExpiry = window.setInterval(refreshPairedDevices, 3000);
+
     return () => {
+      window.clearInterval(pairedDeviceExpiry);
+      pairedDeviceSignals.clear();
       stationChannelRef.current = null;
       supabase.removeChannel(channel);
     };

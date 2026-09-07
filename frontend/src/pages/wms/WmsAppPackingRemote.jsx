@@ -26,6 +26,8 @@ export default function WmsAppPackingRemote() {
   const timeoutRef = useRef(null);
   const pendingRequestRef = useRef("");
   const channelRef = useRef(null);
+  const deviceIdRef = useRef(createPrintJobId());
+  const lastStationSignalRef = useRef(0);
   const [stationCode, setStationCode] = useState(getPairedPrintStationCode);
   const [stationOnline, setStationOnline] = useState(false);
   const [station, setStation] = useState(null);
@@ -41,16 +43,45 @@ export default function WmsAppPackingRemote() {
 
   useEffect(() => {
     if (!supabase || !stationCode) return undefined;
+    setStationOnline(false);
+    lastStationSignalRef.current = 0;
     const channel = supabase.channel(printStationChannelName(stationCode), {
-      config: { broadcast: { ack: true }, presence: { key: `mono-mobile-${Date.now()}` } },
+      config: { broadcast: { ack: true }, presence: { key: `mono-mobile-${deviceIdRef.current}` } },
     });
     channelRef.current = channel;
+
+    const markStationOnline = () => {
+      lastStationSignalRef.current = Date.now();
+      setStationOnline(true);
+    };
+
+    const sendHeartbeat = async () => {
+      await channel.send({
+        type: "broadcast",
+        event: "pairing-ping",
+        payload: { deviceId: deviceIdRef.current, stationCode },
+      });
+      await channel.send({
+        type: "broadcast",
+        event: "request-packing-state",
+        payload: { deviceId: deviceIdRef.current, stationCode },
+      });
+    };
+
     channel
       .on("presence", { event: "sync" }, () => {
         const devices = Object.values(channel.presenceState()).flat();
-        setStationOnline(devices.some((device) => device.role === "station" && device.capabilities?.includes("mono-packing")));
+        if (devices.some((device) => device.role === "station" && device.capabilities?.includes("mono-packing"))) {
+          markStationOnline();
+        }
       })
-      .on("broadcast", { event: "packing-state" }, ({ payload }) => setStation(payload?.station || null))
+      .on("broadcast", { event: "pairing-pong" }, ({ payload }) => {
+        if (payload?.deviceId === deviceIdRef.current && payload?.stationCode === stationCode) markStationOnline();
+      })
+      .on("broadcast", { event: "packing-state" }, ({ payload }) => {
+        markStationOnline();
+        setStation(payload?.station || null);
+      })
       .on("broadcast", { event: "mono-select-result" }, ({ payload }) => {
         if (!payload?.requestId || payload.requestId !== pendingRequestRef.current) return;
         window.clearTimeout(timeoutRef.current);
@@ -62,12 +93,15 @@ export default function WmsAppPackingRemote() {
       .subscribe(async (status) => {
         if (status === "SUBSCRIBED") {
           await channel.track({ role: "mobile", capabilities: ["mono-packing"], pairedAt: new Date().toISOString() });
-          await channel.send({ type: "broadcast", event: "request-packing-state", payload: {} });
+          await sendHeartbeat();
         }
         if (["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status)) setStationOnline(false);
       });
 
-    const refresh = window.setInterval(() => channel.send({ type: "broadcast", event: "request-packing-state", payload: {} }), 3000);
+    const refresh = window.setInterval(() => {
+      sendHeartbeat();
+      if (lastStationSignalRef.current && Date.now() - lastStationSignalRef.current > 9000) setStationOnline(false);
+    }, 3000);
     return () => {
       window.clearInterval(refresh);
       window.clearTimeout(timeoutRef.current);
