@@ -16,7 +16,7 @@ import {
 import { Check, ChevronRight, Copy, Download, FileUp, KeyRound, Loader2, Pencil, RefreshCw, UserPlus } from "lucide-react";
 
 const DEFAULT_LISTINO = {
-  fnsku: 0.10, busta: 0, nastratura: 0, pluriball: 0, bundle: 0,
+  fnsku: 0.10, transparency: 0, busta: 0, nastratura: 0, pluriball: 0, bundle: 0,
   inscatolamento: 0, scatola_60: 0, scatola_40: 0, stoccaggio_slot: 0, stoccaggio_pallet: 0, entrata_pallet: 0, entrata_scatola: 0, iva: 22,
   sped_gls_nazionale_base: 5.90, sped_gls_speciale_base: 8.90, sped_gls_kg_extra: 0.65,
   sped_brt_nazionale_base: 6.20, sped_brt_speciale_base: 8.40, sped_brt_kg_extra: 0.55,
@@ -28,6 +28,7 @@ const DEFAULT_LISTINO = {
 
 const PREZZO_FIELDS = [
   ["fnsku", "FNSKU (€/pezzo)"],
+  ["transparency", "Transparency (€/pezzo)"],
   ["busta", "Busta trasparente (€/pezzo)"],
   ["nastratura", "Nastratura (€/pezzo)"],
   ["pluriball", "Pluriball (€/pezzo)"],

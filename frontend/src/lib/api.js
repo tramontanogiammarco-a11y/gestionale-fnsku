@@ -126,6 +126,7 @@ function groupBy(rows, key) {
 
 const SERVICE_LABELS = {
   fnsku: "Applicazione etichette FNSKU",
+  transparency: "Applicazione etichette Transparency",
   busta: "Busta trasparente",
   nastratura: "Nastratura",
   pluriball: "Pluriball",
@@ -2616,7 +2617,7 @@ async function listPreparazioni(params) {
   return ok(await enrichPreparazioni(data || []));
 }
 
-async function enrichPreparazioni(preps) {
+async function enrichPreparazioni(preps, { includeTransparencyLabels = false } = {}) {
   const ids = preps.map((p) => p.id);
   const [{ data: righe, error: righeError }, { data: boxes, error: boxesError }] = ids.length
     ? await Promise.all([
@@ -2626,6 +2627,16 @@ async function enrichPreparazioni(preps) {
     : [{ data: [], error: null }, { data: [], error: null }];
   const enrichError = righeError || boxesError;
   if (enrichError) fail(enrichError.message);
+  const rigaIds = (righe || []).map((riga) => riga.id);
+  const { data: transparencyLabels, error: transparencyLabelsError } = includeTransparencyLabels && rigaIds.length
+    ? await supabase
+      .from("preparazioni_righe_transparency_labels")
+      .select("*")
+      .in("preparazione_riga_id", rigaIds)
+      .order("created_at", { ascending: true })
+    : { data: [], error: null };
+  if (transparencyLabelsError) fail(transparencyLabelsError.message);
+  const transparencyLabelsByRow = groupBy(transparencyLabels || [], "preparazione_riga_id");
   const refs = await refsFor(preps.map((p) => p.cliente_id));
   const cmap = await clientiMap(preps.map((p) => p.cliente_id));
   const prepCliente = new Map(preps.map((p) => [p.id, p.cliente_id]));
@@ -2640,7 +2651,14 @@ async function enrichPreparazioni(preps) {
     const clienteId = prepCliente.get(r.preparazione_id);
     const ref = refByEan.get(`${clienteId}:${r.ean}`) || refByFnsku.get(`${clienteId}:${r.fnsku}`);
     byPrep[r.preparazione_id] = byPrep[r.preparazione_id] || [];
-    byPrep[r.preparazione_id].push({ ...r, stato: r.stato || "richiesta", titolo: ref?.titolo, fnsku: r.fnsku || ref?.fnsku || null, referenza_id: ref?.id });
+    byPrep[r.preparazione_id].push({
+      ...r,
+      stato: r.stato || "richiesta",
+      titolo: ref?.titolo,
+      fnsku: r.fnsku || ref?.fnsku || null,
+      referenza_id: ref?.id,
+      transparency_labels: transparencyLabelsByRow[r.id] || [],
+    });
   }
   const boxesByPrep = groupBy(boxes || [], "preparazione_id");
   return preps.map((p) => ({
@@ -3589,7 +3607,7 @@ async function updateWmsShipment(id, payload) {
 async function getPreparazione(id) {
   const { data, error } = await requireSupabase().from("preparazioni").select("*").eq("id", id).single();
   if (error) fail(error.message, 404);
-  const [full] = await enrichPreparazioni([data]);
+  const [full] = await enrichPreparazioni([data], { includeTransparencyLabels: true });
   return ok(full);
 }
 
@@ -3793,6 +3811,77 @@ async function updatePreparazioneRigaServiziAdmin(id, payload = {}) {
     .single();
   if (error) fail(error.message);
   return ok(data);
+}
+
+const TRANSPARENCY_LABEL_TYPES = new Set(["application/pdf", "image/png", "image/jpeg"]);
+const TRANSPARENCY_LABEL_MAX_SIZE = 25 * 1024 * 1024;
+
+async function uploadPreparazioneTransparencyLabel(id, formData) {
+  const file = formData.get("file");
+  if (!file) fail("File mancante");
+  const extension = String(file.name || "").toLowerCase().split(".").pop();
+  if (!TRANSPARENCY_LABEL_TYPES.has(file.type) && !["pdf", "png", "jpg", "jpeg"].includes(extension)) {
+    fail("Carica un file PDF, PNG o JPG");
+  }
+  if (Number(file.size || 0) > TRANSPARENCY_LABEL_MAX_SIZE) fail("Il file supera il limite di 25 MB");
+
+  const { data: row, error: rowError } = await requireSupabase()
+    .from("preparazioni_righe")
+    .select("id,preparazione_id,servizi")
+    .eq("id", id)
+    .single();
+  if (rowError || !row) fail(rowError?.message || "Riga preparazione non trovata", 404);
+  if (!(row.servizi || []).includes("transparency")) fail("La lavorazione Transparency non e richiesta per questo prodotto", 409);
+
+  const { data: prep, error: prepError } = await requireSupabase()
+    .from("preparazioni")
+    .select("id,cliente_id,stato")
+    .eq("id", row.preparazione_id)
+    .single();
+  if (prepError || !prep) fail(prepError?.message || "Preparazione non trovata", 404);
+  if (prep.stato === "spedito") fail("La preparazione e gia completata", 409);
+
+  const safeName = String(file.name || "etichetta.pdf").replace(/[^a-zA-Z0-9._-]+/g, "-");
+  const uniquePart = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const path = `${prep.cliente_id}/preparazioni/${prep.id}/transparency/${id}/${uniquePart}-${safeName}`;
+  const { error: uploadError } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false });
+  if (uploadError) fail(uploadError.message);
+
+  const { data, error } = await requireSupabase()
+    .from("preparazioni_righe_transparency_labels")
+    .insert({
+      preparazione_riga_id: id,
+      storage_path: path,
+      file_name: file.name || safeName,
+      mime_type: file.type || null,
+      file_size: Number(file.size || 0),
+    })
+    .select()
+    .single();
+  if (error) {
+    await supabase.storage.from(BUCKET).remove([path]);
+    fail(error.message);
+  }
+  return ok(data);
+}
+
+async function deletePreparazioneTransparencyLabel(rowId, labelId) {
+  const { data: label, error: readError } = await requireSupabase()
+    .from("preparazioni_righe_transparency_labels")
+    .select("id,preparazione_riga_id,storage_path")
+    .eq("id", labelId)
+    .eq("preparazione_riga_id", rowId)
+    .single();
+  if (readError || !label) fail(readError?.message || "Etichetta Transparency non trovata", 404);
+
+  const { error } = await requireSupabase()
+    .from("preparazioni_righe_transparency_labels")
+    .delete()
+    .eq("id", label.id);
+  if (error) fail(error.message);
+  const { error: storageError } = await supabase.storage.from(BUCKET).remove([label.storage_path]);
+  if (storageError) fail(`Etichetta rimossa, ma il file non e stato eliminato: ${storageError.message}`);
+  return ok({ ok: true });
 }
 
 async function declarePreparazioneShortage(id, payload = {}) {
@@ -9203,7 +9292,7 @@ async function fatturazione(params) {
     };
   });
 
-  for (const codice of ["fnsku", "busta", "nastratura", "pluriball", "bundle"]) {
+  for (const codice of ["fnsku", "transparency", "busta", "nastratura", "pluriball", "bundle"]) {
     addImportoRiga(codice, SERVICE_LABELS[codice], servizioQty[codice], servizioAmounts[codice]);
   }
 
@@ -9924,6 +10013,7 @@ export const api = {
     }
     if (path === "/preparazioni") return createPreparazione(payload);
     if (path === "/preparazioni-righe") return createPreparazioneRiga(payload);
+    if (path.match(/^\/preparazioni-righe\/[^/]+\/transparency-labels$/)) return uploadPreparazioneTransparencyLabel(path.split("/")[2], payload);
     if (path.match(/^\/preparazioni-righe\/[^/]+\/mancanza$/)) return declarePreparazioneShortage(path.split("/")[2], payload);
     if (path === "/etichette/genera" && config.responseType === "blob") return ok(generateLabelsPdfBlob(payload));
     fail(`Endpoint non migrato: ${path}`, 404);
@@ -9954,6 +10044,10 @@ export const api = {
 
   async delete(url) {
     const { path } = pathAndQuery(url);
+    if (path.match(/^\/preparazioni-righe\/[^/]+\/transparency-labels\/[^/]+$/)) {
+      const [, rowId, labelId] = path.match(/^\/preparazioni-righe\/([^/]+)\/transparency-labels\/([^/]+)$/);
+      return deletePreparazioneTransparencyLabel(rowId, labelId);
+    }
     if (path.match(/^\/entrate\/[^/]+$/)) return deleteEntrata(path.split("/")[2]);
     if (path.match(/^\/entrate-righe\/[^/]+$/)) return deleteEntrataRiga(path.split("/")[2]);
     if (path.match(/^\/box\/[^/]+$/)) return deleteBox(path.split("/")[2]);

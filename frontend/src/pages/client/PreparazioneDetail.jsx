@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { api, formatApiError } from "@/lib/api";
 import { StatusBadge } from "@/components/StatusBadge";
 import ProcessTimeline from "@/components/ProcessTimeline";
+import TransparencyLabelFiles from "@/components/TransparencyLabelFiles";
 import { FLUSSO_PREP, STATI_PREP, SERVIZI } from "@/lib/statuses";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -46,6 +47,7 @@ export default function ClientPreparazioneDetail({ basePath = "/app" }) {
         fnsku: rg.fnsku || "",
         quantita: String(rg.quantita || ""),
         servizi: rg.servizi || [],
+        transparency_labels: rg.transparency_labels || [],
       })));
     }).catch((e) => {
       const s = e?.response?.status;
@@ -251,6 +253,19 @@ export default function ClientPreparazioneDetail({ basePath = "/app" }) {
                         {SERVIZI[key].label}
                       </label>
                     ))}
+                    {(row.servizi || []).includes("transparency") && row.id && (
+                      <div className="w-full">
+                        <TransparencyLabelFiles
+                          row={row}
+                          canUpload={prep.stato !== "spedito"}
+                          canDelete={prep.stato !== "spedito"}
+                          onChanged={load}
+                        />
+                      </div>
+                    )}
+                    {(row.servizi || []).includes("transparency") && !row.id && (
+                      <div className="w-full text-xs text-muted-foreground">Salva la riga per allegare le etichette Transparency.</div>
+                    )}
                   </div>
                 </TableCell>
                 <TableCell className="text-right">

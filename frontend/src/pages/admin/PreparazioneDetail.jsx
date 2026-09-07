@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { StatusBadge } from "@/components/StatusBadge";
 import ProcessTimeline from "@/components/ProcessTimeline";
+import TransparencyLabelFiles from "@/components/TransparencyLabelFiles";
 import { STATI_PREP, SERVIZI } from "@/lib/statuses";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -461,6 +462,11 @@ export default function AdminPreparazioneDetail() {
                           </div>
                         </PopoverContent>
                       </Popover>
+                    )}
+                    {(rg.servizi || []).includes("transparency") && (
+                      <div className="w-full">
+                        <TransparencyLabelFiles row={rg} />
+                      </div>
                     )}
                   </div>
                 </TableCell>

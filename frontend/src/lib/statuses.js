@@ -24,6 +24,7 @@ export const STATI_PREP = {
 // Servizi di lavorazione richiedibili sulle righe di preparazione
 export const SERVIZI = {
   fnsku: { label: "FNSKU" },
+  transparency: { label: "Transparency" },
   busta: { label: "Busta trasparente" },
   nastratura: { label: "Nastratura" },
   pluriball: { label: "Pluriball" },

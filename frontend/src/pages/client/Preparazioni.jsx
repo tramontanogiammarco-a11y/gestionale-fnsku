@@ -14,7 +14,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, Trash2, ClipboardList, ChevronRight } from "lucide-react";
+import { FileText, Loader2, Plus, Trash2, ClipboardList, ChevronRight } from "lucide-react";
 
 function isPreparazioneAttiva(prep) {
   return prep.stato === "richiesta" || prep.stato === "in_lavorazione";
@@ -119,7 +119,7 @@ function NuovaPreparazioneDialog({ onDone }) {
   const [open, setOpen] = useState(false);
   const [magazzino, setMagazzino] = useState([]);
   const [note, setNote] = useState("");
-  const [righe, setRighe] = useState([{ ean: "", fnsku: "", quantita: "", servizi: [] }]);
+  const [righe, setRighe] = useState([{ ean: "", fnsku: "", quantita: "", servizi: [], transparency_files: [] }]);
   const [tipoPrep, setTipoPrep] = useState("standard");
   const [gruppiAmazon, setGruppiAmazon] = useState([{ nome: "Gruppo 1", righe: [{ ean: "", quantita: "" }] }]);
   const [saving, setSaving] = useState(false);
@@ -142,7 +142,7 @@ function NuovaPreparazioneDialog({ onDone }) {
     next[i].servizi = [...set];
     setRighe(next);
   };
-  const addRow = () => setRighe([...righe, { ean: "", fnsku: "", quantita: "", servizi: [] }]);
+  const addRow = () => setRighe([...righe, { ean: "", fnsku: "", quantita: "", servizi: [], transparency_files: [] }]);
   const delRow = (i) => setRighe(righe.filter((_, idx) => idx !== i));
   const updateGruppo = (i, k, v) => {
     const next = [...gruppiAmazon]; next[i][k] = v; setGruppiAmazon(next);
@@ -262,11 +262,31 @@ function NuovaPreparazioneDialog({ onDone }) {
     }
     setSaving(true);
     try {
-      await api.post("/preparazioni", { note: buildNote(), righe: valide });
-      toast.success("Preparazione inviata al prep center");
+      const { data: created } = await api.post("/preparazioni", { note: buildNote(), righe: valide });
+      let uploadFailures = 0;
+      for (const sourceRow of righeRichieste) {
+        const files = sourceRow.transparency_files || [];
+        if (!files.length) continue;
+        const createdRow = (created.righe || []).find((row) => row.ean === sourceRow.ean);
+        if (!createdRow) {
+          uploadFailures += files.length;
+          continue;
+        }
+        for (const file of files) {
+          try {
+            const formData = new FormData();
+            formData.append("file", file);
+            await api.post(`/preparazioni-righe/${createdRow.id}/transparency-labels`, formData);
+          } catch (_) {
+            uploadFailures += 1;
+          }
+        }
+      }
+      if (uploadFailures) toast.warning(`Preparazione creata. ${uploadFailures} etichette Transparency non caricate: puoi riprovare dal dettaglio.`);
+      else toast.success("Preparazione inviata al prep center");
       setOpen(false);
       setNote("");
-      setRighe([{ ean: "", fnsku: "", quantita: "", servizi: [] }]);
+      setRighe([{ ean: "", fnsku: "", quantita: "", servizi: [], transparency_files: [] }]);
       setTipoPrep("standard");
       setGruppiAmazon([{ nome: "Gruppo 1", righe: [{ ean: "", quantita: "" }] }]);
       onDone();
@@ -328,6 +348,28 @@ function NuovaPreparazioneDialog({ onDone }) {
                         </label>
                       ))}
                     </div>
+                    {r.servizi.includes("transparency") && (
+                      <div className="mt-3 border-t border-slate-100 pt-3">
+                        <Label className="text-xs font-semibold">Etichette Transparency</Label>
+                        <Input
+                          type="file"
+                          multiple
+                          accept="application/pdf,image/png,image/jpeg"
+                          className="mt-1"
+                          onChange={(event) => update(i, "transparency_files", [...(event.target.files || [])])}
+                          data-testid={`prep-transparency-labels-${i}`}
+                        />
+                        {(r.transparency_files || []).length > 0 && (
+                          <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                            {r.transparency_files.map((file) => (
+                              <div key={`${file.name}-${file.lastModified}`} className="flex items-center gap-1">
+                                <FileText className="h-3.5 w-3.5" /> {file.name}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
