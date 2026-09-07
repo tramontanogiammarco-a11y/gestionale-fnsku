@@ -8,8 +8,20 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import CameraScanner from "@/components/wms/CameraScanner";
 import { loadWmsPickingQueue, peekWmsPickingQueue } from "@/lib/wmsPickingQueuePrefetch";
+import { peekWmsOrders } from "@/lib/wmsOrdersPrefetch";
 
 const bagPattern = /^B-[A-Z0-9]{5}$/;
+
+function queuePreviewFromOrders(mode, clientId) {
+  const preview = peekWmsOrders(clientId, { allowStale: true })?.data?.preparation?.[mode];
+  if (!preview) return null;
+  return {
+    ...preview,
+    refill_orders: 0,
+    refill_products: [],
+    separate_orders: 0,
+  };
+}
 
 export default function WmsAppMassPicking({ mode = "massivo" }) {
   const { batchId } = useParams();
@@ -19,23 +31,30 @@ export default function WmsAppMassPicking({ mode = "massivo" }) {
 function MassQueue({ mode }) {
   const navigate = useNavigate();
   const { clientId } = useOutletContext();
-  const initialData = useRef(peekWmsPickingQueue(mode, clientId)?.data || null).current;
+  const initialData = useRef(
+    peekWmsPickingQueue(mode, clientId, { allowStale: true })?.data
+      || queuePreviewFromOrders(mode, clientId),
+  ).current;
   const [data, setData] = useState(initialData);
   const [working, setWorking] = useState(false);
+  const startInFlightRef = useRef(false);
   const load = useCallback(async ({ force = false } = {}) => {
     try {
       setData((await loadWmsPickingQueue(mode, clientId, { force })).data);
     } catch (error) {
       toast.error(error.response?.data?.detail || "Picking non disponibile");
-      setData({ groups: [], batches: [], separate_orders: 0 });
+      setData((current) => current || { groups: [], batches: [], separate_orders: 0 });
     }
   }, [clientId, mode]);
   useEffect(() => {
-    const cached = peekWmsPickingQueue(mode, clientId)?.data || null;
+    const cached = peekWmsPickingQueue(mode, clientId, { allowStale: true })?.data
+      || queuePreviewFromOrders(mode, clientId);
     setData(cached);
-    load({ force: Boolean(cached) });
+    load();
   }, [clientId, load, mode]);
   const start = async (group, selectedOrders = group.numero_ordini) => {
+    if (startInFlightRef.current) return;
+    startInFlightRef.current = true;
     setWorking(true);
     try {
       const response = await api.post(`/wms/picking-${mode}/avvia`, {
@@ -46,7 +65,10 @@ function MassQueue({ mode }) {
       toast.success(mode === "mono" ? "Missione mono-prodotto avviata" : "Missione Massivo avviata");
       navigate(`/wms-app/picking-${mode}/${response.data.batch.id}`);
     } catch (error) { toast.error(error.response?.data?.detail || "Missione non avviata"); }
-    finally { setWorking(false); }
+    finally {
+      startInFlightRef.current = false;
+      setWorking(false);
+    }
   };
   if (!data) return <Loading />;
   const active = (data.batches || []).filter((batch) => ["in_corso", "da_confermare_bag"].includes(batch.stato));
@@ -109,6 +131,7 @@ function MassMission({ batchId, mode }) {
   const [selectedQuantity, setSelectedQuantity] = useState(0);
   const selectedQuantityRef = useRef(0);
   const quantitySubmitRef = useRef(false);
+  const operationInFlightRef = useRef(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [scannerSession, setScannerSession] = useState(0);
   const load = useCallback(async () => { try { setData((await api.get(`/wms/picking-${mode}/${batchId}`)).data); } catch (error) { toast.error(error.response?.data?.detail || "Missione non disponibile"); } }, [batchId, mode]);
@@ -134,10 +157,22 @@ function MassMission({ batchId, mode }) {
     return () => window.clearTimeout(timer);
   }, [scannerMode, current?.id, openScanner]);
   const send = async (payload, success, fallback) => {
+    if (operationInFlightRef.current) return false;
+    operationInFlightRef.current = true;
     setWorking(true);
-    try { setData((await api.post(`/wms/picking-${mode}/${batchId}/scan`, payload)).data); toast.success(success); if (navigator.vibrate) navigator.vibrate([60, 35, 60]); }
-    catch (error) { toast.error(error.response?.data?.detail || fallback); if (navigator.vibrate) navigator.vibrate(180); }
-    finally { setWorking(false); }
+    try {
+      setData((await api.post(`/wms/picking-${mode}/${batchId}/scan`, payload)).data);
+      toast.success(success);
+      if (navigator.vibrate) navigator.vibrate([60, 35, 60]);
+      return true;
+    } catch (error) {
+      toast.error(error.response?.data?.detail || fallback);
+      if (navigator.vibrate) navigator.vibrate(180);
+      return false;
+    } finally {
+      operationInFlightRef.current = false;
+      setWorking(false);
+    }
   };
   const scanSlot = (rawCode) => { const value = String(rawCode || code).trim(); if (value) { setCode(""); send({ codice: value }, mode === "mono" ? "Prelievo registrato, passa al prossimo prodotto" : "Slot confermato", "Slot o prodotto errato"); } };
   const confirmBag = (rawCode) => { const value = String(rawCode || bagCode).trim().toUpperCase(); if (bagPattern.test(value)) { setBagCode(""); send({ codice: value }, "Bag confermata e registrata nello storico", "Bag non valida"); } };

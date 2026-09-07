@@ -23,6 +23,7 @@ export default function WmsAppPicking() {
   const [quantity, setQuantity] = useState(1);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [scannerSession, setScannerSession] = useState(0);
+  const operationInFlightRef = useRef(false);
 
   const load = useCallback(async () => {
     try {
@@ -69,6 +70,8 @@ export default function WmsAppPicking() {
   }, [data?.lines]);
 
   const start = async () => {
+    if (operationInFlightRef.current) return;
+    operationInFlightRef.current = true;
     setWorking(true);
     try {
       const response = await api.post(`/wms/picking/${orderId}/avvia`, {});
@@ -77,12 +80,14 @@ export default function WmsAppPicking() {
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Picking non avviato");
     } finally {
+      operationInFlightRef.current = false;
       setWorking(false);
     }
   };
 
   const replenish = async (item) => {
-    if (!item.target_slot) return;
+    if (!item.target_slot || operationInFlightRef.current) return;
+    operationInFlightRef.current = true;
     setWorking(true);
     try {
       await api.post("/wms/rifornimenti", {
@@ -97,13 +102,15 @@ export default function WmsAppPicking() {
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Rifornimento non completato");
     } finally {
+      operationInFlightRef.current = false;
       setWorking(false);
     }
   };
 
   const scan = async (rawCode) => {
     const value = String(rawCode || code).trim();
-    if (!value || !data?.task) return;
+    if (!value || !data?.task || operationInFlightRef.current) return;
+    operationInFlightRef.current = true;
     setWorking(true);
     try {
       const locationResponse = await api.post(`/wms/picking/${data.task.id}/scan`, {
@@ -119,15 +126,18 @@ export default function WmsAppPicking() {
       if (navigator.vibrate) navigator.vibrate(180);
       window.setTimeout(() => inputRef.current?.select(), 25);
     } finally {
+      operationInFlightRef.current = false;
       setWorking(false);
     }
   };
   const confirmBag = async (rawCode) => {
+    if (operationInFlightRef.current) return;
     const value = String(rawCode || bagCode).trim().toUpperCase();
     if (!data?.task || !/^B-[A-Z0-9]{5}$/.test(value)) {
       toast.error("Scansiona una bag nel formato B-7K2Q9.");
       return;
     }
+    operationInFlightRef.current = true;
     setWorking(true);
     try {
       const response = await api.post(`/wms/picking/${data.task.id}/scan`, { codice: value });
@@ -138,7 +148,10 @@ export default function WmsAppPicking() {
     } catch (error) {
       toast.error(error.response?.data?.detail || "Bag non valida");
       if (navigator.vibrate) navigator.vibrate(180);
-    } finally { setWorking(false); }
+    } finally {
+      operationInFlightRef.current = false;
+      setWorking(false);
+    }
   };
 
   if (loading) return <div className="flex min-h-[65dvh] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-teal-700" /></div>;

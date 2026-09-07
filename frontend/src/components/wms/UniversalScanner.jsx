@@ -31,6 +31,8 @@ const CameraScanner = lazy(() => import("@/components/wms/CameraScanner"));
 
 export default function UniversalScanner({ open, onOpenChange, clientId, onViewLocation }) {
   const inputRef = useRef(null);
+  const scanInFlightRef = useRef(false);
+  const actionInFlightRef = useRef(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
@@ -59,7 +61,8 @@ export default function UniversalScanner({ open, onOpenChange, clientId, onViewL
 
   const scan = async (rawCode) => {
     const value = String(rawCode || "").trim();
-    if (!value) return;
+    if (!value || scanInFlightRef.current) return;
+    scanInFlightRef.current = true;
     setCode(value);
     setAction(null);
     setLoading(true);
@@ -73,6 +76,7 @@ export default function UniversalScanner({ open, onOpenChange, clientId, onViewL
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Scansione non riuscita");
     } finally {
+      scanInFlightRef.current = false;
       setCode("");
       setLoading(false);
       window.setTimeout(() => inputRef.current?.focus(), 35);
@@ -161,7 +165,8 @@ export default function UniversalScanner({ open, onOpenChange, clientId, onViewL
   };
 
   const runSwap = async (targetCode) => {
-    if (!action || action.type !== "swap") return;
+    if (!action || action.type !== "swap" || actionInFlightRef.current) return;
+    actionInFlightRef.current = true;
     setWorking(true);
     try {
       await api.post("/wms/stock/scambia", {
@@ -173,12 +178,14 @@ export default function UniversalScanner({ open, onOpenChange, clientId, onViewL
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Scambio non riuscito");
     } finally {
+      actionInFlightRef.current = false;
       setWorking(false);
     }
   };
 
   const runAction = async () => {
-    if (!action) return;
+    if (!action || actionInFlightRef.current) return;
+    actionInFlightRef.current = true;
     const quantity = Number(draft.quantity || 0);
     const productPayload = action.item
       ? {
@@ -219,6 +226,7 @@ export default function UniversalScanner({ open, onOpenChange, clientId, onViewL
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Operazione non riuscita");
     } finally {
+      actionInFlightRef.current = false;
       setWorking(false);
     }
   };

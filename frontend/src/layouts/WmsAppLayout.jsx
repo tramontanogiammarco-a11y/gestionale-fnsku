@@ -13,8 +13,7 @@ import {
 import logo from "@/assets/logo-transparent.png";
 import { toast } from "sonner";
 import UniversalScanner from "@/components/wms/UniversalScanner";
-import { prefetchPrimaryWmsRoutes, prefetchOperationalWmsRoutes, prefetchSecondaryWmsRoutes } from "@/lib/wmsRoutePrefetch";
-import { prefetchWmsStock } from "@/lib/wmsStockPrefetch";
+import { prefetchPrimaryWmsRoutes, prefetchOperationalWmsRoutes, prefetchSecondaryWmsRoutes, prefetchWmsRoute } from "@/lib/wmsRoutePrefetch";
 
 const ACTIVE_STATES = new Set(["in_attesa", "in_lavorazione"]);
 
@@ -62,23 +61,21 @@ export default function WmsAppLayout() {
   }, [location.pathname, location.search]);
 
   useEffect(() => {
-    if (navigator.connection?.saveData) return undefined;
+    const connection = navigator.connection;
+    if (connection?.saveData || /(^|-)2g$/.test(connection?.effectiveType || "")) return undefined;
     const preparePrimary = () => prefetchPrimaryWmsRoutes();
     const primaryId = typeof window.requestIdleCallback === "function"
-      ? window.requestIdleCallback(preparePrimary, { timeout: 700 })
-      : window.setTimeout(preparePrimary, 250);
-    const operationalId = window.setTimeout(() => {
-      prefetchOperationalWmsRoutes();
-      prefetchWmsStock(clientId);
-    }, 1_500);
-    const secondaryId = window.setTimeout(prefetchSecondaryWmsRoutes, 3_500);
+      ? window.requestIdleCallback(preparePrimary, { timeout: 1_200 })
+      : window.setTimeout(preparePrimary, 500);
+    const operationalId = window.setTimeout(prefetchOperationalWmsRoutes, 8_000);
+    const secondaryId = window.setTimeout(prefetchSecondaryWmsRoutes, 15_000);
     return () => {
       if (typeof window.cancelIdleCallback === "function") window.cancelIdleCallback(primaryId);
       else window.clearTimeout(primaryId);
       window.clearTimeout(operationalId);
       window.clearTimeout(secondaryId);
     };
-  }, [clientId]);
+  }, []);
 
   const clients = useMemo(() => {
     const rows = new Map((clientOptions || []).map((client) => [client.id, {
@@ -141,7 +138,7 @@ export default function WmsAppLayout() {
               <ChevronRight className="ml-auto h-4 w-4 rotate-90 text-slate-500" />
             </button>
             <IconButton label="Scansiona" onClick={focusScanner}><Barcode className="h-5 w-5" /></IconButton>
-            <IconButton label="Packing" onClick={() => navigate("/packing-station")}><PackageCheck className="h-5 w-5" /></IconButton>
+            <IconButton label="Packing" onIntent={() => prefetchWmsRoute("packing")} onClick={() => navigate("/packing-station")}><PackageCheck className="h-5 w-5" /></IconButton>
             <IconButton label="Menu" onClick={() => setMenuOpen(true)}><Menu className="h-5 w-5" /></IconButton>
           </div>
         </header>
@@ -206,24 +203,24 @@ export default function WmsAppLayout() {
   );
 }
 
-function IconButton({ label, onClick, children }) {
+function IconButton({ label, onClick, onIntent, children }) {
   const primary = label === "Scansiona";
-  return <button type="button" aria-label={label} title={label} onClick={onClick} className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition ${primary ? "bg-slate-950 text-white hover:bg-teal-800" : "text-slate-700 hover:bg-slate-100 hover:text-slate-950"}`}>{children}</button>;
+  return <button type="button" aria-label={label} title={label} onPointerDown={onIntent} onPointerEnter={onIntent} onFocus={onIntent} onClick={onClick} className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition ${primary ? "bg-slate-950 text-white hover:bg-teal-800" : "text-slate-700 hover:bg-slate-100 hover:text-slate-950"}`}>{children}</button>;
 }
 
 function BottomNavigation() {
   const navigate = useNavigate();
   const location = useLocation();
   const items = [
-    { label: "Arrivi", icon: PackageOpen, active: location.pathname.includes("/arrivi") || location.pathname.includes("/inbound/"), action: () => navigate("/wms-app/arrivi") },
-    { label: "Picking", icon: ShoppingCart, active: location.pathname.includes("/ordini") || location.pathname.includes("/picking") || location.pathname.includes("/refill"), action: () => navigate("/wms-app/ordini") },
-    { label: "Packing", icon: PackageCheck, active: location.pathname.includes("/packing"), action: () => navigate("/packing-station") },
+    { label: "Arrivi", icon: PackageOpen, route: "home", active: location.pathname.includes("/arrivi") || location.pathname.includes("/inbound/"), action: () => navigate("/wms-app/arrivi") },
+    { label: "Picking", icon: ShoppingCart, route: "orders", active: location.pathname.includes("/ordini") || location.pathname.includes("/picking") || location.pathname.includes("/refill"), action: () => navigate("/wms-app/ordini") },
+    { label: "Packing", icon: PackageCheck, route: "packing", active: location.pathname.includes("/packing"), action: () => navigate("/packing-station") },
   ];
   return (
     <nav className="wms-bottom-nav fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-3xl border-x border-t px-2 pb-[max(6px,env(safe-area-inset-bottom))] pt-1" aria-label="Navigazione WMS">
       <div className="grid grid-cols-3 gap-1">
         {items.map((item) => (
-          <button key={item.label} type="button" onClick={item.action} aria-current={item.active ? "page" : undefined} className={`relative flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-md px-1 text-[10px] font-bold transition ${item.active ? "text-teal-800" : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"}`}>
+          <button key={item.label} type="button" onPointerDown={() => prefetchWmsRoute(item.route)} onPointerEnter={() => prefetchWmsRoute(item.route)} onFocus={() => prefetchWmsRoute(item.route)} onClick={item.action} aria-current={item.active ? "page" : undefined} className={`relative flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-md px-1 text-[10px] font-bold transition ${item.active ? "text-teal-800" : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"}`}>
             <span className={`flex h-7 w-10 items-center justify-center rounded-md transition ${item.active ? "bg-teal-50" : ""}`}><item.icon className={`h-[19px] w-[19px] ${item.active ? "stroke-[2.5]" : ""}`} /></span>
             {item.label}
           </button>

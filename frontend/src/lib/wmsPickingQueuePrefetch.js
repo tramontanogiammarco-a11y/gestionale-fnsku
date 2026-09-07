@@ -1,7 +1,9 @@
 import { api } from "@/lib/api";
 import { createTimedRequestCache } from "@/lib/timedRequestCache";
+import { subscribeWmsDataChange } from "@/lib/wmsDataEvents";
 
-const cache = createTimedRequestCache(15_000);
+const cache = createTimedRequestCache(20_000);
+subscribeWmsDataChange("picking", cache.clear);
 
 function normalizedClientId(clientId) {
   return clientId && clientId !== "all" ? clientId : "all";
@@ -18,8 +20,8 @@ function queuePath(mode, clientId) {
   return `/wms/picking-${mode}${suffix ? `?${suffix}` : ""}`;
 }
 
-export function peekWmsPickingQueue(mode, clientId) {
-  return cache.peek(cacheKey(mode, clientId));
+export function peekWmsPickingQueue(mode, clientId, { allowStale = false } = {}) {
+  return cache.peek(cacheKey(mode, clientId), { allowStale });
 }
 
 export function loadWmsPickingQueue(mode, clientId, { force = false } = {}) {
@@ -29,4 +31,8 @@ export function loadWmsPickingQueue(mode, clientId, { force = false } = {}) {
 
 export function prefetchWmsPickingQueue(mode, clientId) {
   return loadWmsPickingQueue(mode, clientId).catch(() => null);
+}
+
+export function invalidateWmsPickingQueues() {
+  cache.clear();
 }

@@ -7,6 +7,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import CameraScanner from "@/components/wms/CameraScanner";
+import { peekWmsOrders } from "@/lib/wmsOrdersPrefetch";
+
+function gallusePreviewFromOrders(clientId) {
+  const overview = peekWmsOrders(clientId, { allowStale: true })?.data;
+  const preview = overview?.preparation?.galluse;
+  if (!preview) return null;
+  return {
+    ...preview,
+    candidates: [],
+    refill_orders: overview.preparation?.refill?.tasks || 0,
+  };
+}
 
 export default function WmsAppGalluse() {
   const { batchId } = useParams();
@@ -17,21 +29,26 @@ function GalluseQueue() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { clientId } = useOutletContext();
-  const [data, setData] = useState(null);
+  const initialData = useRef(gallusePreviewFromOrders(clientId)).current;
+  const [data, setData] = useState(initialData);
   const [working, setWorking] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cartCode, setCartCode] = useState("");
   const autoScannerOpened = useRef(false);
+  const operationInFlightRef = useRef(false);
   const load = useCallback(async () => {
     try {
       const query = clientId && clientId !== "all" ? `?cliente_id=${encodeURIComponent(clientId)}` : "";
       setData((await api.get(`/wms/picking-galluse${query}`)).data);
     } catch (error) {
       toast.error(error.response?.data?.detail || "Metodo Galluse non disponibile");
-      setData({ candidates: [], rounds: [], batches: [] });
+      setData((current) => current || { candidates: [], rounds: [], batches: [] });
     }
   }, [clientId]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    setData(gallusePreviewFromOrders(clientId));
+    load();
+  }, [clientId, load]);
 
   const active = (data?.batches || []).filter((batch) => ["da_associare_bag", "in_corso"].includes(batch.stato));
   const round = (data?.rounds || [])[0] || null;
@@ -42,12 +59,13 @@ function GalluseQueue() {
   }, [active.length, round, searchParams]);
 
   const start = async (rawCartCode) => {
-    if (!round) return;
+    if (!round || operationInFlightRef.current) return;
     const scannedCart = normalizeScannerCode(rawCartCode || cartCode);
     if (!scannedCart) {
       setCameraOpen(true);
       return;
     }
+    operationInFlightRef.current = true;
     setWorking(true);
     try {
       const response = await api.post("/wms/picking-galluse/avvia", { cliente_id: round.cliente_id, cart_code: scannedCart });
@@ -56,10 +74,13 @@ function GalluseQueue() {
     } catch (error) {
       toast.error(error.response?.data?.detail || "Missione Galluse non avviata");
     } finally {
+      operationInFlightRef.current = false;
       setWorking(false);
     }
   };
   const seedAiDemo = async () => {
+    if (operationInFlightRef.current) return;
+    operationInFlightRef.current = true;
     setWorking(true);
     try {
       const response = await api.post("/wms/picking-galluse/demo-a-i", {});
@@ -68,12 +89,14 @@ function GalluseQueue() {
     } catch (error) {
       toast.error(error.response?.data?.detail || "Prova Galluse non creata");
     } finally {
+      operationInFlightRef.current = false;
       setWorking(false);
     }
   };
   const cancel = async () => {
     const batch = active[0];
-    if (!batch || !window.confirm("Annullare questo carrello? Le bag saranno liberate e i suoi ordini torneranno disponibili.")) return;
+    if (!batch || operationInFlightRef.current || !window.confirm("Annullare questo carrello? Le bag saranno liberate e i suoi ordini torneranno disponibili.")) return;
+    operationInFlightRef.current = true;
     setWorking(true);
     try {
       await api.post(`/wms/picking-galluse/${batch.id}/annulla`, {});
@@ -82,6 +105,7 @@ function GalluseQueue() {
     } catch (error) {
       toast.error(error.response?.data?.detail || "Carrello non annullato");
     } finally {
+      operationInFlightRef.current = false;
       setWorking(false);
     }
   };
@@ -130,6 +154,7 @@ function GalluseMission({ batchId }) {
   const [quantity, setQuantity] = useState(0);
   const quantityRef = useRef(0);
   const quantitySubmitRef = useRef(false);
+  const operationInFlightRef = useRef(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [scannerSession, setScannerSession] = useState(0);
   const load = useCallback(async () => {
@@ -168,8 +193,10 @@ function GalluseMission({ batchId }) {
   }, [current?.id, current?.location_confirmed_at]);
 
   const scanCart = async (rawCode) => {
+    if (operationInFlightRef.current) return false;
     const value = normalizeScannerCode(rawCode || code);
     if (!value) { toast.error("Scansiona il codice del carrello disponibile."); return; }
+    operationInFlightRef.current = true;
     setWorking(true);
     try {
       setData((await api.post(`/wms/picking-galluse/${batchId}/scan`, { codice: value })).data);
@@ -179,13 +206,16 @@ function GalluseMission({ batchId }) {
       toast.error(error.response?.data?.detail || "Carrello non valido o non disponibile");
       if (navigator.vibrate) navigator.vibrate(180);
     } finally {
+      operationInFlightRef.current = false;
       setWorking(false);
       setCode("");
     }
   };
   const scanSlot = async (rawCode) => {
+    if (operationInFlightRef.current) return false;
     const value = normalizeScannerCode(rawCode || code);
     if (!value) return;
+    operationInFlightRef.current = true;
     setWorking(true);
     try {
       const nextData = (await api.post(`/wms/picking-galluse/${batchId}/scan`, { codice: value })).data;
@@ -205,14 +235,16 @@ function GalluseMission({ batchId }) {
       }
       return false;
     } finally {
+      operationInFlightRef.current = false;
       setWorking(false);
       setCode("");
     }
   };
   const confirmPick = async (selectedQuantity = quantityRef.current) => {
     if (typeof selectedQuantity !== "number") selectedQuantity = quantityRef.current;
-    if (quantitySubmitRef.current || working || selectedQuantity !== remaining) return;
+    if (quantitySubmitRef.current || operationInFlightRef.current || selectedQuantity !== remaining) return;
     quantitySubmitRef.current = true;
+    operationInFlightRef.current = true;
     setWorking(true);
     try {
       setData((await api.post(`/wms/picking-galluse/${batchId}/scan`, { quantita: selectedQuantity })).data);
@@ -224,11 +256,12 @@ function GalluseMission({ batchId }) {
       if (navigator.vibrate) navigator.vibrate(180);
     } finally {
       quantitySubmitRef.current = false;
+      operationInFlightRef.current = false;
       setWorking(false);
     }
   };
   const addQuantity = (amount) => {
-    if (working || quantitySubmitRef.current) return;
+    if (operationInFlightRef.current || quantitySubmitRef.current) return;
     const nextQuantity = quantityRef.current + amount;
     if (nextQuantity > remaining) {
       toast.error(`Puoi prelevare al massimo ${remaining} pezzi.`);

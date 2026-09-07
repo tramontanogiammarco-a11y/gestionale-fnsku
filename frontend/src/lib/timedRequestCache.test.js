@@ -31,3 +31,45 @@ test("a slower stale request cannot replace a forced refresh", async () => {
 
   expect(cache.peek("stock")).toEqual({ data: { value: "fresh" } });
 });
+
+test("keeps stale data visible while it refreshes", async () => {
+  const now = jest.spyOn(Date, "now");
+  now.mockReturnValue(1_000);
+  const cache = createTimedRequestCache(100);
+  cache.prime("orders", { data: { value: "cached" } });
+
+  now.mockReturnValue(1_500);
+  expect(cache.peek("orders")).toBeNull();
+  expect(cache.peek("orders", { allowStale: true })).toEqual({ data: { value: "cached" } });
+
+  let resolveRefresh;
+  const refresh = cache.load("orders", () => new Promise((resolve) => { resolveRefresh = resolve; }));
+  expect(cache.peek("orders", { allowStale: true })).toEqual({ data: { value: "cached" } });
+  resolveRefresh({ data: { value: "fresh" } });
+  await refresh;
+  expect(cache.peek("orders")).toEqual({ data: { value: "fresh" } });
+  now.mockRestore();
+});
+
+test("a failed refresh preserves the last usable response", async () => {
+  const now = jest.spyOn(Date, "now");
+  now.mockReturnValue(1_000);
+  const cache = createTimedRequestCache(100);
+  cache.prime("stock", { data: { value: "cached" } });
+
+  now.mockReturnValue(1_500);
+  await expect(cache.load("stock", () => Promise.reject(new Error("offline")))).rejects.toThrow("offline");
+  expect(cache.peek("stock", { allowStale: true })).toEqual({ data: { value: "cached" } });
+  now.mockRestore();
+});
+
+test("invalidates one key without clearing the others", () => {
+  const cache = createTimedRequestCache(1_000);
+  cache.prime("orders", { data: 1 });
+  cache.prime("stock", { data: 2 });
+
+  cache.invalidate("orders");
+
+  expect(cache.peek("orders")).toBeNull();
+  expect(cache.peek("stock")).toEqual({ data: 2 });
+});

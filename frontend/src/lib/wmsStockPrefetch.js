@@ -1,7 +1,9 @@
 import { api } from "@/lib/api";
 import { createTimedRequestCache } from "@/lib/timedRequestCache";
+import { subscribeWmsDataChange } from "@/lib/wmsDataEvents";
 
-const cache = createTimedRequestCache(15_000);
+const cache = createTimedRequestCache(30_000);
+subscribeWmsDataChange("stock", cache.clear);
 
 function cacheKey(clientId) {
   return clientId && clientId !== "all" ? clientId : "all";
@@ -14,8 +16,8 @@ function stockPath(clientId) {
   return `/wms/stock${queryString ? `?${queryString}` : ""}`;
 }
 
-export function peekWmsStock(clientId = "all") {
-  return cache.peek(cacheKey(clientId));
+export function peekWmsStock(clientId = "all", { allowStale = false } = {}) {
+  return cache.peek(cacheKey(clientId), { allowStale });
 }
 
 export function loadWmsStock(clientId = "all", { force = false } = {}) {
@@ -25,4 +27,9 @@ export function loadWmsStock(clientId = "all", { force = false } = {}) {
 
 export function prefetchWmsStock(clientId = "all") {
   return loadWmsStock(clientId).catch(() => null);
+}
+
+export function invalidateWmsStock(clientId) {
+  if (clientId) cache.invalidate(cacheKey(clientId));
+  else cache.clear();
 }

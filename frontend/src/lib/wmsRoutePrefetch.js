@@ -1,47 +1,55 @@
-const primaryRoutes = [
-  () => import("@/pages/wms/WmsAppDashboard"),
-  () => import("@/pages/wms/WmsAppHome"),
-  () => import("@/pages/wms/WmsAppOrders"),
-  () => import("@/pages/wms/WmsAppLocations"),
-  () => import("@/layouts/WmsPackingStationLayout"),
-];
+const routeLoaders = {
+  dashboard: () => import("@/pages/wms/WmsAppDashboard"),
+  home: () => import("@/pages/wms/WmsAppHome"),
+  orders: () => import("@/pages/wms/WmsAppOrders"),
+  stock: () => import("@/pages/wms/WmsAppLocations"),
+  packing: () => import("@/layouts/WmsPackingStationLayout"),
+  inbound: () => import("@/pages/wms/WmsAppInbound"),
+  picking: () => import("@/pages/wms/WmsAppPicking"),
+  massPicking: () => import("@/pages/wms/WmsAppMassPicking"),
+  galluse: () => import("@/pages/wms/WmsAppGalluse"),
+  refill: () => import("@/pages/wms/WmsAppRefill"),
+  stockMovement: () => import("@/pages/wms/WmsAppStockMovement"),
+  productSearch: () => import("@/pages/wms/WmsAppProductSearch"),
+  inventory: () => import("@/pages/wms/WmsAppInventory"),
+  inventoryCount: () => import("@/pages/wms/WmsAppInventoryCount"),
+  bagHistory: () => import("@/pages/wms/WmsAppBagHistory"),
+  tools: () => import("@/pages/wms/WmsAppTools"),
+  settings: () => import("@/pages/wms/WmsAppSettings"),
+  cartBags: () => import("@/pages/wms/WmsAppCartBags"),
+  packagingLabels: () => import("@/pages/wms/WmsAppPackagingLabels"),
+  packingRemote: () => import("@/pages/wms/WmsAppPackingRemote"),
+};
 
-const operationalRoutes = [
-  () => import("@/pages/wms/WmsAppInbound"),
-  () => import("@/pages/wms/WmsAppPicking"),
-  () => import("@/pages/wms/WmsAppMassPicking"),
-  () => import("@/pages/wms/WmsAppGalluse"),
-  () => import("@/pages/wms/WmsAppRefill"),
-  () => import("@/pages/wms/WmsAppStockMovement"),
-  () => import("@/pages/wms/WmsAppProductSearch"),
-  () => import("@/pages/wms/WmsAppInventory"),
-];
+const primaryRoutes = ["dashboard", "home", "orders", "stock", "packing"];
+const operationalRoutes = ["inbound", "picking", "massPicking", "galluse", "refill", "stockMovement", "productSearch", "inventory"];
+const secondaryRoutes = ["inventoryCount", "bagHistory", "tools", "settings", "cartBags", "packagingLabels", "packingRemote"];
+const routePromises = new Map();
 
-const secondaryRoutes = [
-  () => import("@/pages/wms/WmsAppInventoryCount"),
-  () => import("@/pages/wms/WmsAppBagHistory"),
-  () => import("@/pages/wms/WmsAppTools"),
-  () => import("@/pages/wms/WmsAppSettings"),
-  () => import("@/pages/wms/WmsAppCartBags"),
-  () => import("@/pages/wms/WmsAppPackagingLabels"),
-  () => import("@/pages/wms/WmsAppPackingRemote"),
-];
+export function prefetchWmsRoute(name) {
+  const loader = routeLoaders[name];
+  if (!loader) return Promise.resolve(null);
+  if (routePromises.has(name)) return routePromises.get(name);
+  const promise = loader().catch(() => {
+    routePromises.delete(name);
+    return null;
+  });
+  routePromises.set(name, promise);
+  return promise;
+}
 
-let primaryPromise;
-let operationalPromise;
-let secondaryPromise;
+function prefetchRoutes(names) {
+  return Promise.allSettled(names.map(prefetchWmsRoute));
+}
 
 export function prefetchPrimaryWmsRoutes() {
-  primaryPromise ||= Promise.allSettled(primaryRoutes.map((load) => load()));
-  return primaryPromise;
+  return prefetchRoutes(primaryRoutes);
 }
 
 export function prefetchOperationalWmsRoutes() {
-  operationalPromise ||= Promise.allSettled(operationalRoutes.map((load) => load()));
-  return operationalPromise;
+  return prefetchRoutes(operationalRoutes);
 }
 
 export function prefetchSecondaryWmsRoutes() {
-  secondaryPromise ||= Promise.allSettled(secondaryRoutes.map((load) => load()));
-  return secondaryPromise;
+  return prefetchRoutes(secondaryRoutes);
 }

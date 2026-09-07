@@ -3,23 +3,37 @@ import { useNavigate, useOutletContext } from "react-router-dom";
 import { ArrowRight, PackageCheck, PackageOpen, ShoppingCart, Warehouse } from "lucide-react";
 import { prefetchWmsOrders } from "@/lib/wmsOrdersPrefetch";
 import { prefetchWmsPickingQueue } from "@/lib/wmsPickingQueuePrefetch";
+import { prefetchWmsStock } from "@/lib/wmsStockPrefetch";
+import { prefetchWmsRoute } from "@/lib/wmsRoutePrefetch";
 
 export default function WmsAppDashboard() {
   const navigate = useNavigate();
   const { entries, allEntries, clientId } = useOutletContext();
 
   useEffect(() => {
-    const prepareOrders = () => {
-      import("@/pages/wms/WmsAppOrders");
-      prefetchWmsOrders(clientId);
-      prefetchWmsPickingQueue("mono", clientId);
+    let queueTimer;
+    let cancelled = false;
+    const prepareOrders = async () => {
+      prefetchWmsRoute("orders");
+      await prefetchWmsOrders(clientId);
+      if (!cancelled) {
+        queueTimer = window.setTimeout(() => prefetchWmsPickingQueue("mono", clientId), 300);
+      }
     };
     if (typeof window.requestIdleCallback === "function") {
       const idleId = window.requestIdleCallback(prepareOrders, { timeout: 800 });
-      return () => window.cancelIdleCallback(idleId);
+      return () => {
+        cancelled = true;
+        window.cancelIdleCallback(idleId);
+        window.clearTimeout(queueTimer);
+      };
     }
     const timerId = window.setTimeout(prepareOrders, 200);
-    return () => window.clearTimeout(timerId);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timerId);
+      window.clearTimeout(queueTimer);
+    };
   }, [clientId]);
 
   const model = useMemo(() => {
@@ -53,17 +67,17 @@ export default function WmsAppDashboard() {
       <section>
         <h2 className="mb-3 text-xl font-extrabold">Operativa magazzino</h2>
         <div className="grid grid-cols-2 gap-2.5">
-          <FlowButton tone="teal" icon={PackageOpen} title="Arrivi" detail="Ricevi e ubica merce" value={allEntries === null ? "—" : model.waiting.length} unit="in attesa" onClick={() => navigate("/wms-app/arrivi")} />
-          <FlowButton tone="blue" icon={ShoppingCart} title="Ordini" detail="Avvia il picking" value="4" unit="metodi" onClick={() => navigate("/wms-app/ordini")} />
-          <FlowButton tone="amber" icon={PackageCheck} title="Packing" detail="Carrelli, bag, etichette" value="Scan" unit="pronto" onClick={() => navigate("/packing-station")} />
-          <FlowButton tone="slate" icon={Warehouse} title="Stock" detail="Ubicazioni e movimenti" value="Live" unit="inventario" onClick={() => navigate("/wms-app/ubicazioni")} />
+          <FlowButton tone="teal" icon={PackageOpen} title="Arrivi" detail="Ricevi e ubica merce" value={allEntries === null ? "—" : model.waiting.length} unit="in attesa" onIntent={() => prefetchWmsRoute("home")} onClick={() => navigate("/wms-app/arrivi")} />
+          <FlowButton tone="blue" icon={ShoppingCart} title="Ordini" detail="Avvia il picking" value="4" unit="metodi" onIntent={() => { prefetchWmsRoute("orders"); prefetchWmsOrders(clientId); }} onClick={() => navigate("/wms-app/ordini")} />
+          <FlowButton tone="amber" icon={PackageCheck} title="Packing" detail="Carrelli, bag, etichette" value="Scan" unit="pronto" onIntent={() => prefetchWmsRoute("packing")} onClick={() => navigate("/packing-station")} />
+          <FlowButton tone="slate" icon={Warehouse} title="Stock" detail="Ubicazioni e movimenti" value="Live" unit="inventario" onIntent={() => { prefetchWmsRoute("stock"); prefetchWmsStock(clientId); }} onClick={() => navigate("/wms-app/ubicazioni")} />
         </div>
       </section>
     </div>
   );
 }
 
-function FlowButton({ icon: Icon, title, detail, value, unit, onClick, tone = "teal" }) {
+function FlowButton({ icon: Icon, title, detail, value, unit, onClick, onIntent, tone = "teal" }) {
   const tones = {
     teal: "bg-teal-50 text-teal-800",
     blue: "bg-sky-50 text-sky-800",
@@ -71,7 +85,7 @@ function FlowButton({ icon: Icon, title, detail, value, unit, onClick, tone = "t
     slate: "bg-slate-100 text-slate-800",
   };
   return (
-    <button type="button" onClick={onClick} className="relative flex min-h-40 flex-col rounded-md border border-slate-200 bg-white p-4 text-left shadow-[0_1px_2px_rgba(15,23,42,.04)] transition hover:-translate-y-0.5 hover:shadow-md active:translate-y-0">
+    <button type="button" onPointerDown={onIntent} onPointerEnter={onIntent} onFocus={onIntent} onClick={onClick} className="relative flex min-h-40 flex-col rounded-md border border-slate-200 bg-white p-4 text-left shadow-[0_1px_2px_rgba(15,23,42,.04)] transition hover:-translate-y-0.5 hover:shadow-md active:translate-y-0">
       <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-md ${tones[tone]}`}><Icon className="h-5 w-5" /></span>
       <ArrowRight className="absolute right-3 top-3 h-4 w-4 text-slate-400" />
       <strong className="mt-3 block text-base font-extrabold">{title}</strong>

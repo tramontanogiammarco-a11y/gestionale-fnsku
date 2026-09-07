@@ -6,6 +6,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { toast } from "sonner";
 import { loadWmsOrders, peekWmsOrders } from "@/lib/wmsOrdersPrefetch";
 import { prefetchWmsPickingQueue } from "@/lib/wmsPickingQueuePrefetch";
+import { prefetchWmsRoute } from "@/lib/wmsRoutePrefetch";
 
 const STATUS_LABELS = {
   in_attesa_refill: "In attesa refill",
@@ -18,7 +19,7 @@ const STATUS_LABELS = {
 export default function WmsAppOrders() {
   const navigate = useNavigate();
   const { clientId } = useOutletContext();
-  const initialOverview = useRef(peekWmsOrders(clientId)?.data || null).current;
+  const initialOverview = useRef(peekWmsOrders(clientId, { allowStale: true })?.data || null).current;
   const [data, setData] = useState(initialOverview);
   const [massData, setMassData] = useState(initialOverview?.preparation?.mass || null);
   const [monoData, setMonoData] = useState(initialOverview?.preparation?.mono || null);
@@ -28,13 +29,15 @@ export default function WmsAppOrders() {
   const [tab, setTab] = useState("oggi");
   const [selected, setSelected] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [loadingModes, setLoadingModes] = useState(true);
+  const [loadingModes, setLoadingModes] = useState(!initialOverview);
   const requestVersion = useRef(0);
 
-  const load = useCallback(async ({ force = false } = {}) => {
+  const load = useCallback(async ({ force = false, quiet = false } = {}) => {
     const version = ++requestVersion.current;
-    setRefreshing(true);
-    setLoadingModes(true);
+    if (!quiet) {
+      setRefreshing(true);
+      setLoadingModes(true);
+    }
     try {
       const response = await loadWmsOrders(clientId, { force });
       if (version !== requestVersion.current) return;
@@ -48,25 +51,32 @@ export default function WmsAppOrders() {
       toast.error(error.response?.data?.detail || error.message || "Ordini non disponibili");
     } finally {
       if (version === requestVersion.current) {
-        setRefreshing(false);
+        if (!quiet) setRefreshing(false);
         setLoadingModes(false);
       }
     }
   }, [clientId]);
 
   useEffect(() => {
-    prefetchWmsPickingQueue("mono", clientId)
-      .finally(() => prefetchWmsPickingQueue("massivo", clientId));
+    if (navigator.connection?.saveData) return undefined;
+    const timer = window.setTimeout(() => {
+      Promise.allSettled([
+        prefetchWmsPickingQueue("mono", clientId),
+        prefetchWmsPickingQueue("massivo", clientId),
+      ]);
+    }, 800);
+    return () => window.clearTimeout(timer);
   }, [clientId]);
 
   useEffect(() => {
-    const cached = peekWmsOrders(clientId)?.data || null;
+    const cached = peekWmsOrders(clientId, { allowStale: true })?.data || null;
     setData(cached);
     setMassData(cached?.preparation?.mass || null);
     setMonoData(cached?.preparation?.mono || null);
     setGalluseData(cached?.preparation?.galluse || null);
     setRefillData(cached?.preparation?.refill || null);
-    load({ force: Boolean(cached) });
+    setLoadingModes(!cached);
+    load({ quiet: Boolean(cached) });
   }, [clientId, load]);
 
   const visible = useMemo(() => {
@@ -128,10 +138,10 @@ export default function WmsAppOrders() {
       {view === "tasks" ? <section>
         <div className="mb-3 flex items-center justify-between"><div><h2 className="text-xl font-extrabold">Scegli il compito</h2><p className="mt-1 text-xs font-medium text-slate-500">I conteggi si aggiornano automaticamente.</p></div>{loadingModes && <Loader2 className="h-4 w-4 animate-spin text-teal-700" />}</div>
         <div className="grid grid-cols-2 gap-2.5">
-          <TaskCard icon={Layers3} title="Massivo" detail="Ordini uguali insieme" count={activeMassOrders || availableMassOrders} unit="ordini" tone="teal" active={activeMassOrders > 0} onIntent={() => prefetchWmsPickingQueue("massivo", clientId)} onClick={() => navigate("/wms-app/picking-massivo")} />
-          <TaskCard icon={ShoppingCart} title="Galluse" detail="Un ordine per bag" count={activeGalluse?.numero_bag || nextGalluseRound?.totale_ordini || 0} unit="ordini" tone="sky" active={Boolean(activeGalluse)} onClick={startGalluse} />
-          <TaskCard icon={ScanLine} title="Mono-prodotto" detail="Un pezzo per ordine" count={activeMonoOrders || availableMonoOrders} unit="ordini" tone="violet" active={activeMonoOrders > 0} onIntent={() => prefetchWmsPickingQueue("mono", clientId)} onClick={() => navigate("/wms-app/picking-mono")} />
-          <TaskCard icon={Boxes} title="Refill" detail="Rifornisci gli slot" count={refillTasks} unit="attività" tone="amber" attention={refillTasks > 0} onClick={() => navigate("/wms-app/refill")} />
+          <TaskCard icon={Layers3} title="Massivo" detail="Ordini uguali insieme" count={activeMassOrders || availableMassOrders} unit="ordini" tone="teal" active={activeMassOrders > 0} onIntent={() => { prefetchWmsRoute("massPicking"); prefetchWmsPickingQueue("massivo", clientId); }} onClick={() => navigate("/wms-app/picking-massivo")} />
+          <TaskCard icon={ShoppingCart} title="Galluse" detail="Un ordine per bag" count={activeGalluse?.numero_bag || nextGalluseRound?.totale_ordini || 0} unit="ordini" tone="sky" active={Boolean(activeGalluse)} onIntent={() => prefetchWmsRoute("galluse")} onClick={startGalluse} />
+          <TaskCard icon={ScanLine} title="Mono-prodotto" detail="Un pezzo per ordine" count={activeMonoOrders || availableMonoOrders} unit="ordini" tone="violet" active={activeMonoOrders > 0} onIntent={() => { prefetchWmsRoute("massPicking"); prefetchWmsPickingQueue("mono", clientId); }} onClick={() => navigate("/wms-app/picking-mono")} />
+          <TaskCard icon={Boxes} title="Refill" detail="Rifornisci gli slot" count={refillTasks} unit="attività" tone="amber" attention={refillTasks > 0} onIntent={() => prefetchWmsRoute("refill")} onClick={() => navigate("/wms-app/refill")} />
         </div>
       </section> : <section>
         <div className="grid grid-cols-2 gap-1 rounded-md bg-slate-100 p-1" role="tablist" aria-label="Giornata ordini">

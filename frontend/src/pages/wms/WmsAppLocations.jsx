@@ -5,19 +5,19 @@ import {
   Loader2, MapPin, PackageSearch, RefreshCw, Search, Warehouse,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { loadWmsStock, peekWmsStock } from "@/lib/wmsStockPrefetch";
+import { invalidateWmsStock, loadWmsStock, peekWmsStock } from "@/lib/wmsStockPrefetch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { toast } from "sonner";
 
-const REFRESH_INTERVAL = 15000;
+const REFRESH_INTERVAL = 60000;
 
 export default function WmsAppLocations() {
   const navigate = useNavigate();
   const { clientId } = useOutletContext();
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialStock = useRef(peekWmsStock(clientId)?.data || null).current;
+  const initialStock = useRef(peekWmsStock(clientId, { allowStale: true })?.data || null).current;
   const [stock, setStock] = useState(initialStock);
   const [loading, setLoading] = useState(!initialStock);
   const [refreshing, setRefreshing] = useState(false);
@@ -45,19 +45,28 @@ export default function WmsAppLocations() {
   }, [clientId]);
 
   useEffect(() => {
-    const cached = peekWmsStock(clientId)?.data || null;
+    const cached = peekWmsStock(clientId, { allowStale: true })?.data || null;
     setStock(cached);
     setLoading(!cached);
-    load({ force: Boolean(cached) });
+    load({ quiet: Boolean(cached) });
   }, [clientId, load]);
 
   useEffect(() => {
-    const interval = window.setInterval(() => load({ quiet: true, force: true }), REFRESH_INTERVAL);
-    if (!supabase) return () => window.clearInterval(interval);
+    const refreshVisibleStock = () => {
+      if (document.visibilityState !== "visible") return;
+      invalidateWmsStock(clientId);
+      load({ quiet: true });
+    };
+    const interval = window.setInterval(refreshVisibleStock, REFRESH_INTERVAL);
+    document.addEventListener("visibilitychange", refreshVisibleStock);
+    if (!supabase) return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshVisibleStock);
+    };
     let timer;
     const schedule = () => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => load({ quiet: true, force: true }), 350);
+      timer = window.setTimeout(refreshVisibleStock, 750);
     };
     const channel = supabase.channel(`wms-stock-${clientId}-${Date.now()}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "wms_inbound_movements" }, schedule)
@@ -74,6 +83,7 @@ export default function WmsAppLocations() {
     return () => {
       window.clearInterval(interval);
       window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", refreshVisibleStock);
       supabase.removeChannel(channel);
     };
   }, [clientId, load]);

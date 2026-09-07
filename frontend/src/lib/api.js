@@ -4,12 +4,14 @@ import { requireSupabase, supabase, supabaseAnonKey, supabaseUrl } from "@/lib/s
 import { createTimedRequestCache } from "@/lib/timedRequestCache";
 import { calculateWarehouseRoute, normalizeAisles } from "@/lib/wmsRouting";
 import { buildWmsDiagnostics } from "@/lib/wmsDiagnostics";
+import { announceWmsDataChange } from "@/lib/wmsDataEvents";
 
 const BUCKET = "gestionale-files";
 const PROFILE_CACHE_MS = 30_000;
 let cachedProfile = null;
 let cachedProfileAt = 0;
 const wmsOperationalOrdersCache = createTimedRequestCache(5_000);
+const wmsPickingContextCache = createTimedRequestCache(3_000);
 
 function ok(data) {
   return Promise.resolve({ data });
@@ -122,6 +124,22 @@ function groupBy(rows, key) {
     acc[value].push(row);
     return acc;
   }, {});
+}
+
+async function mapWithConcurrency(rows, limit, mapper) {
+  const items = Array.from(rows || []);
+  if (!items.length) return [];
+  const output = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(Math.max(1, limit), items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      output[index] = await mapper(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return output;
 }
 
 const SERVICE_LABELS = {
@@ -3275,12 +3293,14 @@ async function importCsvWmsOrders(payload = {}) {
   return ok(data);
 }
 
-async function enrichShopifyOrders(orders) {
+async function enrichShopifyOrders(orders, { includePackaging = true } = {}) {
   const ids = orders.map((order) => order.id);
   const [{ data: items, error: itemsError }, { data: packagingUsage, error: packagingError }] = ids.length
     ? await Promise.all([
       supabase.from("shopify_order_items").select("*").in("order_id", ids),
-      supabase.from("wms_order_packaging_usage").select("order_id,packaging_code,quantity,unit_price_snapshot,scanned_at").in("order_id", ids),
+      includePackaging
+        ? supabase.from("wms_order_packaging_usage").select("order_id,packaging_code,quantity,unit_price_snapshot,scanned_at").in("order_id", ids)
+        : Promise.resolve({ data: [], error: null }),
     ])
     : [{ data: [], error: null }, { data: [], error: null }];
   if (itemsError || packagingError) fail((itemsError || packagingError).message);
@@ -4517,7 +4537,8 @@ async function wmsOperationalOrdersData(params = new URLSearchParams()) {
   let query = requireSupabase()
     .from("shopify_orders")
     .select("*")
-    .neq("wms_status", "annullato")
+    .in("wms_status", ["da_preparare", "in_preparazione"])
+    .eq("gate_status", "sbloccato")
     .order("processed_at", { ascending: false })
     .order("created_at", { ascending: false })
     .order("order_name", { ascending: false });
@@ -4533,7 +4554,7 @@ async function wmsOperationalOrdersData(params = new URLSearchParams()) {
   const nowParts = zonedDateParts(new Date(), timezone);
   const today = dateKeyFromParts(nowParts);
   const tomorrow = addDaysToDateKey(today, 1);
-  const enriched = await enrichShopifyOrders(data || []);
+  const enriched = await enrichShopifyOrders(data || [], { includePackaging: false });
   const active = enriched.filter(isWmsOperationalOrder);
   const orders = active.map((order) => {
     const operationalDate = orderOperationalDate(order, cutoff, timezone);
@@ -4717,6 +4738,78 @@ async function wmsPickingStockData(clienteId) {
   return { locations: operationalLocations, locationsByProduct };
 }
 
+async function wmsPickingContextData(clienteId) {
+  const [
+    stockData,
+    { data: activeTasks, error: activeTasksError },
+    { data: mapSettings, error: mapError },
+    { data: slotAssignments, error: slotAssignmentsError },
+    { data: activeMassBatches, error: massBatchesError },
+    { data: activeGalluseBatches, error: galluseBatchesError },
+    { data: reservedRefillLines, error: reservedRefillError },
+  ] = await Promise.all([
+    wmsPickingStockData(clienteId),
+    requireSupabase().from("wms_pick_tasks").select("id,order_id").in("stato", ["da_prelevare", "in_corso"]),
+    requireSupabase().from("wms_warehouse_map").select("*").eq("id", true).single(),
+    requireSupabase().from("wms_slot_assignments").select("location_id,cliente_id,product_key"),
+    requireSupabase().from("wms_mass_pick_batches").select("id").eq("cliente_id", clienteId).eq("stato", "in_corso"),
+    requireSupabase().from("wms_galluse_batches").select("id").eq("cliente_id", clienteId).in("stato", ["da_associare_bag", "in_corso"]),
+    requireSupabase().from("wms_refill_lines").select("source_location_id,product_key,quantita").eq("cliente_id", clienteId).in("stato", ["da_associare_bag", "da_prelevare", "in_bag"]),
+  ]);
+  const firstError = activeTasksError || mapError || slotAssignmentsError || massBatchesError || galluseBatchesError || reservedRefillError;
+  if (firstError) fail(firstError.message);
+
+  const activeTaskOrderIds = [...new Set((activeTasks || []).map((task) => task.order_id).filter(Boolean))];
+  const { data: activeTaskOrders, error: activeTaskOrdersError } = activeTaskOrderIds.length
+    ? await requireSupabase().from("shopify_orders").select("id,wms_status,gate_status").eq("cliente_id", clienteId).in("id", activeTaskOrderIds)
+    : { data: [], error: null };
+  if (activeTaskOrdersError) fail(activeTaskOrdersError.message);
+
+  const reservingOrderIds = new Set((activeTaskOrders || [])
+    .filter((row) => row.gate_status === "sbloccato" && ["da_preparare", "in_preparazione"].includes(row.wms_status))
+    .map((row) => row.id));
+  const activeTaskIds = (activeTasks || []).filter((task) => reservingOrderIds.has(task.order_id)).map((task) => task.id);
+  const activeMassIds = (activeMassBatches || []).map((batch) => batch.id);
+  const activeGalluseIds = (activeGalluseBatches || []).map((batch) => batch.id);
+  const [reservedLinesResult, reservedMassResult, reservedGalluseResult] = await Promise.all([
+    activeTaskIds.length
+      ? requireSupabase().from("wms_pick_lines").select("location_id,product_key,quantita_attesa,quantita_prelevata").in("task_id", activeTaskIds)
+      : Promise.resolve({ data: [], error: null }),
+    activeMassIds.length
+      ? requireSupabase().from("wms_mass_pick_lines").select("location_id,product_key,quantita_attesa,quantita_prelevata").in("batch_id", activeMassIds)
+      : Promise.resolve({ data: [], error: null }),
+    activeGalluseIds.length
+      ? requireSupabase().from("wms_galluse_lines").select("location_id,product_key,quantita_attesa,quantita_prelevata").in("batch_id", activeGalluseIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  const reservedError = reservedLinesResult.error || reservedMassResult.error || reservedGalluseResult.error;
+  if (reservedError) fail(reservedError.message);
+
+  const reserved = new Map();
+  for (const line of reservedLinesResult.data || []) {
+    const key = `${line.location_id}:${line.product_key}`;
+    reserved.set(key, Number(reserved.get(key) || 0) + Math.max(0, Number(line.quantita_attesa || 0) - Number(line.quantita_prelevata || 0)));
+  }
+  for (const line of reservedMassResult.data || []) {
+    const key = `${line.location_id}:${line.product_key}`;
+    reserved.set(key, Number(reserved.get(key) || 0) + Math.max(0, Number(line.quantita_attesa || 0) - Number(line.quantita_prelevata || 0)));
+  }
+  for (const line of reservedGalluseResult.data || []) {
+    const key = `${line.location_id}:${line.product_key}`;
+    reserved.set(key, Number(reserved.get(key) || 0) + Math.max(0, Number(line.quantita_attesa || 0) - Number(line.quantita_prelevata || 0)));
+  }
+  for (const line of reservedRefillLines || []) {
+    const key = `${line.source_location_id}:${line.product_key}`;
+    reserved.set(key, Number(reserved.get(key) || 0) + Number(line.quantita || 0));
+  }
+
+  return { mapSettings, reserved, slotAssignments, stockData };
+}
+
+function cachedWmsPickingContext(clienteId) {
+  return wmsPickingContextCache.load(clienteId, () => wmsPickingContextData(clienteId));
+}
+
 async function wmsPickingPlan(order, items, options = {}) {
   const missingReferences = (items || []).filter((item) => !item.referenza_id);
   if (missingReferences.length) {
@@ -4730,85 +4823,15 @@ async function wmsPickingPlan(order, items, options = {}) {
   }
 
   const referenceIds = [...new Set((items || []).map((item) => item.referenza_id))];
-  const [
-    { data: references, error: referencesError },
-    stockData,
-    { data: activeTasks, error: activeTasksError },
-    { data: mapSettings, error: mapError },
-    { data: slotAssignments, error: slotAssignmentsError },
-  ] = await Promise.all([
+  const [{ data: references, error: referencesError }, context] = await Promise.all([
     requireSupabase().from("referenze").select("id,cliente_id,titolo,ean,fnsku,sku").in("id", referenceIds),
-    wmsPickingStockData(order.cliente_id),
-    requireSupabase().from("wms_pick_tasks").select("id,order_id").in("stato", ["da_prelevare", "in_corso"]),
-    requireSupabase().from("wms_warehouse_map").select("*").eq("id", true).single(),
-    requireSupabase().from("wms_slot_assignments").select("location_id,cliente_id,product_key"),
+    cachedWmsPickingContext(order.cliente_id),
   ]);
-  const firstError = referencesError || activeTasksError || mapError || slotAssignmentsError;
-  if (firstError) fail(firstError.message);
+  if (referencesError) fail(referencesError.message);
 
   const referenceMap = Object.fromEntries((references || []).map((reference) => [reference.id, reference]));
-  const activeTaskOrderIds = [...new Set((activeTasks || []).map((task) => task.order_id).filter(Boolean))];
-  const { data: activeTaskOrders, error: activeTaskOrdersError } = activeTaskOrderIds.length
-    ? await requireSupabase().from("shopify_orders").select("id,wms_status,gate_status").eq("cliente_id", order.cliente_id).in("id", activeTaskOrderIds)
-    : { data: [], error: null };
-  if (activeTaskOrdersError) fail(activeTaskOrdersError.message);
-  const reservingOrderIds = new Set((activeTaskOrders || [])
-    .filter((row) => row.gate_status === "sbloccato" && ["da_preparare", "in_preparazione"].includes(row.wms_status))
-    .map((row) => row.id));
-  const activeTaskIds = (activeTasks || []).filter((task) => reservingOrderIds.has(task.order_id)).map((task) => task.id);
-  const { data: reservedLines, error: reservedError } = activeTaskIds.length
-    ? await requireSupabase().from("wms_pick_lines").select("location_id,product_key,quantita_attesa,quantita_prelevata").in("task_id", activeTaskIds)
-    : { data: [], error: null };
-  if (reservedError) fail(reservedError.message);
-
-  const { data: activeMassBatches, error: massBatchesError } = await requireSupabase()
-    .from("wms_mass_pick_batches")
-    .select("id")
-    .eq("cliente_id", order.cliente_id)
-    .eq("stato", "in_corso");
-  if (massBatchesError) fail(massBatchesError.message);
-  const activeMassIds = (activeMassBatches || []).map((batch) => batch.id);
-  const { data: reservedMassLines, error: reservedMassError } = activeMassIds.length
-    ? await requireSupabase().from("wms_mass_pick_lines").select("location_id,product_key,quantita_attesa,quantita_prelevata").in("batch_id", activeMassIds)
-    : { data: [], error: null };
-  if (reservedMassError) fail(reservedMassError.message);
-
-  const { data: activeGalluseBatches, error: galluseBatchesError } = await requireSupabase()
-    .from("wms_galluse_batches")
-    .select("id")
-    .eq("cliente_id", order.cliente_id)
-    .in("stato", ["da_associare_bag", "in_corso"]);
-  if (galluseBatchesError) fail(galluseBatchesError.message);
-  const activeGalluseIds = (activeGalluseBatches || []).map((batch) => batch.id);
-  const { data: reservedGalluseLines, error: reservedGalluseError } = activeGalluseIds.length
-    ? await requireSupabase().from("wms_galluse_lines").select("location_id,product_key,quantita_attesa,quantita_prelevata").in("batch_id", activeGalluseIds)
-    : { data: [], error: null };
-  if (reservedGalluseError) fail(reservedGalluseError.message);
-
-  const { data: reservedRefillLines, error: reservedRefillError } = await requireSupabase()
-    .from("wms_refill_lines")
-    .select("source_location_id,product_key,quantita")
-    .eq("cliente_id", order.cliente_id)
-    .in("stato", ["da_associare_bag", "da_prelevare", "in_bag"]);
-  if (reservedRefillError) fail(reservedRefillError.message);
-
-  const reserved = new Map();
-  for (const line of reservedLines || []) {
-    const key = `${line.location_id}:${line.product_key}`;
-    reserved.set(key, Number(reserved.get(key) || 0) + Math.max(0, Number(line.quantita_attesa || 0) - Number(line.quantita_prelevata || 0)));
-  }
-  for (const line of reservedMassLines || []) {
-    const key = `${line.location_id}:${line.product_key}`;
-    reserved.set(key, Number(reserved.get(key) || 0) + Math.max(0, Number(line.quantita_attesa || 0) - Number(line.quantita_prelevata || 0)));
-  }
-  for (const line of reservedGalluseLines || []) {
-    const key = `${line.location_id}:${line.product_key}`;
-    reserved.set(key, Number(reserved.get(key) || 0) + Math.max(0, Number(line.quantita_attesa || 0) - Number(line.quantita_prelevata || 0)));
-  }
-  for (const line of reservedRefillLines || []) {
-    const key = `${line.source_location_id}:${line.product_key}`;
-    reserved.set(key, Number(reserved.get(key) || 0) + Number(line.quantita || 0));
-  }
+  const { mapSettings, slotAssignments, stockData } = context;
+  const reserved = new Map(context.reserved);
 
   const allLocations = stockData.locations || [];
   const hiddenLocationIds = new Set(Array.isArray(mapSettings.hidden_location_ids) ? mapSettings.hidden_location_ids : []);
@@ -5227,9 +5250,10 @@ async function listWmsRefillQueue(params = new URLSearchParams()) {
   const { data: rows, error } = await query;
   if (error) fail(error.message);
   const orders = await enrichShopifyOrders(rows || []);
+  const queuedReservations = await mapWithConcurrency(orders, 4, queuedSlotReservationsBefore);
   const grouped = new Map();
-  for (const order of orders) {
-    const queuedSlotReserved = await queuedSlotReservationsBefore(order);
+  for (const [index, order] of orders.entries()) {
+    const queuedSlotReserved = queuedReservations[index];
     const plan = await wmsPickingPlan(order, order.items || [], {
       queuedSlotReserved,
       refillTargetAssignments: targetAssignments,
@@ -5286,21 +5310,28 @@ async function listWmsRefillQueue(params = new URLSearchParams()) {
 
 async function wmsRefillMissionSnapshot(missionId) {
   const profile = await assertWmsStaff();
-  const { data: mission, error: missionError } = await requireSupabase()
-    .from("wms_refill_missions").select("*").eq("id", missionId).single();
+  const [
+    { data: mission, error: missionError },
+    { data: lines, error: linesError },
+  ] = await Promise.all([
+    requireSupabase().from("wms_refill_missions").select("*").eq("id", missionId).single(),
+    requireSupabase().from("wms_refill_lines").select("*").eq("mission_id", missionId),
+  ]);
   if (missionError || !mission) fail(missionError?.message || "Missione refill non trovata", 404);
   if (mission.operatore_id !== profile.id && profile.role !== "admin") fail("Missione assegnata a un altro operatore", 403);
-  const { data: lines, error: linesError } = await requireSupabase()
-    .from("wms_refill_lines").select("*").eq("mission_id", missionId)
-    .order(mission.stato === "deposito" ? "target_sequence" : "source_sequence");
   if (linesError) fail(linesError.message);
-  const locationIds = [...new Set((lines || []).flatMap((line) => [line.source_location_id, line.target_location_id]))];
+  const sortedLines = [...(lines || [])].sort((left, right) => (
+    mission.stato === "deposito"
+      ? Number(left.target_sequence || 0) - Number(right.target_sequence || 0)
+      : Number(left.source_sequence || 0) - Number(right.source_sequence || 0)
+  ));
+  const locationIds = [...new Set(sortedLines.flatMap((line) => [line.source_location_id, line.target_location_id]))];
   const { data: locations, error: locationsError } = locationIds.length
     ? await requireSupabase().from("wms_locations").select("*").in("id", locationIds)
     : { data: [], error: null };
   if (locationsError) fail(locationsError.message);
   const locationMap = Object.fromEntries((locations || []).map((location) => [location.id, location]));
-  const rows = (lines || []).map((line) => ({
+  const rows = sortedLines.map((line) => ({
     ...line,
     source: locationMap[line.source_location_id] || null,
     target: locationMap[line.target_location_id] || null,
@@ -5793,29 +5824,34 @@ async function wmsPickSnapshot(orderId) {
   if (orderError || !order) fail(orderError?.message || "Ordine non trovato", 404);
   if (taskError) fail(taskError.message);
   if (!task) {
-    const [enrichedOrder] = await enrichShopifyOrders([order]);
-    const queuedSlotReserved = await verifiedQueuedReservationsExcept(order.cliente_id, [order.id]);
+    const [[enrichedOrder], queuedSlotReserved] = await Promise.all([
+      enrichShopifyOrders([order], { includePackaging: false }),
+      verifiedQueuedReservationsExcept(order.cliente_id, [order.id]),
+    ]);
     const plan = await wmsPickingPlan(order, enrichedOrder.items || [], { queuedSlotReserved });
     const gateReady = order.wms_status === "da_preparare" && order.gate_status === "sbloccato";
     return ok({ order: enrichedOrder, task: null, lines: [], current_line: null, replenishment: plan.replenishment, errors: plan.errors, can_start: gateReady && plan.ready, summary: { expected: 0, picked: 0, progress: 0 } });
   }
 
-  const clientMap = await clientiMap([order.cliente_id]);
-  const activeOrder = { ...order, items: [], cliente_ragione_sociale: clientMap[order.cliente_id]?.ragione_sociale || null };
-
-  const { data: lines, error: linesError } = await requireSupabase()
-    .from("wms_pick_lines")
-    .select("*")
-    .eq("task_id", task.id)
-    .order("sequenza", { ascending: true });
+  const [clientMap, { data: lines, error: linesError }] = await Promise.all([
+    clientiMap([order.cliente_id]),
+    requireSupabase()
+      .from("wms_pick_lines")
+      .select("*")
+      .eq("task_id", task.id)
+      .order("sequenza", { ascending: true }),
+  ]);
   if (linesError) fail(linesError.message);
+  const activeOrder = { ...order, items: [], cliente_ragione_sociale: clientMap[order.cliente_id]?.ragione_sociale || null };
   const locationIds = [...new Set((lines || []).map((line) => line.location_id))];
-  const { data: locations, error: locationsError } = locationIds.length
-    ? await requireSupabase().from("wms_locations").select("*").in("id", locationIds)
-    : { data: [], error: null };
+  const [{ data: locations, error: locationsError }, linesWithPhotos] = await Promise.all([
+    locationIds.length
+      ? requireSupabase().from("wms_locations").select("*").in("id", locationIds)
+      : Promise.resolve({ data: [], error: null }),
+    withWmsReferencePhotos(lines || [], order.cliente_id),
+  ]);
   if (locationsError) fail(locationsError.message);
   const locationMap = Object.fromEntries((locations || []).map((location) => [location.id, location]));
-  const linesWithPhotos = await withWmsReferencePhotos(lines || [], order.cliente_id);
   const rows = linesWithPhotos.map((line) => ({ ...line, location: locationMap[line.location_id] || null }));
   const expected = rows.reduce((sum, line) => sum + Number(line.quantita_attesa || 0), 0);
   const picked = rows.reduce((sum, line) => sum + Number(line.quantita_prelevata || 0), 0);
@@ -5996,15 +6032,17 @@ async function monoGroupAvailability(group) {
 }
 
 async function reclassifyUnavailableMonoOrders(orders = [], analyses = null) {
-  const reclassified = [];
   const checkedGroups = analyses || await analyzeMonoGroupsFromOrders(orders);
-  for (const { availability } of checkedGroups) {
-    for (const order of availability.unavailableOrders) {
-      await classifyUnavailableOrderFromPlan(order, availability.plan, availability.itemOrderMap);
-      reclassified.push(order);
-    }
-  }
-  return reclassified;
+  const pending = checkedGroups.flatMap(({ availability }) => (
+    availability.unavailableOrders.map((order) => ({
+      availability,
+      order,
+    }))
+  ));
+  return mapWithConcurrency(pending, 4, async ({ availability, order }) => {
+    await classifyUnavailableOrderFromPlan(order, availability.plan, availability.itemOrderMap);
+    return order;
+  });
 }
 
 async function listWmsMonoPicking(params = new URLSearchParams()) {
@@ -6542,26 +6580,35 @@ async function wmsBagsPdf() {
 
 async function wmsMassPickSnapshot(batchId) {
   await assertWmsStaff();
-  const { data: batch, error: batchError } = await requireSupabase().from("wms_mass_pick_batches").select("*").eq("id", batchId).single();
-  if (batchError || !batch) fail(batchError?.message || "Missione Massivo non trovata", 404);
-  const [{ data: links, error: linksError }, { data: lines, error: linesError }] = await Promise.all([
+  const [
+    { data: batch, error: batchError },
+    { data: links, error: linksError },
+    { data: lines, error: linesError },
+  ] = await Promise.all([
+    requireSupabase().from("wms_mass_pick_batches").select("*").eq("id", batchId).single(),
     requireSupabase().from("wms_mass_pick_orders").select("*").eq("batch_id", batchId).order("packing_sequence"),
     requireSupabase().from("wms_mass_pick_lines").select("*").eq("batch_id", batchId).order("sequenza"),
   ]);
+  if (batchError || !batch) fail(batchError?.message || "Missione Massivo non trovata", 404);
   if (linksError || linesError) fail((linksError || linesError).message);
   const orderIds = (links || []).map((link) => link.order_id);
-  const { data: orders, error: ordersError } = orderIds.length
-    ? await requireSupabase().from("shopify_orders").select("*").in("id", orderIds)
-    : { data: [], error: null };
-  if (ordersError) fail(ordersError.message);
-  const orderMap = Object.fromEntries((orders || []).map((order) => [order.id, order]));
   const locationIds = [...new Set((lines || []).map((line) => line.location_id))];
-  const { data: locations, error: locationsError } = locationIds.length
-    ? await requireSupabase().from("wms_locations").select("*").in("id", locationIds)
-    : { data: [], error: null };
-  if (locationsError) fail(locationsError.message);
+  const [
+    { data: orders, error: ordersError },
+    { data: locations, error: locationsError },
+    linesWithPhotos,
+  ] = await Promise.all([
+    orderIds.length
+      ? requireSupabase().from("shopify_orders").select("*").in("id", orderIds)
+      : Promise.resolve({ data: [], error: null }),
+    locationIds.length
+      ? requireSupabase().from("wms_locations").select("*").in("id", locationIds)
+      : Promise.resolve({ data: [], error: null }),
+    withWmsReferencePhotos(lines || [], batch.cliente_id),
+  ]);
+  if (ordersError || locationsError) fail((ordersError || locationsError).message);
+  const orderMap = Object.fromEntries((orders || []).map((order) => [order.id, order]));
   const locationMap = Object.fromEntries((locations || []).map((location) => [location.id, location]));
-  const linesWithPhotos = await withWmsReferencePhotos(lines || [], batch.cliente_id);
   const rows = linesWithPhotos.map((line) => ({ ...line, location: locationMap[line.location_id] || null }));
   const expected = rows.reduce((sum, line) => sum + Number(line.quantita_attesa || 0), 0);
   const picked = rows.reduce((sum, line) => sum + Number(line.quantita_prelevata || 0), 0);
@@ -6841,14 +6888,15 @@ async function reclassifyUnavailableGalluseOrders(candidates = []) {
     unavailable.push({ clientOrders, itemOrderMap, plan, unavailableOrderIds });
   }
 
-  const reclassified = [];
-  for (const group of unavailable) {
-    for (const order of group.clientOrders.filter((candidate) => group.unavailableOrderIds.has(candidate.id))) {
-      await classifyUnavailableOrderFromPlan(order, group.plan, group.itemOrderMap);
-      reclassified.push(order);
-    }
-  }
-  return reclassified;
+  const pending = unavailable.flatMap((group) => (
+    group.clientOrders
+      .filter((candidate) => group.unavailableOrderIds.has(candidate.id))
+      .map((order) => ({ group, order }))
+  ));
+  return mapWithConcurrency(pending, 4, async ({ group, order }) => {
+    await classifyUnavailableOrderFromPlan(order, group.plan, group.itemOrderMap);
+    return order;
+  });
 }
 
 async function classifyUnavailableOrderFromPlan(order, plan, itemOrderMap) {
@@ -7079,31 +7127,37 @@ async function getWmsOrdersOverview(params = new URLSearchParams()) {
 
 async function wmsGalluseSnapshot(batchId) {
   await assertWmsStaff();
-  const { data: batch, error: batchError } = await requireSupabase().from("wms_galluse_batches").select("*").eq("id", batchId).single();
-  if (batchError || !batch) fail(batchError?.message || "Missione Metodo Galluse non trovata", 404);
-  const [{ data: links, error: linksError }, { data: lines, error: linesError }] = await Promise.all([
+  const [
+    { data: batch, error: batchError },
+    { data: links, error: linksError },
+    { data: lines, error: linesError },
+  ] = await Promise.all([
+    requireSupabase().from("wms_galluse_batches").select("*").eq("id", batchId).single(),
     requireSupabase().from("wms_galluse_orders").select("*").eq("batch_id", batchId).order("posizione_bag"),
     requireSupabase().from("wms_galluse_lines").select("*").eq("batch_id", batchId).order("sequenza"),
   ]);
+  if (batchError || !batch) fail(batchError?.message || "Missione Metodo Galluse non trovata", 404);
   if (linksError || linesError) fail((linksError || linesError).message);
   const orderIds = (links || []).map((link) => link.order_id);
-  const { data: orders, error: ordersError } = orderIds.length
-    ? await requireSupabase().from("shopify_orders").select("*").in("id", orderIds)
-    : { data: [], error: null };
-  if (ordersError) fail(ordersError.message);
-  const orderMap = Object.fromEntries((orders || []).map((order) => [order.id, order]));
   const linkMap = Object.fromEntries((links || []).map((link) => [link.id, link]));
   const locationIds = [...new Set((lines || []).map((line) => line.location_id))];
   const lineIds = (lines || []).map((line) => line.id);
-  const [{ data: locations, error: locationsError }, { data: allocations, error: allocationsError }] = await Promise.all([
+  const [
+    { data: orders, error: ordersError },
+    { data: locations, error: locationsError },
+    { data: allocations, error: allocationsError },
+    linesWithPhotos,
+  ] = await Promise.all([
+    orderIds.length ? requireSupabase().from("shopify_orders").select("*").in("id", orderIds) : Promise.resolve({ data: [], error: null }),
     locationIds.length ? requireSupabase().from("wms_locations").select("*").in("id", locationIds) : Promise.resolve({ data: [], error: null }),
     lineIds.length ? requireSupabase().from("wms_galluse_allocations").select("*").in("galluse_line_id", lineIds) : Promise.resolve({ data: [], error: null }),
+    withWmsReferencePhotos(lines || [], batch.cliente_id),
   ]);
-  if (locationsError || allocationsError) fail((locationsError || allocationsError).message);
+  if (ordersError || locationsError || allocationsError) fail((ordersError || locationsError || allocationsError).message);
+  const orderMap = Object.fromEntries((orders || []).map((order) => [order.id, order]));
   const locationMap = Object.fromEntries((locations || []).map((location) => [location.id, location]));
   const linkedOrders = (links || []).map((link) => ({ ...link, order: orderMap[link.order_id] || null }));
   const allocationsByLine = groupBy(allocations || [], "galluse_line_id");
-  const linesWithPhotos = await withWmsReferencePhotos(lines || [], batch.cliente_id);
   const rows = linesWithPhotos.map((line) => ({
     ...line,
     location: locationMap[line.location_id] || null,
@@ -8451,23 +8505,28 @@ async function completeWmsPacking(sessionId) {
 
 async function wmsBagPackingSnapshot(bagCode) {
   await assertWmsStaff();
-  const { data: batches, error: batchError } = await requireSupabase()
-    .from("wms_mass_pick_batches")
-    .select("*")
-    .eq("bag_code", bagCode)
-    .in("stato", ["completata", "in_packing"])
-    .order("completed_at", { ascending: false })
-    .limit(1);
-  const batch = batches?.[0] || null;
-  if (batchError) fail(batchError.message);
-  if (!batch) {
-    const { data: normalSessions, error: normalError } = await requireSupabase()
+  const [
+    { data: batches, error: batchError },
+    { data: normalSessions, error: normalError },
+  ] = await Promise.all([
+    requireSupabase()
+      .from("wms_mass_pick_batches")
+      .select("*")
+      .eq("bag_code", bagCode)
+      .in("stato", ["completata", "in_packing"])
+      .order("completed_at", { ascending: false })
+      .limit(1),
+    requireSupabase()
       .from("wms_packing_sessions")
       .select("*")
       .eq("bag_code", bagCode)
       .neq("stato", "annullata")
       .order("created_at", { ascending: false })
-      .limit(1);
+      .limit(1),
+  ]);
+  const batch = batches?.[0] || null;
+  if (batchError) fail(batchError.message);
+  if (!batch) {
     const normalSession = normalSessions?.[0] || null;
     if (normalError) fail(normalError.message);
     if (!normalSession) {
@@ -8491,12 +8550,17 @@ async function wmsBagPackingSnapshot(bagCode) {
   const { data: sessions, error: sessionsError } = await requireSupabase().from("wms_packing_sessions").select("*").eq("mass_batch_id", batch.id).order("packing_sequence");
   if (sessionsError) fail(sessionsError.message);
   const orderIds = (sessions || []).map((session) => session.order_id);
-  const { data: orders, error: ordersError } = orderIds.length ? await requireSupabase().from("shopify_orders").select("*").in("id", orderIds) : { data: [], error: null };
-  if (ordersError) fail(ordersError.message);
-  const orderMap = Object.fromEntries((orders || []).map((order) => [order.id, order]));
   const sessionIds = (sessions || []).map((session) => session.id);
-  const { data: lines, error: linesError } = sessionIds.length ? await requireSupabase().from("wms_packing_lines").select("*").in("session_id", sessionIds) : { data: [], error: null };
-  if (linesError) fail(linesError.message);
+  const [{ data: orders, error: ordersError }, { data: lines, error: linesError }] = await Promise.all([
+    orderIds.length
+      ? requireSupabase().from("shopify_orders").select("*").in("id", orderIds)
+      : Promise.resolve({ data: [], error: null }),
+    sessionIds.length
+      ? requireSupabase().from("wms_packing_lines").select("*").in("session_id", sessionIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (ordersError || linesError) fail((ordersError || linesError).message);
+  const orderMap = Object.fromEntries((orders || []).map((order) => [order.id, order]));
   const rows = (sessions || []).map((session) => ({ ...session, order: orderMap[session.order_id], lines: (lines || []).filter((line) => line.session_id === session.id) }));
   return ok({ batch, sessions: rows, summary: { orders: rows.length, completed: rows.filter((session) => session.stato === "completata").length } });
 }
@@ -9867,7 +9931,7 @@ function generateTestShippingLabelPdfBlob(carrier = "gls") {
   return new Blob([pdf], { type: "application/pdf" });
 }
 
-export const api = {
+const apiAdapter = {
   async get(url, config = {}) {
     const { path, params } = pathAndQuery(url);
     if (path === "/clienti") return listClienti();
@@ -10056,6 +10120,41 @@ export const api = {
     if (path.match(/^\/referenze\/[^/]+$/)) return deleteReferenza(path.split("/")[2]);
     if (path.match(/^\/wms\/inbound\/movimenti\/[^/]+$/)) return deleteWmsInboundMovement(path.split("/")[4]);
     fail(`Endpoint non migrato: ${path}`, 404);
+  },
+};
+
+function invalidateWmsCachesAfterMutation(url) {
+  const { path } = pathAndQuery(url);
+  const affectsWms = path.startsWith("/wms/")
+    || path.startsWith("/shopify/orders")
+    || path === "/shopify/import"
+    || path.startsWith("/entrate")
+    || path.startsWith("/referenze")
+    || path.startsWith("/preparazioni")
+    || path === "/box"
+    || path.startsWith("/box/");
+  if (!affectsWms) return;
+  wmsOperationalOrdersCache.clear();
+  wmsPickingContextCache.clear();
+  announceWmsDataChange(["orders", "picking", "stock"]);
+}
+
+export const api = {
+  get: (...args) => apiAdapter.get(...args),
+  post: async (...args) => {
+    const response = await apiAdapter.post(...args);
+    invalidateWmsCachesAfterMutation(args[0]);
+    return response;
+  },
+  put: async (...args) => {
+    const response = await apiAdapter.put(...args);
+    invalidateWmsCachesAfterMutation(args[0]);
+    return response;
+  },
+  delete: async (...args) => {
+    const response = await apiAdapter.delete(...args);
+    invalidateWmsCachesAfterMutation(args[0]);
+    return response;
   },
 };
 

@@ -10,15 +10,15 @@ import { loadWmsStock, peekWmsStock } from "@/lib/wmsStockPrefetch";
 export default function WmsAppProductSearch() {
   const { clientId: workspaceClientId } = useOutletContext();
   const inputRef = useRef(null);
-  const [stock, setStock] = useState(() => peekWmsStock("all")?.data || null);
+  const [stock, setStock] = useState(() => peekWmsStock("all", { allowStale: true })?.data || null);
   const [query, setQuery] = useState("");
   const [clientId, setClientId] = useState(workspaceClientId || "all");
   const [selected, setSelected] = useState(null);
 
   useEffect(() => {
-    const cached = peekWmsStock("all")?.data || null;
+    const cached = peekWmsStock("all", { allowStale: true })?.data || null;
     if (cached) setStock(cached);
-    loadWmsStock("all", { force: Boolean(cached) })
+    loadWmsStock("all")
       .then((response) => setStock(response.data))
       .catch((error) => toast.error(error.response?.data?.detail || error.message || "Prodotti non disponibili"));
   }, []);

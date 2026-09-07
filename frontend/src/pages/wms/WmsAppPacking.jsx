@@ -97,7 +97,7 @@ function ActiveBagContents({ station, phase, working, onLabelScan, onProductSele
     {monoMode && phase === "select_product" && <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
       {monoProducts.map((product) => <button key={product.sessionId} type="button" onClick={() => onProductSelect(product.sessionId)} disabled={working} className="relative min-h-44 overflow-hidden rounded-md border-2 border-slate-200 bg-white p-3 text-left transition hover:border-teal-500 disabled:opacity-60">
         <span className="absolute right-2 top-2 rounded-md bg-slate-950 px-2 py-1 text-sm font-black text-white">×{product.count}</span>
-        {product.foto_url ? <img src={fileUrl(product.foto_url)} alt={product.titolo} className="h-24 w-full object-contain" /> : <span className="flex h-24 items-center justify-center text-slate-300"><ImageIcon className="h-8 w-8" /></span>}
+        {product.foto_url ? <img src={fileUrl(product.foto_url)} alt={product.titolo} loading="lazy" decoding="async" className="h-24 w-full object-contain" /> : <span className="flex h-24 items-center justify-center text-slate-300"><ImageIcon className="h-8 w-8" /></span>}
         <strong className="mt-2 block text-sm leading-4">{product.titolo}</strong>
         <span className="mt-1 block truncate font-mono text-[10px] text-slate-500">{product.ean || product.fnsku || product.sku}</span>
       </button>)}
@@ -105,7 +105,7 @@ function ActiveBagContents({ station, phase, working, onLabelScan, onProductSele
     {phase !== "select_product" && <div className="mt-3 grid gap-3 md:grid-cols-2">
       {station.sessions.map((session, index) => <article key={session.id} className={`rounded-md border bg-white p-3 ${session.stato === "completata" ? "border-emerald-300" : needsDoubleCheck ? "border-amber-300" : "border-teal-200"}`}>
         <div className="flex items-center gap-3"><span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-black ${session.stato === "completata" ? "bg-emerald-600 text-white" : "bg-slate-950 text-white"}`}>{session.stato === "completata" ? <CheckCircle2 className="h-4 w-4" /> : index + 1}</span><div className="min-w-0 flex-1"><strong className="block truncate text-sm">Ordine {session.order?.order_name}</strong><span className="text-xs text-slate-500">{session.lines.length} referenze</span></div></div>
-        <div className="mt-3 grid grid-cols-3 gap-2">{session.lines.map((line) => <div key={line.id} className="min-w-0 rounded-md bg-slate-50 p-2 text-center">{line.foto_url ? <img src={fileUrl(line.foto_url)} alt="" className="mx-auto h-14 w-full object-contain" /> : <span className="mx-auto flex h-14 items-center justify-center text-slate-300"><ImageIcon className="h-5 w-5" /></span>}<strong className="mt-1 block truncate text-[10px]">{line.titolo}</strong><span className="block text-sm font-black">x{line.quantita_attesa}</span></div>)}</div>
+        <div className="mt-3 grid grid-cols-3 gap-2">{session.lines.map((line) => <div key={line.id} className="min-w-0 rounded-md bg-slate-50 p-2 text-center">{line.foto_url ? <img src={fileUrl(line.foto_url)} alt="" loading="lazy" decoding="async" className="mx-auto h-14 w-full object-contain" /> : <span className="mx-auto flex h-14 items-center justify-center text-slate-300"><ImageIcon className="h-5 w-5" /></span>}<strong className="mt-1 block truncate text-[10px]">{line.titolo}</strong><span className="block text-sm font-black">x{line.quantita_attesa}</span></div>)}</div>
         {scanningLabels && (session.carrier_label_scanned_at
           ? <div className="mt-3 rounded-md bg-emerald-100 px-3 py-2 font-mono text-xs font-black text-emerald-800">ETICHETTA ACQUISITA</div>
           : <button type="button" onClick={() => onLabelScan(session.carrier_label_code)} disabled={working} className="mt-3 w-full rounded-md bg-amber-100 px-3 py-3 text-left font-mono text-xs font-black text-amber-900 hover:bg-amber-200 disabled:opacity-60">{session.carrier_label_code}</button>)}
@@ -190,7 +190,7 @@ export default function WmsAppPacking() {
     window.addEventListener("focus", keepFocus);
     window.addEventListener("pageshow", keepFocus);
     document.addEventListener("pointerdown", keepFocusOnPage);
-    const interval = window.setInterval(keepFocusOnPage, 1500);
+    const interval = window.setInterval(keepFocusOnPage, 5000);
     return () => {
       window.removeEventListener("focus", keepFocus);
       window.removeEventListener("pageshow", keepFocus);
@@ -239,7 +239,7 @@ export default function WmsAppPacking() {
   useEffect(() => {
     if (zebra.status === "ready" && !pendingCarrierPrint) return undefined;
     const retry = () => checkZebra({ background: true });
-    const interval = window.setInterval(retry, 4000);
+    const interval = window.setInterval(retry, 10000);
     window.addEventListener("online", retry);
     return () => {
       window.clearInterval(interval);

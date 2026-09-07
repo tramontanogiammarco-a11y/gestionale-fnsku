@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import {
   ArrowRight, Check, CheckCircle2, Loader2, PackageOpen, RefreshCw, Route, ScanLine, Warehouse,
@@ -23,6 +23,7 @@ export default function WmsAppRefill() {
   const [cameraOpen, setCameraOpen] = useState(false);
   const [scannerSession, setScannerSession] = useState(0);
   const [pickedQuantity, setPickedQuantity] = useState(0);
+  const operationInFlightRef = useRef(false);
 
   const loadMission = useCallback(async (missionId) => {
     const response = await api.get(`/wms/refill/${missionId}`);
@@ -30,10 +31,9 @@ export default function WmsAppRefill() {
     return response.data;
   }, []);
 
-  const load = useCallback(async (synchronize = false) => {
+  const load = useCallback(async () => {
     const query = new URLSearchParams();
     if (clientId && clientId !== "all") query.set("cliente_id", clientId);
-    if (synchronize) await api.post("/wms/order-gate/recheck", { include_ready: true, limit: 500, cliente_id: clientId !== "all" ? clientId : null });
     const response = await api.get(`/wms/refill${query.toString() ? `?${query}` : ""}`);
     setQueueData(response.data);
     if (response.data.active_mission?.id) await loadMission(response.data.active_mission.id);
@@ -41,7 +41,7 @@ export default function WmsAppRefill() {
   }, [clientId, loadMission]);
 
   useEffect(() => {
-    load(true).catch((error) => toast.error(error.response?.data?.detail || "Coda refill non disponibile"));
+    load().catch((error) => toast.error(error.response?.data?.detail || "Coda refill non disponibile"));
   }, [load]);
 
   const mission = missionData?.mission || null;
@@ -80,7 +80,8 @@ export default function WmsAppRefill() {
   };
 
   const startMission = async () => {
-    if (!selectedCount || working) return;
+    if (!selectedCount || operationInFlightRef.current) return;
+    operationInFlightRef.current = true;
     setWorking(true);
     try {
       const response = await api.post("/wms/refill/avvia", {
@@ -93,12 +94,14 @@ export default function WmsAppRefill() {
     } catch (error) {
       toast.error(error.response?.data?.detail || "Missione refill non creata");
     } finally {
+      operationInFlightRef.current = false;
       setWorking(false);
     }
   };
 
   const handleDetected = async (code) => {
-    if (!mission || !current || working) return;
+    if (!mission || !current || operationInFlightRef.current) return;
+    operationInFlightRef.current = true;
     setCameraOpen(false);
     setWorking(true);
     try {
@@ -114,7 +117,7 @@ export default function WmsAppRefill() {
       const finished = response.data.mission.stato === "completata";
       if (finished) {
         toast.success("Missione refill completata. Bag liberate e ordini ricontrollati.");
-        await load(false);
+        await load();
       } else {
         toast.success(successMessage(mission.stato, current));
         window.setTimeout(() => {
@@ -130,6 +133,7 @@ export default function WmsAppRefill() {
         setCameraOpen(true);
       }, 500);
     } finally {
+      operationInFlightRef.current = false;
       setWorking(false);
     }
   };
@@ -168,7 +172,7 @@ export default function WmsAppRefill() {
     <div className="wms-page" data-testid="wms-refill">
       <header className="wms-page-header">
         <div><p className="wms-eyebrow">Rifornimento picking</p><h1 className="wms-title">Refill</h1></div>
-        <Button size="icon" variant="outline" onClick={() => load(true)} disabled={working} aria-label="Aggiorna"><RefreshCw className={`h-5 w-5 ${working ? "animate-spin" : ""}`} /></Button>
+        <Button size="icon" variant="outline" onClick={load} disabled={working} aria-label="Aggiorna"><RefreshCw className={`h-5 w-5 ${working ? "animate-spin" : ""}`} /></Button>
       </header>
 
       {!mission ? (
