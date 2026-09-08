@@ -1,5 +1,7 @@
 const STATION_CODE_KEY = "aimago.wms.printStationCode";
 const PAIRED_STATION_KEY = "aimago.wms.pairedPrintStation";
+const STATION_QR_PREFIX = "AIMAGO-WMS:PACKING-STATION:";
+const STATION_CODE_PATTERN = /^STATION-[A-Z0-9]{8,16}$/;
 
 function randomToken() {
   if (typeof crypto !== "undefined" && crypto.getRandomValues) {
@@ -33,8 +35,31 @@ export function unpairPrintStation() {
 }
 
 export function normalizePrintStationCode(value) {
-  const code = String(value || "").trim().toUpperCase();
-  return /^STATION-[A-Z0-9]{8,16}$/.test(code) ? code : "";
+  const rawValue = String(value || "").trim();
+  if (!rawValue) return "";
+
+  const normalizedValue = rawValue.toUpperCase();
+  if (STATION_CODE_PATTERN.test(normalizedValue)) return normalizedValue;
+
+  if (normalizedValue.startsWith(STATION_QR_PREFIX)) {
+    const stationCode = normalizedValue.slice(STATION_QR_PREFIX.length);
+    return STATION_CODE_PATTERN.test(stationCode) ? stationCode : "";
+  }
+
+  try {
+    const legacyUrl = new URL(rawValue);
+    if (!["http:", "https:"].includes(legacyUrl.protocol)) return "";
+    if (!/^\/wms-app\/packing-remoto\/?$/.test(legacyUrl.pathname)) return "";
+    const stationCode = String(legacyUrl.searchParams.get("station") || "").trim().toUpperCase();
+    return STATION_CODE_PATTERN.test(stationCode) ? stationCode : "";
+  } catch {
+    return "";
+  }
+}
+
+export function printStationQrValue(code) {
+  const normalized = normalizePrintStationCode(code);
+  return normalized ? `${STATION_QR_PREFIX}${normalized}` : "";
 }
 
 export function printStationChannelName(code) {

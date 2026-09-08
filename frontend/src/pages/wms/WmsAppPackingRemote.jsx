@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, CheckCircle2, ImageIcon, Loader2, MonitorUp, PackageCheck, Unplug, Wifi } from "lucide-react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, CheckCircle2, ImageIcon, Loader2, MonitorUp, PackageCheck, ScanLine, Unplug, Wifi } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { fileUrl } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
-import { createPrintJobId, getPairedPrintStationCode, normalizePrintStationCode, pairPrintStation, printStationChannelName } from "@/lib/printStation";
+import { createPrintJobId, getPairedPrintStationCode, pairPrintStation, printStationChannelName } from "@/lib/printStation";
+
+const CameraScanner = lazy(() => import("@/components/wms/CameraScanner"));
 
 function groupedProducts(station) {
   const groups = new Map();
@@ -22,7 +24,7 @@ function groupedProducts(station) {
 
 export default function WmsAppPackingRemote() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const timeoutRef = useRef(null);
   const pendingRequestRef = useRef("");
   const channelRef = useRef(null);
@@ -32,14 +34,19 @@ export default function WmsAppPackingRemote() {
   const [stationOnline, setStationOnline] = useState(false);
   const [station, setStation] = useState(null);
   const [selecting, setSelecting] = useState("");
+  const [stationScannerOpen, setStationScannerOpen] = useState(false);
   const products = useMemo(() => groupedProducts(station), [station]);
 
   useEffect(() => {
-    const code = normalizePrintStationCode(searchParams.get("station"));
+    const code = pairPrintStation(searchParams.get("station"));
     if (!code) return;
-    pairPrintStation(code);
     setStationCode(code);
-  }, [searchParams]);
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (!stationCode) setStationScannerOpen(true);
+  }, [stationCode]);
 
   useEffect(() => {
     if (!supabase || !stationCode) return undefined;
@@ -110,6 +117,22 @@ export default function WmsAppPackingRemote() {
     };
   }, [stationCode]);
 
+  const connectStation = (rawCode) => {
+    setStationScannerOpen(false);
+    const nextStationCode = pairPrintStation(rawCode);
+    if (!nextStationCode) {
+      toast.error("Questo non e il QR di una Packing Station");
+      return;
+    }
+    window.clearTimeout(timeoutRef.current);
+    pendingRequestRef.current = "";
+    setSelecting("");
+    setStation(null);
+    setStationOnline(false);
+    setStationCode(nextStationCode);
+    toast.success("Packing Station associata");
+  };
+
   const selectProduct = async (product) => {
     if (!stationOnline || !station?.bag_code || selecting) return;
     const channel = channelRef.current;
@@ -137,20 +160,30 @@ export default function WmsAppPackingRemote() {
   };
 
   const monoReady = station?.batch?.picking_mode === "mono";
-  return <div className="wms-page pb-24" data-testid="wms-packing-remote">
+  const stationStatus = stationOnline
+    ? "Packing Station collegata"
+    : stationCode
+      ? "Packing Station non raggiungibile"
+      : "Packing Station da collegare";
+
+  return <>
+  <div className="wms-page pb-24" data-testid="wms-packing-remote">
     <header className="wms-page-header items-start">
       <div className="flex items-start gap-3">
         <button type="button" onClick={() => navigate("/wms-app/ordini")} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white" aria-label="Torna agli ordini"><ArrowLeft className="h-5 w-5" /></button>
-        <div><p className="wms-eyebrow">Packing collegato</p><h1 className="wms-title">Seleziona prodotto</h1></div>
+        <div><p className="wms-eyebrow">Packing collegato</p><h1 className="wms-title">{stationCode ? "Seleziona prodotto" : "Collega station"}</h1></div>
       </div>
     </header>
 
-    <div className={`flex items-center gap-3 border p-3 ${stationOnline ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-amber-300 bg-amber-50 text-amber-900"}`}>
-      {stationOnline ? <Wifi className="h-5 w-5" /> : <Unplug className="h-5 w-5" />}
-      <span><strong className="block text-sm">{stationOnline ? "Packing Station collegata" : "Packing Station non raggiungibile"}</strong><span className="font-mono text-[10px]">{stationCode || "Scansiona il QR della station"}</span></span>
+    <div className={`flex flex-wrap items-center gap-3 border p-3 ${stationOnline ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-amber-300 bg-amber-50 text-amber-900"}`}>
+      {stationOnline ? <Wifi className="h-5 w-5 shrink-0" /> : <Unplug className="h-5 w-5 shrink-0" />}
+      <span className="min-w-0 flex-1"><strong className="block text-sm">{stationStatus}</strong><span className="block truncate font-mono text-[10px]">{stationCode || "Scansiona il QR mostrato sulla station"}</span></span>
+      <button type="button" onClick={() => setStationScannerOpen(true)} className="flex h-10 shrink-0 items-center gap-2 rounded-md bg-slate-950 px-3 text-xs font-black text-white" aria-label={stationCode ? "Cambia Packing Station" : "Collega Packing Station"}>
+        <ScanLine className="h-4 w-4" /> {stationCode ? "Cambia" : "Scansiona QR"}
+      </button>
     </div>
 
-    {!station ? <section className="mt-4 flex min-h-72 flex-col items-center justify-center border border-dashed border-slate-300 bg-white p-7 text-center"><MonitorUp className="h-10 w-10 text-slate-300" /><h2 className="mt-3 font-black">In attesa della station</h2><p className="mt-1 text-sm text-slate-500">Scansiona una bag sulla Packing Station.</p></section>
+    {!station ? <section className="mt-4 flex min-h-72 flex-col items-center justify-center border border-dashed border-slate-300 bg-white p-7 text-center"><MonitorUp className="h-10 w-10 text-slate-300" /><h2 className="mt-3 font-black">{stationCode ? "In attesa della station" : "Collega la Packing Station"}</h2><p className="mt-1 text-sm text-slate-500">{stationCode ? "Quando e collegata, scansiona una bag sulla Packing Station." : "Usa lo scanner dell'app sul QR mostrato dalla Packing Station."}</p></section>
       : !monoReady ? <section className="mt-4 flex min-h-72 flex-col items-center justify-center border border-slate-200 bg-white p-7 text-center"><PackageCheck className="h-10 w-10 text-teal-700" /><h2 className="mt-3 font-black">Bag {station.bag_code || "non attiva"}</h2><p className="mt-1 text-sm text-slate-500">Le foto interattive sono disponibili per le bag mono-prodotto.</p></section>
       : station.phase === "completed" ? <section className="mt-4 flex min-h-72 flex-col items-center justify-center border border-emerald-300 bg-emerald-50 p-7 text-center"><CheckCircle2 className="h-12 w-12 text-emerald-700" /><h2 className="mt-3 text-xl font-black">Bag completata</h2></section>
       : <>
@@ -163,5 +196,7 @@ export default function WmsAppPackingRemote() {
           {selecting === product.sessionId && <span className="absolute inset-0 flex items-center justify-center bg-white/85"><Loader2 className="h-7 w-7 animate-spin text-teal-700" /></span>}
         </button>)}</div> : <section className="mt-4 border border-sky-300 bg-sky-50 p-5 text-center text-sky-950"><PackageCheck className="mx-auto h-8 w-8" /><h2 className="mt-2 font-black">Prodotto selezionato</h2><p className="mt-1 text-sm">Continua sulla Packing Station: scansiona imballaggio ed etichetta.</p></section>}
       </>}
-  </div>;
+  </div>
+  {stationScannerOpen && <Suspense fallback={null}><CameraScanner open onOpenChange={setStationScannerOpen} purpose="station" allowManual={false} onDetected={connectStation} /></Suspense>}
+  </>;
 }

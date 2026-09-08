@@ -69,7 +69,7 @@ export default function WmsAppDashboard() {
         <div className="grid grid-cols-2 gap-2.5">
           <FlowButton tone="teal" icon={PackageOpen} title="Arrivi" detail="Ricevi e ubica merce" value={allEntries === null ? "—" : model.waiting.length} unit="in attesa" onIntent={() => prefetchWmsRoute("home")} onClick={() => navigate("/wms-app/arrivi")} />
           <FlowButton tone="blue" icon={ShoppingCart} title="Ordini" detail="Avvia il picking" value="4" unit="metodi" onIntent={() => { prefetchWmsRoute("orders"); prefetchWmsOrders(clientId); }} onClick={() => navigate("/wms-app/ordini")} />
-          <FlowButton tone="amber" icon={PackageCheck} title="Packing" detail="Carrelli, bag, etichette" value="Scan" unit="pronto" onIntent={() => prefetchWmsRoute("packing")} onClick={() => navigate("/packing-station")} />
+          <FlowButton tone="amber" icon={PackageCheck} title="Packing" detail="Carrelli, bag, etichette" value="Scan" unit="pronto" onIntent={() => prefetchWmsRoute("packingRemote")} onClick={() => navigate("/wms-app/packing-remoto")} />
           <FlowButton tone="slate" icon={Warehouse} title="Stock" detail="Ubicazioni e movimenti" value="Live" unit="inventario" onIntent={() => { prefetchWmsRoute("stock"); prefetchWmsStock(clientId); }} onClick={() => navigate("/wms-app/ubicazioni")} />
         </div>
       </section>

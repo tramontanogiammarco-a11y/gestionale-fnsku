@@ -41,7 +41,7 @@ export default function WmsAppTools() {
       setEmptyingBags(true);
       const response = await api.post("/wms/bags/svuota", {});
       toast.success(`Bag svuotate: ${response.data.packing_sessions} sessioni packing rimosse.`);
-      navigate("/packing-station");
+      navigate("/wms-app/packing-remoto");
     } catch (error) {
       toast.error(error.response?.data?.detail || error.message || "Svuotamento bag non riuscito");
     } finally {

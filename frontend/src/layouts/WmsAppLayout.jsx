@@ -138,7 +138,7 @@ export default function WmsAppLayout() {
               <ChevronRight className="ml-auto h-4 w-4 rotate-90 text-slate-500" />
             </button>
             <IconButton label="Scansiona" onClick={focusScanner}><Barcode className="h-5 w-5" /></IconButton>
-            <IconButton label="Packing" onIntent={() => prefetchWmsRoute("packing")} onClick={() => navigate("/packing-station")}><PackageCheck className="h-5 w-5" /></IconButton>
+            <IconButton label="Packing" onIntent={() => prefetchWmsRoute("packingRemote")} onClick={() => navigate("/wms-app/packing-remoto")}><PackageCheck className="h-5 w-5" /></IconButton>
             <IconButton label="Menu" onClick={() => setMenuOpen(true)}><Menu className="h-5 w-5" /></IconButton>
           </div>
         </header>
@@ -167,6 +167,11 @@ export default function WmsAppLayout() {
           setScannerOpen(false);
           navigate(`/wms-app/ubicazioni?code=${encodeURIComponent(code)}`);
         }}
+        onPairStation={() => {
+          setScannerOpen(false);
+          prefetchWmsRoute("packingRemote");
+          navigate("/wms-app/packing-remoto");
+        }}
       />
 
       <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
@@ -184,7 +189,7 @@ export default function WmsAppLayout() {
             <MenuLink icon={Home} label="Home" active={location.pathname === "/wms-app"} onClick={() => { setMenuOpen(false); navigate("/wms-app"); }} />
             <MenuLink icon={ShoppingCart} label="Ordini" active={location.pathname.includes("/ordini") || location.pathname.includes("/picking")} onClick={() => { setMenuOpen(false); navigate("/wms-app/ordini"); }} />
             <MenuLink icon={PackageOpen} label="Arrivi" active={location.pathname.includes("/arrivi") || location.pathname.includes("/inbound/")} onClick={() => { setMenuOpen(false); navigate("/wms-app/arrivi"); }} />
-            <MenuLink icon={PackageCheck} label="Packing station" active={false} onClick={() => { setMenuOpen(false); navigate("/packing-station"); }} />
+            <MenuLink icon={PackageCheck} label="Packing station" active={location.pathname.includes("/packing-remoto")} onClick={() => { setMenuOpen(false); navigate("/wms-app/packing-remoto"); }} />
             <MenuLink icon={Warehouse} label="Stock" active={location.pathname.includes("/ubicazioni")} onClick={() => { setMenuOpen(false); navigate("/wms-app/ubicazioni"); }} />
             <div className="my-3 border-t border-slate-100" />
             {isAdmin && <MenuLink icon={ShieldCheck} label="Diagnostica" active={false} onClick={() => { setMenuOpen(false); navigate("/wms/control-room"); }} />}
@@ -214,7 +219,7 @@ function BottomNavigation() {
   const items = [
     { label: "Arrivi", icon: PackageOpen, route: "home", active: location.pathname.includes("/arrivi") || location.pathname.includes("/inbound/"), action: () => navigate("/wms-app/arrivi") },
     { label: "Picking", icon: ShoppingCart, route: "orders", active: location.pathname.includes("/ordini") || location.pathname.includes("/picking") || location.pathname.includes("/refill"), action: () => navigate("/wms-app/ordini") },
-    { label: "Packing", icon: PackageCheck, route: "packing", active: location.pathname.includes("/packing"), action: () => navigate("/packing-station") },
+    { label: "Packing", icon: PackageCheck, route: "packingRemote", active: location.pathname.includes("/packing"), action: () => navigate("/wms-app/packing-remoto") },
   ];
   return (
     <nav className="wms-bottom-nav fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-3xl border-x border-t px-2 pb-[max(6px,env(safe-area-inset-bottom))] pt-1" aria-label="Navigazione WMS">

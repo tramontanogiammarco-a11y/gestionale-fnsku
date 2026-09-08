@@ -21,9 +21,9 @@ const routeLoaders = {
   packingRemote: () => import("@/pages/wms/WmsAppPackingRemote"),
 };
 
-const primaryRoutes = ["dashboard", "home", "orders", "stock", "packing"];
+const primaryRoutes = ["dashboard", "home", "orders", "stock", "packingRemote"];
 const operationalRoutes = ["inbound", "picking", "massPicking", "galluse", "refill", "stockMovement", "productSearch", "inventory"];
-const secondaryRoutes = ["inventoryCount", "bagHistory", "tools", "settings", "cartBags", "packagingLabels", "packingRemote"];
+const secondaryRoutes = ["inventoryCount", "bagHistory", "tools", "settings", "cartBags", "packagingLabels", "packing"];
 const routePromises = new Map();
 
 export function prefetchWmsRoute(name) {

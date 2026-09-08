@@ -9,6 +9,7 @@ const SCAN_INSTRUCTIONS = {
   cart: "Inquadra il barcode del carrello",
   carrier_label: "Inquadra l'etichetta del corriere",
   packing: "Inquadra il carrello o la bag",
+  station: "Inquadra il QR della Packing Station",
   universal: "Inquadra un barcode o un QR code",
 };
 

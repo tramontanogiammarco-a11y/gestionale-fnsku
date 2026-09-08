@@ -85,7 +85,7 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
     };
   }, [allowManual, nativeScanner, open, videoElement]);
 
-  const title = purpose === "location" ? "Scansiona posizione" : purpose === "product" ? "Scansiona prodotto" : purpose === "bag" ? "Scansiona bag" : purpose === "cart" ? "Scansiona carrello" : purpose === "carrier_label" ? "Scansiona etichetta corriere" : purpose === "packing" ? "Scansiona carrello o bag" : "Scanner universale";
+  const title = purpose === "location" ? "Scansiona posizione" : purpose === "product" ? "Scansiona prodotto" : purpose === "bag" ? "Scansiona bag" : purpose === "cart" ? "Scansiona carrello" : purpose === "carrier_label" ? "Scansiona etichetta corriere" : purpose === "packing" ? "Scansiona carrello o bag" : purpose === "station" ? "Collega Packing Station" : "Scanner universale";
   const description = purpose === "location"
     ? context?.allowProductBarcode
       ? "Inquadra il barcode dello slot oppure quello del prodotto indicato."
@@ -100,6 +100,8 @@ export default function CameraScanner({ open, onOpenChange, purpose = "universal
           ? "Inquadra il barcode stampato sull'etichetta del corriere."
         : purpose === "packing"
           ? "Inquadra il barcode del carrello oppure quello applicato alla bag."
+        : purpose === "station"
+          ? "Inquadra il QR mostrato sulla Packing Station."
       : "Inquadra una posizione, un EAN o un FNSKU.";
 
   if (nativeScanner) {

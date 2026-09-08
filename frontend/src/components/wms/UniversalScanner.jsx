@@ -21,6 +21,7 @@ import {
   Warehouse,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { pairPrintStation } from "@/lib/printStation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -29,7 +30,7 @@ import { toast } from "sonner";
 
 const CameraScanner = lazy(() => import("@/components/wms/CameraScanner"));
 
-export default function UniversalScanner({ open, onOpenChange, clientId, onViewLocation }) {
+export default function UniversalScanner({ open, onOpenChange, clientId, onViewLocation, onPairStation }) {
   const inputRef = useRef(null);
   const scanInFlightRef = useRef(false);
   const actionInFlightRef = useRef(false);
@@ -59,9 +60,24 @@ export default function UniversalScanner({ open, onOpenChange, clientId, onViewL
     window.setTimeout(() => inputRef.current?.focus(), 35);
   }, [open]);
 
+  const connectPrintStation = (rawCode) => {
+    const pairedCode = pairPrintStation(rawCode);
+    if (!pairedCode) return false;
+    setCameraOpen(false);
+    setCode("");
+    setResult(null);
+    setAction(null);
+    if (navigator.vibrate) navigator.vibrate([70, 35, 70]);
+    toast.success("Packing Station collegata");
+    onOpenChange(false);
+    onPairStation?.(pairedCode);
+    return true;
+  };
+
   const scan = async (rawCode) => {
     const value = String(rawCode || "").trim();
     if (!value || scanInFlightRef.current) return;
+    if (connectPrintStation(value)) return;
     scanInFlightRef.current = true;
     setCode(value);
     setAction(null);
@@ -122,12 +138,14 @@ export default function UniversalScanner({ open, onOpenChange, clientId, onViewL
 
   const submit = (event) => {
     event.preventDefault();
+    if (connectPrintStation(code)) return;
     if (assignActionCode(code)) return;
     scan(code);
   };
 
   const handleDetected = (value) => {
     setCameraOpen(false);
+    if (connectPrintStation(value)) return;
     if (assignActionCode(value)) return;
     scan(value);
   };
@@ -244,7 +262,7 @@ export default function UniversalScanner({ open, onOpenChange, clientId, onViewL
         <SheetContent side="bottom" className="mx-auto max-h-[88dvh] w-full max-w-3xl overflow-y-auto rounded-t-lg border-0 bg-white p-0">
           <SheetHeader className="border-b border-slate-100 px-5 pb-4 pt-6 text-left">
             <SheetTitle className="flex items-center gap-2 text-xl font-black"><Barcode className="h-5 w-5 text-teal-700" /> Scanner universale</SheetTitle>
-            <SheetDescription>Leggi bag, etichette, slot, pallet, prodotti o carrelli.</SheetDescription>
+            <SheetDescription>Leggi bag, etichette, slot, pallet, prodotti, carrelli o una Packing Station.</SheetDescription>
           </SheetHeader>
 
           <div className="space-y-4 p-5 pb-[max(24px,env(safe-area-inset-bottom))]">

@@ -178,9 +178,9 @@ function App() {
               <Route path="picking-mono/:batchId" element={<WmsAppMassPicking mode="mono" />} />
               <Route path="picking-galluse" element={<WmsAppGalluse />} />
               <Route path="picking-galluse/:batchId" element={<WmsAppGalluse />} />
-              <Route path="packing" element={<Navigate to="/packing-station" replace />} />
-              <Route path="packing/bag/:bagCode" element={<Navigate to="/packing-station" replace />} />
-              <Route path="packing/:orderId" element={<Navigate to="/packing-station" replace />} />
+              <Route path="packing" element={<Navigate to="/wms-app/packing-remoto" replace />} />
+              <Route path="packing/bag/:bagCode" element={<Navigate to="/wms-app/packing-remoto" replace />} />
+              <Route path="packing/:orderId" element={<Navigate to="/wms-app/packing-remoto" replace />} />
               <Route path="bag-storico" element={<WmsAppBagHistory />} />
               <Route path="cerca-prodotto" element={<WmsAppProductSearch />} />
               <Route path="strumenti" element={<WmsAppTools />} />
