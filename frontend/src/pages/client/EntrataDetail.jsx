@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { api, formatApiError } from "@/lib/api";
+import { api, fileUrl, formatApiError } from "@/lib/api";
+import { buildEntryDocumentsNote, parseEntryDocuments } from "@/lib/entryDocuments";
 import { StatusBadge } from "@/components/StatusBadge";
 import ProcessTimeline from "@/components/ProcessTimeline";
 import { FLUSSO_ENTRATA, STATI_ENTRATA } from "@/lib/statuses";
@@ -16,7 +17,7 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Loader2, ArrowLeft, Save, FileText, Truck, Barcode, Plus, Trash2 } from "lucide-react";
+import { Loader2, ArrowLeft, Save, FileText, Truck, Barcode, ExternalLink, Plus, Trash2 } from "lucide-react";
 
 export default function ClientEntrataDetail({ basePath = "/app" }) {
   const { id } = useParams();
@@ -25,10 +26,12 @@ export default function ClientEntrataDetail({ basePath = "/app" }) {
   const [entrata, setEntrata] = useState(null);
   const [form, setForm] = useState({ tipo: "pallet", colli: "1", ddt: "", corriere: "", tracking: "", note: "" });
   const [righe, setRighe] = useState([]);
+  const [documents, setDocuments] = useState([]);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(() => {
     api.get(`/entrate/${id}`).then((r) => {
+      const parsedNote = parseEntryDocuments(r.data.note || "");
       setEntrata(r.data);
       setForm({
         tipo: r.data.tipo || "pallet",
@@ -36,8 +39,9 @@ export default function ClientEntrataDetail({ basePath = "/app" }) {
         ddt: r.data.ddt || "",
         corriere: r.data.corriere || "",
         tracking: r.data.tracking || "",
-        note: r.data.note || "",
+        note: parsedNote.cleanNote,
       });
+      setDocuments(parsedNote.documents);
       setRighe((r.data.righe || []).map((row) => ({
         id: row.id,
         ean: row.ean || "",
@@ -122,7 +126,7 @@ export default function ClientEntrataDetail({ basePath = "/app" }) {
         ddt: optionalText(form.ddt),
         corriere: optionalText(form.corriere),
         tracking: optionalText(form.tracking),
-        note: form.note || "",
+        note: buildEntryDocumentsNote(form.note, documents),
       });
       await Promise.all(valide.map((row) => (
         row.id
@@ -143,6 +147,9 @@ export default function ClientEntrataDetail({ basePath = "/app" }) {
   }
 
   const editable = entrata.stato === "in_attesa";
+  const ddtDocuments = documents.filter((document) => (
+    String(document?.tipo || "").toLowerCase().includes("ddt") && (document.url || document.path)
+  ));
   const timeline = [
     { label: "Annunciata", date: entrata.data_annuncio, done: true, actor: "Cliente" },
     { label: "Ricevuta", date: entrata.data_ricezione, done: entrata.stato !== "in_attesa", current: entrata.stato === "in_attesa", actor: "Prep center" },
@@ -184,6 +191,11 @@ export default function ClientEntrataDetail({ basePath = "/app" }) {
           {entrata.ddt && <span className="inline-flex items-center gap-1"><FileText className="h-3.5 w-3.5" /> DDT: <span className="font-mono">{entrata.ddt}</span></span>}
           {entrata.corriere && <span className="inline-flex items-center gap-1"><Truck className="h-3.5 w-3.5" /> Corriere: <span>{entrata.corriere}</span></span>}
           {entrata.tracking && <span className="inline-flex items-center gap-1"><Truck className="h-3.5 w-3.5" /> Tracking: <span className="font-mono">{entrata.tracking}</span></span>}
+          {ddtDocuments.map((document, index) => (
+            <a key={`${document.path || document.url}-${index}`} href={fileUrl(document.url || document.path)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-teal-700 hover:text-teal-900">
+              <ExternalLink className="h-3.5 w-3.5" /> Foto DDT{ddtDocuments.length > 1 ? ` ${index + 1}` : ""}
+            </a>
+          ))}
         </div>
         <div className="flex items-center gap-1 mt-3 max-w-md">
           {FLUSSO_ENTRATA.map((s, i) => {

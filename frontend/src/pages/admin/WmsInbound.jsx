@@ -12,6 +12,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import InboundDdtPhoto from "@/components/wms/InboundDdtPhoto";
 import { toast } from "sonner";
 import {
   AlertTriangle, ArrowLeft, Barcode, Box, CheckCircle2, CirclePause, Clock3,
@@ -197,6 +198,8 @@ export default function WmsInbound() {
           </div>
         </div>
       </header>
+
+      <InboundDdtPhoto entry={entry} onUploaded={load} />
 
       <section className="border-y border-slate-200 bg-white py-4">
         <div className="grid grid-cols-2 gap-px bg-slate-200 sm:grid-cols-3 xl:grid-cols-5">

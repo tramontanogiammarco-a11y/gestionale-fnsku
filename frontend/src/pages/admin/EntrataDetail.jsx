@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api, fileUrl } from "@/lib/api";
+import { parseEntryDocuments } from "@/lib/entryDocuments";
 import { StatusBadge } from "@/components/StatusBadge";
 import ProcessTimeline from "@/components/ProcessTimeline";
 import { Card } from "@/components/ui/card";
@@ -16,19 +17,6 @@ function azioneErrore(e) {
   if (e?.response?.status === 403)
     return "Azione riservata all'amministratore: esci e rientra come admin.";
   return e?.response?.data?.detail || "Operazione non riuscita. Riprova.";
-}
-
-function parseDocumentiNote(note = "") {
-  const match = String(note || "").match(/\[DOCUMENTI\]([\s\S]*?)\[\/DOCUMENTI\]/);
-  if (!match) return { notePulita: note || "", documenti: [] };
-  let documenti = [];
-  try {
-    const parsed = JSON.parse((match[1] || "").trim());
-    if (Array.isArray(parsed)) documenti = parsed;
-  } catch (_) {
-    documenti = [];
-  }
-  return { notePulita: String(note || "").replace(match[0], "").trim(), documenti };
 }
 
 function cleanText(value) {
@@ -147,7 +135,8 @@ export default function AdminEntrataDetail() {
   if (!entrata)
     return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
 
-  const note = parseDocumentiNote(entrata.note || "");
+  const parsedNote = parseEntryDocuments(entrata.note || "");
+  const note = { notePulita: parsedNote.cleanNote, documenti: parsedNote.documents };
   const entrataTimeline = [
     { label: "Annunciata", date: entrata.data_annuncio, done: true, actor: "Cliente" },
     { label: "Ricevuta", date: entrata.data_ricezione, done: entrata.stato !== "in_attesa", current: entrata.stato === "in_attesa", actor: "Staff" },

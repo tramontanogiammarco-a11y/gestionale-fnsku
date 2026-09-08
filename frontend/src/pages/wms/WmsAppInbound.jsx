@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import CameraScanner from "@/components/wms/CameraScanner";
+import InboundDdtPhoto from "@/components/wms/InboundDdtPhoto";
 import {
   AlertTriangle, ArrowLeft, Barcode, Camera, CheckCircle2, ChevronRight,
   CirclePause, Clock3, Keyboard, Loader2, MapPin, PackageCheck, RotateCcw,
@@ -305,6 +306,8 @@ export default function WmsAppInbound() {
           <Meta label="Tracking" value={entry.tracking || "Non indicato"} wide />
         </div>
       </header>
+
+      <InboundDdtPhoto entry={entry} onUploaded={load} compact />
 
       <section className="rounded-md border border-slate-200 bg-white p-4">
         <div className="flex items-end justify-between gap-3">

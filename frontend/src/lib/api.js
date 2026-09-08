@@ -5,6 +5,7 @@ import { createTimedRequestCache } from "@/lib/timedRequestCache";
 import { calculateWarehouseRoute, normalizeAisles } from "@/lib/wmsRouting";
 import { buildWmsDiagnostics } from "@/lib/wmsDiagnostics";
 import { announceWmsDataChange } from "@/lib/wmsDataEvents";
+import { buildEntryDocumentsNote, parseEntryDocuments } from "@/lib/entryDocuments";
 
 const BUCKET = "gestionale-files";
 const PROFILE_CACHE_MS = 30_000;
@@ -2285,32 +2286,16 @@ async function updateWmsWarehouseMap(payload = {}) {
   return getWmsWarehouseMap();
 }
 
-function parseDocumentiNote(note = "") {
-  const match = String(note || "").match(/\[DOCUMENTI\]([\s\S]*?)\[\/DOCUMENTI\]/);
-  if (!match) return { notePulita: note || "", documenti: [] };
-  let documenti = [];
-  try {
-    const parsed = JSON.parse((match[1] || "").trim());
-    if (Array.isArray(parsed)) documenti = parsed;
-  } catch (_) {
-    documenti = [];
-  }
-  return {
-    documenti,
-    notePulita: String(note || "").replace(match[0], "").trim(),
-  };
-}
-
-function buildDocumentiNote(note, documenti) {
-  const clean = parseDocumentiNote(note).notePulita;
-  const block = `[DOCUMENTI]\n${JSON.stringify(documenti)}\n[/DOCUMENTI]`;
-  return clean ? `${clean}\n\n${block}` : block;
-}
-
 async function uploadEntrataDocumento(id, formData) {
   const file = formData.get("file");
-  const tipo = String(formData.get("tipo") || "documento");
-  if (!file) fail("File mancante");
+  const tipo = String(formData.get("tipo") || "documento").trim().slice(0, 80) || "documento";
+  if (!file || typeof file === "string") fail("File mancante");
+  if (tipo === "Foto DDT") {
+    const imageType = String(file.type || "").toLowerCase();
+    const imageName = /\.(heic|heif|jpe?g|png|webp)$/i.test(file.name || "");
+    if (!imageType.startsWith("image/") && !imageName) fail("Il DDT deve essere caricato come immagine");
+    if (Number(file.size || 0) > 20 * 1024 * 1024) fail("La foto DDT non puo superare 20 MB");
+  }
   const { data: entrata, error: readError } = await requireSupabase()
     .from("entrate")
     .select("id,cliente_id,note")
@@ -2318,16 +2303,28 @@ async function uploadEntrataDocumento(id, formData) {
     .single();
   if (readError || !entrata) fail(readError?.message || "Entrata non trovata");
 
-  const path = `${entrata.cliente_id}/entrate/${id}/documenti/${Date.now()}-${file.name}`;
+  const safeName = String(file.name || "documento")
+    .normalize("NFKD")
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "documento";
+  const path = `${entrata.cliente_id}/entrate/${id}/documenti/${Date.now()}-${safeName}`;
   const { error: uploadError } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: true });
   if (uploadError) fail(uploadError.message);
 
-  const parsed = parseDocumentiNote(entrata.note);
+  const parsed = parseEntryDocuments(entrata.note);
   const nextDocs = [
-    ...parsed.documenti,
-    { tipo, nome: file.name, url: fileUrl(path), path, created_at: nowIso() },
+    ...parsed.documents,
+    {
+      tipo,
+      nome: file.name,
+      url: fileUrl(path),
+      path,
+      content_type: file.type || null,
+      size: Number(file.size || 0),
+      created_at: nowIso(),
+    },
   ];
-  return updateEntrata(id, { note: buildDocumentiNote(entrata.note, nextDocs) });
+  return updateEntrata(id, { note: buildEntryDocumentsNote(entrata.note, nextDocs) });
 }
 
 async function listBox(params) {
