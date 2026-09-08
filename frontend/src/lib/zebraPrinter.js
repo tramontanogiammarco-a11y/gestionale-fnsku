@@ -1,8 +1,11 @@
 const ZEBRA_TIMEOUT_MS = 3500;
 
 function zebraServiceUrl(path) {
-  const securePage = typeof window !== "undefined" && window.location.protocol === "https:";
-  return `${securePage ? "https" : "http"}://localhost:${securePage ? 9101 : 9100}/${String(path || "").replace(/^\//, "")}`;
+  const userAgent = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  const safari = /safari/i.test(userAgent) && !/(chrome|chromium|crios|edg|android)/i.test(userAgent);
+  const safariOnSecurePage = safari && typeof window !== "undefined" && window.location.protocol === "https:";
+  const origin = safariOnSecurePage ? "https://127.0.0.1:9101" : "http://127.0.0.1:9100";
+  return `${origin}/${String(path || "").replace(/^\//, "")}`;
 }
 
 async function zebraFetch(path, options = {}) {
