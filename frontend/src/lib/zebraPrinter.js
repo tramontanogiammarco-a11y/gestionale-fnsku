@@ -1,3 +1,5 @@
+import { formatEcommerceOrderReference } from "./orderReference";
+
 const ZEBRA_TIMEOUT_MS = 3500;
 
 function zebraServiceUrl(path) {
@@ -34,7 +36,7 @@ export async function getDefaultZebraPrinter() {
 export async function printZebraPackingLabels(labels = []) {
   if (!labels.length) throw new Error("Nessuna etichetta da stampare");
   const printer = await getDefaultZebraPrinter();
-  const data = labels.map(packingLabelZpl).join("\n");
+  const data = labels.map(buildZebraPackingLabel).join("\n");
   await zebraFetch("/write", {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=UTF-8" },
@@ -87,7 +89,7 @@ function zebraDevicePayload(printer) {
   return payload;
 }
 
-function packingLabelZpl(label) {
+export function buildZebraPackingLabel(label) {
   const carrier = String(label.carrier || label.selected_carrier || "gls").trim().toLowerCase();
   return carrier === "brt" ? brtPackingLabelZpl(label) : glsPackingLabelZpl(label);
 }
@@ -95,6 +97,7 @@ function packingLabelZpl(label) {
 function packingLabelData(label) {
   const code = zplText(label.code || "PK-NON-DISPONIBILE");
   const order = zplText(label.order_name || "ORDINE");
+  const ecommerceReference = zplText(formatEcommerceOrderReference(label));
   const recipient = zplText(label.recipient_name || label.ship_name || "DESTINATARIO");
   const company = zplText(label.recipient_company || label.ship_company || "");
   const address1 = zplText(label.address1 || label.ship_address1 || "INDIRIZZO NON DISPONIBILE");
@@ -104,7 +107,7 @@ function packingLabelData(label) {
   const province = zplText(label.province || label.ship_province || "");
   const country = zplText(label.country || label.ship_country || "ITALIA");
   const weight = Math.max(0.1, Number(label.weight || label.shipping_billable_weight || 1)).toFixed(1);
-  return { code, order, recipient, company, address1, address2, zip, city, province, country, weight };
+  return { code, order, ecommerceReference, recipient, company, address1, address2, zip, city, province, country, weight };
 }
 
 function brtPackingLabelZpl(label) {
@@ -119,6 +122,7 @@ function brtPackingLabelZpl(label) {
     "^LL1218",
     "^LH0,0",
     "^FO20,18^GB772,1180,3^FS",
+    `^FO39,220^A0R,16,16^FDRESI ${data.ecommerceReference}^FS`,
     `^FO42,35^GB185,120,3^FS^FO62,49^A0N,78,78^FD${route.slice(0, 3)}^FS`,
     `^FO248,35^GB125,120,3^FS^FO275,49^A0N,78,78^FD${route.slice(3, 5)}^FS`,
     "^FO394,35^GB120,120,3^FS^FO428,49^A0N,78,78^FD15^FS",
@@ -154,6 +158,7 @@ function glsPackingLabelZpl(label) {
   return [
     "^XA", "^MMT", "^MNY", "^LT0", "^PW812", "^LL1218", "^LH0,0",
     "^FO20,18^GB772,1180,3^FS",
+    `^FO39,220^A0R,16,16^FDRESI ${data.ecommerceReference}^FS`,
     "^FO42,38^A0N,22,22^FDAIMAGO LOGISTICS^FS",
     `^FO42,74^A0N,19,19^FDORD ${data.order}   KG ${data.weight}^FS`,
     "^FO42,112^GB728,3,3^FS",

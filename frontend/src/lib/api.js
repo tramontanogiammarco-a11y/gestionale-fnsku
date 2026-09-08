@@ -7,6 +7,7 @@ import { buildWmsDiagnostics } from "@/lib/wmsDiagnostics";
 import { announceWmsDataChange } from "@/lib/wmsDataEvents";
 import { buildEntryDocumentsNote, parseEntryDocuments } from "@/lib/entryDocuments";
 import { storageObjectPath } from "@/lib/storagePaths";
+import { formatEcommerceOrderReference } from "@/lib/orderReference";
 
 const BUCKET = "gestionale-files";
 const PROFILE_CACHE_MS = 30_000;
@@ -8088,6 +8089,7 @@ async function packingStationSnapshot(bagCode) {
     .map((session) => ({
       session_id: session.id,
       order_name: session.order?.order_name || session.order_id,
+      shop_domain: session.order?.shop_domain || null,
       code: session.carrier_label_code,
       carrier: session.order?.selected_carrier || "gls",
       recipient_name: session.order?.ship_name,
@@ -8457,7 +8459,8 @@ async function wmsPackingCarrierLabelsPdf(bagCode) {
     .filter((session) => session.carrier_label_code)
     .map((session) => ({
       fnsku: session.carrier_label_code,
-      titolo: `Etichetta corriere ${session.order?.order_name || "ordine"}`,
+      titolo: `Resi ${formatEcommerceOrderReference(session.order)}`,
+      side_reference: formatEcommerceOrderReference(session.order),
       copie: 1,
     }));
   if (!items.length) fail("Riscansiona prima la bag per generare le etichette");
@@ -9830,15 +9833,17 @@ function barcodeOps(fnsku, x, y, width, height) {
   return ops.join("\n");
 }
 
-function labelContent({ fnsku, titolo }, widthPt, heightPt, showTitle) {
+function labelContent({ fnsku, titolo, side_reference: sideReference }, widthPt, heightPt, showTitle) {
   const margin = Math.max(5, Math.min(widthPt, heightPt) * 0.08);
   const title = pdfEscape(titolo || "");
   const code = pdfEscape(fnsku);
+  const side = pdfEscape(sideReference || "");
+  const sideGutter = side ? Math.max(10, widthPt * 0.045) : 0;
   const titleSize = Math.max(5, Math.min(8, heightPt * 0.11));
   const codeSize = Math.max(7, Math.min(11, heightPt * 0.16));
   const barcodeHeight = Math.max(18, heightPt * (showTitle && title ? 0.42 : 0.5));
   const barcodeY = margin + codeSize + 4;
-  const barcodeWidth = widthPt - margin * 2;
+  const barcodeWidth = widthPt - margin * 2 - sideGutter;
   const barcodeX = margin;
   const titleY = Math.min(heightPt - margin - titleSize, barcodeY + barcodeHeight + titleSize + 3);
 
@@ -9859,6 +9864,16 @@ function labelContent({ fnsku, titolo }, widthPt, heightPt, showTitle) {
       `/F1 ${titleSize.toFixed(2)} Tf`,
       `${margin.toFixed(2)} ${titleY.toFixed(2)} Td`,
       `(${compactTitle}) Tj`,
+      "ET"
+    );
+  }
+
+  if (side) {
+    ops.push(
+      "BT",
+      "/F2 7 Tf",
+      `0 1 -1 0 ${(widthPt - 5).toFixed(2)} ${margin.toFixed(2)} Tm`,
+      `(RESI ${side}) Tj`,
       "ET"
     );
   }
