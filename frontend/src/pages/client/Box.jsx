@@ -10,7 +10,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Loader2, Upload, FileText, CheckCircle2, Layers, ChevronDown, PackageCheck, CalendarDays } from "lucide-react";
+import { Loader2, Upload, FileText, CheckCircle2, Layers, ChevronDown, PackageCheck, CalendarDays, Trash2 } from "lucide-react";
 
 function sharedLabelUrl(box) {
   return box?.etichetta_amazon_pdf_url && box.etichetta_amazon_pdf_url === box.etichetta_ups_pdf_url
@@ -418,6 +418,7 @@ function ShipmentGroup({ group, titoli, onDone, selected, toggleBox, sharedPdfCo
 function BoxItem({ box, titoli, onDone, selected, onToggle, selectable, sharedCount }) {
   const labelsRef = useRef();
   const [uploading, setUploading] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   const upload = async (file) => {
     setUploading("etichette");
@@ -429,6 +430,25 @@ function BoxItem({ box, titoli, onDone, selected, onToggle, selectable, sharedCo
     } catch (e) {
       toast.error("Errore nel caricamento");
     } finally { setUploading(null); }
+  };
+
+  const removeLabels = async () => {
+    const groupMessage = sharedCount > 1
+      ? `Il PDF verra rimosso da tutte le ${sharedCount} box del gruppo.`
+      : "Potrai caricare subito il PDF corretto.";
+    if (!window.confirm(`Eliminare le etichette Amazon e UPS di ${box.numero_box}?\n\n${groupMessage}`)) return;
+    setDeleting(true);
+    try {
+      const { data } = await api.delete(`/box/${box.id}/etichette`);
+      const count = Number(data?.affected_count || 1);
+      toast.success(count > 1 ? `PDF rimosso da ${count} box` : "PDF etichette eliminato");
+      if (data?.cleanup_warning) toast.warning("Etichette scollegate; pulizia del file da verificare");
+      await onDone();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Impossibile eliminare le etichette");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const puoCaricare = box.stato === "pronto" || box.stato === "in_preparazione";
@@ -453,12 +473,32 @@ function BoxItem({ box, titoli, onDone, selected, onToggle, selectable, sharedCo
       <div className="mt-4">
         <input ref={labelsRef} type="file" accept="application/pdf" className="hidden"
                data-testid={`cbox-labels-input-${box.id}`}
-               onChange={(e) => e.target.files[0] && upload(e.target.files[0])} />
+               onChange={(e) => {
+                 const file = e.target.files?.[0];
+                 e.target.value = "";
+                 if (file) upload(file);
+               }} />
         {box.etichetta_amazon_pdf_url || box.etichetta_ups_pdf_url ? (
-          <a href={fileUrl(box.etichetta_amazon_pdf_url || box.etichetta_ups_pdf_url)} target="_blank" rel="noreferrer"
-             className="flex items-center gap-1 text-xs text-emerald-600" data-testid={`cbox-labels-done-${box.id}`}>
-            <CheckCircle2 className="h-4 w-4" /> {sharedCount > 1 ? `PDF gruppo (${sharedCount} box)` : "PDF etichette caricato"}
-          </a>
+          <div className="flex items-center justify-between gap-2">
+            <a href={fileUrl(box.etichetta_amazon_pdf_url || box.etichetta_ups_pdf_url)} target="_blank" rel="noreferrer"
+               className="flex min-w-0 items-center gap-1 text-xs text-emerald-600" data-testid={`cbox-labels-done-${box.id}`}>
+              <CheckCircle2 className="h-4 w-4 shrink-0" /> {sharedCount > 1 ? `PDF gruppo (${sharedCount} box)` : "PDF etichette caricato"}
+            </a>
+            {box.stato !== "spedito" && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="shrink-0 text-destructive hover:text-destructive"
+                disabled={deleting}
+                onClick={removeLabels}
+                data-testid={`cbox-labels-delete-${box.id}`}
+              >
+                {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                <span className="ml-1">Elimina</span>
+              </Button>
+            )}
+          </div>
         ) : (
           <Button variant="outline" size="sm" className="w-full" disabled={!puoCaricare || uploading === "etichette"}
                   onClick={() => labelsRef.current.click()} data-testid={`cbox-labels-btn-${box.id}`}>

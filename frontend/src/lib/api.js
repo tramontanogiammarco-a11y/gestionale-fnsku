@@ -6,6 +6,7 @@ import { calculateWarehouseRoute, normalizeAisles } from "@/lib/wmsRouting";
 import { buildWmsDiagnostics } from "@/lib/wmsDiagnostics";
 import { announceWmsDataChange } from "@/lib/wmsDataEvents";
 import { buildEntryDocumentsNote, parseEntryDocuments } from "@/lib/entryDocuments";
+import { storageObjectPath } from "@/lib/storagePaths";
 
 const BUCKET = "gestionale-files";
 const PROFILE_CACHE_MS = 30_000;
@@ -2620,6 +2621,64 @@ async function uploadBoxLabelsGroup(formData) {
     box_ids: boxIds,
     box_numeri: sortedBoxes.map((box) => box.numero_box),
     aggiornate: data?.length || 0,
+  });
+}
+
+async function deleteBoxLabels(id) {
+  const sb = requireSupabase();
+  const { data: box, error: boxError } = await sb
+    .from("box")
+    .select("id,cliente_id,stato,etichetta_amazon_pdf_url,etichetta_ups_pdf_url")
+    .eq("id", id)
+    .single();
+  if (boxError || !box) fail(boxError?.message || "Box non trovato", 404);
+  if (box.stato === "spedito") fail("Le etichette di un box spedito non possono essere eliminate", 409);
+
+  const removedUrls = [...new Set([
+    box.etichetta_amazon_pdf_url,
+    box.etichetta_ups_pdf_url,
+  ].filter(Boolean))];
+  if (!removedUrls.length) return ok({ ok: true, affected_count: 0, cleanup_warning: null });
+
+  const { data: clientBoxes, error: listError } = await sb
+    .from("box")
+    .select("id,stato,etichetta_amazon_pdf_url,etichetta_ups_pdf_url")
+    .eq("cliente_id", box.cliente_id);
+  if (listError) fail(listError.message);
+
+  const affected = (clientBoxes || []).filter((candidate) => (
+    removedUrls.includes(candidate.etichetta_amazon_pdf_url)
+    || removedUrls.includes(candidate.etichetta_ups_pdf_url)
+  ));
+  if (affected.some((candidate) => candidate.stato === "spedito")) {
+    fail("Il PDF e collegato a una box gia spedita e non puo essere eliminato", 409);
+  }
+
+  const affectedIds = affected.map((candidate) => candidate.id);
+  const { data: updated, error: updateError } = await sb
+    .from("box")
+    .update({ etichetta_amazon_pdf_url: null, etichetta_ups_pdf_url: null })
+    .in("id", affectedIds)
+    .neq("stato", "spedito")
+    .select("id");
+  if (updateError) fail(updateError.message);
+  if ((updated || []).length !== affectedIds.length) {
+    fail("Una box del gruppo e stata spedita durante l'operazione: aggiorna la pagina", 409);
+  }
+
+  const paths = [...new Set(removedUrls
+    .map((url) => storageObjectPath(url, BUCKET))
+    .filter(Boolean))];
+  let cleanupWarning = null;
+  if (paths.length) {
+    const { error: storageError } = await supabase.storage.from(BUCKET).remove(paths);
+    if (storageError) cleanupWarning = storageError.message;
+  }
+
+  return ok({
+    ok: true,
+    affected_count: affectedIds.length,
+    cleanup_warning: cleanupWarning,
   });
 }
 
@@ -10111,6 +10170,7 @@ const apiAdapter = {
     }
     if (path.match(/^\/entrate\/[^/]+$/)) return deleteEntrata(path.split("/")[2]);
     if (path.match(/^\/entrate-righe\/[^/]+$/)) return deleteEntrataRiga(path.split("/")[2]);
+    if (path.match(/^\/box\/[^/]+\/etichette$/)) return deleteBoxLabels(path.split("/")[2]);
     if (path.match(/^\/box\/[^/]+$/)) return deleteBox(path.split("/")[2]);
     if (path.match(/^\/preparazioni\/[^/]+$/)) return deletePreparazione(path.split("/")[2]);
     if (path.match(/^\/preparazioni-righe\/[^/]+$/)) return deletePreparazioneRiga(path.split("/")[2]);
